@@ -1,0 +1,14 @@
+[Unit]
+Description=Codex quota reset tracker
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/tuanpham/selfstudy-linux/codex-reset-tracker
+EnvironmentFile=-/home/tuanpham/selfstudy-linux/codex-reset-tracker/.env
+ExecStart=/home/tuanpham/selfstudy-linux/codex-reset-tracker/.venv/bin/python -m codex_reset_tracker run --config config.json
+Restart=on-failure
+RestartSec=20
+
+[Install]
+WantedBy=default.target

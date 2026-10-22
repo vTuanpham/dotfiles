@@ -1,0 +1,33 @@
+[project]
+name = "agent-baton"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+agent-baton = "agent_baton.cli:main"
+
+[tool.setuptools.package-data]
+agent_baton = ["guide.md"]  # the help text shown by `agent-baton --help`
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/agent_baton/serve.py" = ["E501"]  # the embedded page and its CSS
+"src/agent_baton/notify.py" = ["E501"]  # the embedded PowerShell
+"src/agent_baton/inject.py" = ["E501"]  # the embedded PowerShell and C#

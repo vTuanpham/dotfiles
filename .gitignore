@@ -1,0 +1,30 @@
+# Private credentials and machine-local secret includes.
+*.secrets.local.sh
+secrets.local.sh
+.env
+.env.*
+auth.json
+.credentials.json
+.git-credentials
+.netrc
+*.pem
+*.key
+
+# Generated state, caches, temporary files and backups.
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+/shell/.zcompdump*
+node_modules/
+*.log
+*.bak
+*.backup
+*.before-*
+*~
+
+# Codex regenerates this catalog from the server and tracked overrides.
+codex/.codex/model-catalogs/gpt-6-models.json
+codex/.codex/model-catalogs/.fetch-home/
+codex/.codex/model-catalogs/refresh.err
+codex/.codex/model-catalogs/.catalog.*

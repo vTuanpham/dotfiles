@@ -1,0 +1,12 @@
+[Unit]
+Description=Check the agent-bridge model reference and, weekly, propose a refresh
+After=network-online.target
+
+[Service]
+Type=oneshot
+# stale exits 1 when something is out of date; that is its answer, not a failure
+ExecStart=-%h/.local/bin/agent-bridge stale
+# refresh runs a sandboxed worker at most once a week and only writes a proposal for the user to confirm
+ExecStart=%h/.local/bin/agent-bridge refresh
+TimeoutStartSec=3000
+Nice=10

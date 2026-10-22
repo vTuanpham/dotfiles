@@ -1,0 +1,7 @@
+[user]
+	email = vTuanpham@users.noreply.github.com
+	name = vTuanpham
+[safe]
+	directory = *
+[credential]
+	helper = store

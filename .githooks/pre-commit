@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuse to commit anything that is not public-facing: secrets, personal names, machine-local state.
+# Enabled by `git config core.hooksPath .githooks` (install.sh does it). See AGENTS.md.
+exec python3 -B "$(git rev-parse --show-toplevel)/tests/check_public.py" --staged

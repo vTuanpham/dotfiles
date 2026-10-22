@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="350" viewBox="0 0 1040 350" role="img" aria-labelledby="title desc">
+  <title id="title">Tools around an agent session</title>
+  <desc id="desc">Baton carries human questions and replies. Bridge carries briefs, steering and results between a root and its workers. Wake observes the session and its workers in Claude Code. Shared instructions apply across harnesses.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse"><path d="M0 0L7 3.5L0 7" fill="none" stroke="#737f7c" stroke-width="1.2"/></marker>
+  </defs>
+  <rect width="1040" height="350" fill="#faf9f6"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#263733">
+    <text x="36" y="38" font-size="11" letter-spacing="2.4" fill="#68766f">AGENT TOOLS</text>
+    <text x="36" y="76" font-family="Georgia, serif" font-size="30">Tools around the session</text>
+    <text x="36" y="154" font-size="23" font-weight="700">You</text>
+    <text x="36" y="179" font-size="14" fill="#68766f">PC or phone</text>
+    <text x="436" y="154" font-size="23" font-weight="700">Root agent</text>
+    <text x="436" y="179" font-size="14" fill="#68766f">Coordinates the work</text>
+    <text x="859" y="154" font-size="23" font-weight="700">Workers</text>
+    <text x="859" y="179" font-size="14" fill="#68766f">Other harnesses</text>
+    <path d="M151 147H397" fill="none" stroke="#737f7c" stroke-width="1.4" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <path d="M591 147H819" fill="none" stroke="#737f7c" stroke-width="1.4" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="274" y="129" text-anchor="middle" font-size="18" fill="#a35e43">Baton</text>
+    <text x="274" y="175" text-anchor="middle" font-size="13" fill="#68766f">questions · replies</text>
+    <text x="705" y="129" text-anchor="middle" font-size="18" fill="#23786f">Bridge</text>
+    <text x="705" y="175" text-anchor="middle" font-size="13" fill="#68766f">brief · steer · result</text>
+    <path d="M505 195V228H715M905 195V228H715" fill="none" stroke="#a4ada7" stroke-width="1.3" stroke-dasharray="3 5"/>
+    <path d="M715 228V247" fill="none" stroke="#737f7c" stroke-width="1.3" marker-end="url(#arrow)"/>
+    <text x="715" y="274" text-anchor="middle" font-size="20" fill="#65598a">Wake</text>
+    <text x="715" y="296" text-anchor="middle" font-size="13" fill="#68766f">Scene, crew and quota · Claude Code</text>
+    <path d="M36 219H302" stroke="#d3d8d1"/>
+    <text x="36" y="249" font-size="14" font-weight="700">Shared instructions &amp; skills</text>
+    <text x="36" y="272" font-size="13" fill="#68766f">Linked into every harness.</text>
+    <text x="36" y="322" font-size="11" letter-spacing="1.1" fill="#68766f">BATON + BRIDGE WORK ACROSS HARNESSES</text>
+  </g>
+</svg>

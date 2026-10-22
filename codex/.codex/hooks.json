@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rtk hook claude"
+          },
+          {
+            "type": "command",
+            "command": "agent-baton guard",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.*([Bb]rowser|[Cc]hrome|[Cc]omputer|[Pp]laywright|[Pp]uppeteer|cua|[Dd]evtools)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-baton guard",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

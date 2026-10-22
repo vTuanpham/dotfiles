@@ -1,0 +1,1 @@
+{ "name": "wake", "version": "0.1.0", "description": "A pane that changes with the session: away recap, live plan, needs-you, judgment calls, Codex jobs, tidy-up, and a small companion.", "types": "./types/index.d.ts" }

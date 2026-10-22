@@ -1,0 +1,95 @@
+font-family = SauceCodePro NFP SemiBold
+font-size = 12
+working-directory = /home/tuanpham
+window-inherit-working-directory = false
+alpha-blending = linear
+# Match Windows Terminal: copy a selection, otherwise pass Ctrl+C to the app.
+keybind = performable:ctrl+c=copy_to_clipboard:plain
+keybind = ctrl+v=paste_from_clipboard
+keybind = performable:ctrl+shift+c=copy_to_clipboard:plain
+keybind = performable:ctrl+insert=copy_to_clipboard:plain
+selection-clear-on-copy = true
+right-click-action = copy-or-paste
+
+# Windows Terminal shortcuts; reload remains available in the command palette.
+keybind = ctrl+shift+w=close_surface
+keybind = alt+left=goto_split:left
+keybind = alt+right=goto_split:right
+keybind = alt+up=goto_split:up
+keybind = alt+down=goto_split:down
+keybind = alt+shift+left=resize_split:left,10
+keybind = alt+shift+right=resize_split:right,10
+keybind = alt+shift+up=resize_split:up,10
+keybind = alt+shift+down=resize_split:down,10
+keybind = ctrl+shift+page_up=scroll_page_up
+keybind = ctrl+shift+page_down=scroll_page_down
+keybind = ctrl+shift+,=open_config
+
+# Remove both physical and translated Alt+number bindings before moving them.
+keybind = alt+digit_1=unbind
+keybind = alt+1=unbind
+keybind = ctrl+alt+1=goto_tab:1
+keybind = alt+digit_2=unbind
+keybind = alt+2=unbind
+keybind = ctrl+alt+2=goto_tab:2
+keybind = alt+digit_3=unbind
+keybind = alt+3=unbind
+keybind = ctrl+alt+3=goto_tab:3
+keybind = alt+digit_4=unbind
+keybind = alt+4=unbind
+keybind = ctrl+alt+4=goto_tab:4
+keybind = alt+digit_5=unbind
+keybind = alt+5=unbind
+keybind = ctrl+alt+5=goto_tab:5
+keybind = alt+digit_6=unbind
+keybind = alt+6=unbind
+keybind = ctrl+alt+6=goto_tab:6
+keybind = alt+digit_7=unbind
+keybind = alt+7=unbind
+keybind = ctrl+alt+7=goto_tab:7
+keybind = alt+digit_8=unbind
+keybind = alt+8=unbind
+keybind = ctrl+alt+8=goto_tab:8
+keybind = alt+digit_9=unbind
+keybind = alt+9=unbind
+keybind = ctrl+alt+9=last_tab
+
+# Let applications handle modified Enter through their negotiated input protocol.
+keybind = ctrl+enter=unbind
+keybind = ctrl+shift+enter=unbind
+# This Windows build emits physical and translated events for these Alt chords.
+# Send the Escape chord from the physical event, then suppress duplicate text.
+# Physical bindings take precedence; ignoring them alone breaks enhanced-input apps.
+# Scoped to this portable Ghost config; Alt+V verified in Codex, others by byte capture.
+# shortcut: remove these bindings when Ghost's Windows input handling is fixed.
+keybind = alt+key_b=esc:b
+keybind = alt+b=ignore
+keybind = alt+shift+key_b=esc:B
+keybind = alt+shift+b=ignore
+keybind = alt+key_f=esc:f
+keybind = alt+f=ignore
+keybind = alt+key_v=esc:v
+keybind = alt+v=ignore
+keybind = alt+period=esc:.
+keybind = alt+.=ignore
+keybind = ctrl+alt+o=toggle_background_opacity
+keybind = alt+shift+d=new_split:auto
+
+background = #282c34
+foreground = #dcdfe4
+palette = 0=#282c34
+palette = 1=#e06c75
+palette = 2=#98c379
+palette = 3=#e5c07b
+palette = 4=#61afef
+palette = 5=#c678dd
+palette = 6=#56b6c2
+palette = 7=#dcdfe4
+palette = 8=#5a6374
+palette = 9=#e06c75
+palette = 10=#98c379
+palette = 11=#e5c07b
+palette = 12=#61afef
+palette = 13=#c678dd
+palette = 14=#56b6c2
+palette = 15=#dcdfe4

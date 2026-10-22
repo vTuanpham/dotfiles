@@ -1,0 +1,24 @@
+{
+  "title": "Review choices",
+  "reason": "Choose the scope and checks before continuing.",
+  "questions": [
+    {
+      "id": "scope",
+      "question": "Where should this change apply?",
+      "type": "choice",
+      "options": ["This project", "Shared configuration"]
+    },
+    {
+      "id": "platforms",
+      "question": "Which platforms should I check?",
+      "type": "multiple",
+      "options": ["Linux / WSL", "Windows"]
+    },
+    {
+      "id": "notes",
+      "question": "Any other constraints?",
+      "type": "text",
+      "required": false
+    }
+  ]
+}

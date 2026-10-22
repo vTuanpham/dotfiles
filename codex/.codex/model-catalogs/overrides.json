@@ -1,0 +1,6 @@
+{
+  "gpt-6-luna": {
+    "context_window": 1000000,
+    "max_context_window": 1050000
+  }
+}

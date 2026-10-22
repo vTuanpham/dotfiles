@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>dotfiles hero</title>
+<!-- Base of images/hero.gif (readme_gifs.py draws the animated strips over the black band):
+     google-chrome --headless --screenshot --window-size=1200,770 --force-device-scale-factor=1 -->
+<style>
+  :root { --bg: #1b1b26; --ink: #eceaf4; --mute: #a3a1b5; --line: #34344a; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 770px; background: var(--bg); color: var(--ink);
+    font-family: "Inter", "Segoe UI", "DejaVu Sans", system-ui, sans-serif; overflow: hidden; position: relative; }
+  .head { position: absolute; left: 60px; top: 54px; }
+  .eyebrow { font-size: 13px; letter-spacing: .22em; color: var(--mute); text-transform: uppercase; }
+  h1 { font-size: 64px; letter-spacing: -.02em; font-weight: 700; margin: 10px 0 8px; }
+  h1 span { color: #a99bd6; }
+  .tag { font-size: 21px; color: var(--mute); max-width: 860px; line-height: 1.4; }
+  .band { position: absolute; left: 0; top: 250px; width: 1200px; height: 384px; background: #000; }
+  .cards { position: absolute; left: 0; top: 634px; width: 1200px; padding: 28px 60px 0; display: grid;
+    grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 15px; background: #222232; }
+  .card b { display: block; font-size: 18px; margin-bottom: 5px; }
+  .card i { font-style: normal; font-size: 14px; line-height: 1.4; color: var(--mute); }
+  .wake b { color: #a99bd6; } .bridge b { color: #5cc4b4; } .baton b { color: #e8876b; } .install b { color: #dcb870; }
+</style>
+<div class="head">
+  <div class="eyebrow">WSL2 &middot; Claude Code &middot; Codex &middot; Antigravity &middot; OpenCode</div>
+  <h1>dotfiles<span>.</span></h1>
+  <p class="tag">A workspace where AI agents work together, hand off to you when it matters, and a small town grows above your prompt.</p>
+</div>
+<div class="band"></div>
+<div class="cards">
+  <div class="card wake"><b>Wake</b><i>A living town above the Claude Code prompt</i></div>
+  <div class="card bridge"><b>Bridge</b><i>Delegate across Codex, agy, Claude and OpenCode</i></div>
+  <div class="card baton"><b>Baton</b><i>Hand logins and secrets to a human, privately</i></div>
+  <div class="card install"><b>install.sh</b><i>Dry-run first; never overwrites your files</i></div>
+</div>

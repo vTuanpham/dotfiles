@@ -1,0 +1,3 @@
+{"type":"text","sessionID":"ses_fixture","part":{"id":"prt_text","type":"text","text":"A short reply"}}
+{"type":"tool_use","sessionID":"ses_fixture","part":{"partID":"prt_tool","type":"tool","tool":"shell","state":{"status":"completed","input":{"command":"echo inside"},"output":"inside\n","title":"shell"}}}
+{"type":"step_finish","sessionID":"ses_fixture","part":{"id":"prt_finish","type":"step-finish","reason":"stop","cost":0,"tokens":{"input":12,"output":4,"reasoning":0,"cache":{"read":0,"write":0}}}}

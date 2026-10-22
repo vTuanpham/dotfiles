@@ -1,0 +1,51 @@
+model = "gpt-6.1-sol"
+# Keep per-model context in the catalog; do not add a global model_context_window override.
+# The catalog is generated (live server catalog + overrides.json); see model-catalogs/README.md.
+model_catalog_json = "/home/tuanpham/.codex/model-catalogs/gpt-6-models.json"
+personality = "pragmatic"
+approvals_reviewer = "auto_review"
+plan_mode_reasoning_effort = "max"
+
+model_reasoning_effort = "high"
+# Machine-local state is not tracked here: trusted projects, hook trust hashes and UI hints.
+# Codex asks again for each on a new machine.
+
+[agents]
+max_concurrent_threads_per_session = 10
+default_subagent_model = "gpt-6-luna"
+default_subagent_reasoning_effort = "max"
+
+[plugins."github@openai-curated"]
+enabled = true
+
+[plugins."ponytail@ponytail"]
+enabled = true
+
+[features]
+external_migration = true
+prevent_idle_sleep = true
+terminal_resize_reflow = true
+goals = true
+
+[notice]
+hide_full_access_warning = true
+fast_default_opt_out = true
+hide_rate_limit_model_nudge = true
+
+[notice.model_migrations]
+"gpt-5.3-codex" = "gpt-5.4"
+
+[tui]
+status_line = ["model-with-reasoning", "current-dir", "model", "reasoning", "approval-mode", "context-remaining", "five-hour-limit", "weekly-limit", "total-input-tokens", "total-output-tokens", "fast-mode", "task-progress", "codex-version"]
+status_line_use_colors = true
+pet = "codex"
+theme = "base16-eighties-dark"
+screen_reader_detection_done = true
+
+[memories]
+use_memories = true
+generate_memories = true
+
+[marketplaces.ponytail]
+source_type = "git"
+source = "https://github.com/DietrichGebert/ponytail.git"
