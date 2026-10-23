@@ -13,3 +13,7 @@
 
 Plugins are installed by Neovim on first start. Image previews rely on `ImageMagick`, `ffmpeg` and `pdftoppm`.
 The dashboard greeting is in `lua/plugins/dashboard.lua`.
+
+The WSL clipboard provider uses Windows PowerShell with explicit UTF-8 pipes for Unicode copy/paste.
+Check it with `nvim --headless -u NONE -i NONE -l tests/test_nvim_clipboard.lua` from the repository root;
+the check shadows Windows clipboard cmdlets, leaving the real clipboard untouched.

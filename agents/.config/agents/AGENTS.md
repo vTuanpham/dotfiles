@@ -1,8 +1,14 @@
-Shell commands go through `rtk`, which filters output to save tokens/cost. A
-hook rewrites commands to `rtk <command>` where the harness has one; otherwise
-prefix `rtk` yourself. Output may be filtered or truncated: use
-`rtk proxy <command>` only when raw output is explicitly required; it bypasses
-filtering and saves nothing. `rtk --help` if unsure what RTK does.
+Shell commands go through `rtk` to reduce model input tokens and cost by filtering
+output before it reaches the context. A hook rewrites commands where the harness
+has one; otherwise choose the appropriate RTK command yourself. Prefer its
+command-specific filters; use `rtk summary`, `rtk err`, or `rtk test` for other
+commands as appropriate, and bound reads/searches to the relevant content.
+`rtk proxy` bypasses filtering: large raw outputs use far more input tokens and
+cost more, defeating RTK's purpose. Do not use it as the default for unfamiliar
+commands. Reserve it for necessary exact output, such as protocol data or
+instructions that must be read in full. Filtering can elide information; recover
+the needed part with `rtk recall` or a focused read rather than a broad raw dump.
+Check `rtk --help` when unsure which filter fits.
 Prefer harness tools when they cover task; shell/manual fallback. Edit and
 create files with the harness edit/write/patch tool, never Python, sed, or
 heredoc scripts; shell is for reading, searching, and running commands.
@@ -56,11 +62,9 @@ heredoc scripts; shell is for reading, searching, and running commands.
   promise timed escalation while the agent is blocked or suspended.
 - Run tests for affected areas. The root agent decides if a full suite is warranted; prefer targeted tests when they provide enough coverage, especially if the full suite is costly. Subagents test only the areas they change.
 - Skip a commit hook only when the commit cannot affect what it checks; run all relevant hooks.
-- A reported bug is one sample of a class. Before fixing, name the class in
-  one line (e.g. limit sized for an old scale, failure swallowed without a
-  log, UI blanks a value it could estimate), search for siblings of the same
-  pattern, and fix or report them in the same round; put the class in
-  reviewer/fixer briefs.
+- When a bug may be a recurring pattern, name the failure class before fixing,
+  sweep the affected area for siblings, and fix or report them in the same
+  round. Include the class in reviewer/fixer briefs.
 - Verify proportional to risk; expand for shared behavior, critical data,
   concurrency, or recovery. Docs-only edits need link, consistency, and diff
   checks. Do not add mirror tests or unrelated tooling.
@@ -95,6 +99,9 @@ heredoc scripts; shell is for reading, searching, and running commands.
 - Same-harness workers: your native subagents. Other harnesses (Codex, agy,
   Claude): load the `agent-bridge` skill first; it owns routing, launch,
   watch and cleanup.
+- A thread can resume with a different model in the same harness, including
+  across model families. Prefer retaining it when its task context remains
+  useful; a model switch alone is not a reason to start a new thread.
 - Root nearly out of quota (user says so, or your harness shows it): delegating
   to other harnesses is pre-authorized. Spend their quota instead of yours:
   hand implementation, sweeps and reviews to workers, and keep your own turns

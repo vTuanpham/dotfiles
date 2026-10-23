@@ -37,7 +37,7 @@ def wsl_path(value):
     if not PureWindowsPath(value).is_absolute():
         raise ValueError("Expected an absolute Windows path")
     return Path(subprocess.check_output(
-        ["wslpath", "-u", value], stdin=subprocess.DEVNULL, text=True,
+        ["wslpath", "-u", value], stdin=subprocess.DEVNULL, encoding="utf-8",
     ).strip())
 
 
@@ -88,6 +88,7 @@ def discover():
     # The app owns the versioned paths; the registry owns native-host discovery.
     command = (
         "$ErrorActionPreference='Stop'; "
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
         "@{home=[Environment]::GetFolderPath('UserProfile'); "
         "manifest=(Get-Item 'HKCU:/Software/Google/Chrome/NativeMessagingHosts/"
         + HOST + "').GetValue('')} | ConvertTo-Json -Compress"
@@ -95,7 +96,7 @@ def discover():
     result = json.loads(subprocess.check_output(
         ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
         # A Windows discovery process must not drain the caller's framed stdio.
-        stdin=subprocess.DEVNULL, text=True, timeout=20,
+        stdin=subprocess.DEVNULL, encoding="utf-8", timeout=20,
     ))
     home = wsl_path(text(result.get("home"), "Windows home"))
     manifest = json.loads(wsl_path(text(result.get("manifest"), "native host registration")).read_text())

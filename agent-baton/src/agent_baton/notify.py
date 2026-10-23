@@ -1,12 +1,11 @@
 """Tell the human the baton is theirs. Goes straight from the daemon, never through the agent."""
 
-import base64
 import html
-import shutil
 import subprocess
 import urllib.request
 
-POWERSHELL = "powershell.exe"
+from agent_baton import inject
+
 APP_ID = "agent-baton"
 # A 64px orange disc with a white baton, written next to the registry entry below.
 ICON = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABF0lEQVR42u3b0Q3CQAyD4Q7AUqzOYiAe+liBerFj5xyJAb5fSK16uePIZGjzej7e//y2A48KUoW2i4GGy4Zgw6VCdOPbIqjAW0Ko4ikR1PHQCC54SAQ3fGkEV3xZhK0DqCC+Q4+ghD+HGkENvxphBJ4WQRm/EmEMHhrBBX83gmyAlSkLMB3/M8IOeKkAHXiZAF34ywC74C8j7IRvC6CCbwmghKcHUMNTAyjiaQFU8ZQAynh4AHU8NIADHvY2aI1fDeCChwRwwpcHcMOXfhUah7/zL3DCwz6KuuChZwNj8Kingd1RucKBZuuegMKRdvuiROdSQ7ZEsiOUTbHsCmZbNPvC2RjPvYHcGsndodweyx3CXJ3NZGDzAQ6otCSgQdreAAAAAElFTkSuQmCC"
@@ -105,17 +104,8 @@ def dismiss(baton):
 
 
 def powershell(script):
-    if not shutil.which(POWERSHELL):
-        raise FileNotFoundError(POWERSHELL)
-    encoded = base64.b64encode(script.encode("utf-16-le")).decode()
     # Wait with real pipes: a PowerShell whose output goes to /dev/null silently raises no toast.
-    result = subprocess.run(
-        [POWERSHELL, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        timeout=20,
-    )
+    result = inject.run_script(script, timeout=20)
     if result.returncode:
         raise OSError(f"powershell exited {result.returncode}")
 

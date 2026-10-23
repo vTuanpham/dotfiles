@@ -2,19 +2,33 @@
 -- Default options that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/options.lua
 -- Add any additional options here
 
-local opt = vim.opt
-
--- Wsl Clipboard
+-- Windows pipes need UTF-8 explicitly; clip.exe otherwise guesses a legacy code page.
 if vim.fn.has("wsl") == 1 then
-  opt.clipboard = {
+  local copy = {
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+  }
+  local paste = {
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::Out.Write(([string](Get-Clipboard -Raw)).Replace("`r`n", "`n"))',
+  }
+  vim.g.clipboard = {
     name = "WslClipboard",
     copy = {
-      ["+"] = "clip.exe",
-      ["*"] = "clip.exe",
+      ["+"] = copy,
+      ["*"] = copy,
     },
     paste = {
-      ["+"] = 'powershell.exe -c [Console]::Out.Write($(Get-Clipboard -Raw).tostring().replace("\r\n", "\n"))',
-      ["*"] = 'powershell.exe -c [Console]::Out.Write($(Get-Clipboard -Raw).tostring().replace("\r\n", "\n"))',
+      ["+"] = paste,
+      ["*"] = paste,
     },
     cache_enabled = 0,
   }

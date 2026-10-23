@@ -125,12 +125,14 @@ class BrowserTests(unittest.TestCase):
     def test_discovery_cannot_consume_the_protocol_input(self):
         registration = self.home / "registration.json"
         registration.write_text(json.dumps(self.manifest))
-        result = json.dumps({"home": "home", "manifest": "registration"})
+        result = json.dumps({"home": "C:/Users/ảnh ·", "manifest": "C:/ảnh/registration.json"}, ensure_ascii=False)
         with patch.object(browser.subprocess, "check_output", return_value=result) as run, \
                 patch.object(browser, "wsl_path", side_effect=[self.home, registration]), \
                 patch.object(browser, "load_setup", return_value="setup"):
             self.assertEqual(browser.discover()[2], "setup")
         self.assertEqual(run.call_args.kwargs["stdin"], browser.subprocess.DEVNULL)
+        self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
+        self.assertIn("[Console]::OutputEncoding", run.call_args.args[0][-1])
 
 
 if __name__ == "__main__":

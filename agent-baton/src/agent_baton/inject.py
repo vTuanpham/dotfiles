@@ -96,16 +96,22 @@ if ($job.enter) { [Bt]::Enter() }
 )
 
 
-def run_script(script, stdin=""):
+def run_script(script, stdin="", *, timeout=SEND_TIMEOUT_S):
     if not shutil.which(POWERSHELL):
         raise FileNotFoundError(POWERSHELL)
+    # EncodedCommand controls source encoding, not Windows console pipes.
+    script = (
+        "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); "
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false);\n"
+        + script
+    )
     encoded = base64.b64encode(script.encode("utf-16-le")).decode()
     return subprocess.run(
         [POWERSHELL, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
         input=stdin,
         capture_output=True,
-        text=True,
-        timeout=SEND_TIMEOUT_S,
+        encoding="utf-8",
+        timeout=timeout,
     )
 
 
