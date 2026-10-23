@@ -156,6 +156,40 @@ class BrowserTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 2)
             discover.assert_not_called()
 
+    def doctor_setup(self):
+        setup = browser.load_setup(self.home, self.manifest)
+        (self.home / ".codex/config.toml").write_text(
+            '[mcp_servers.node_repl]\ncommand = ' + json.dumps(str(script)) + '\nargs = ["mcp"]\n'
+        )
+        return setup
+
+    def test_doctor_distinguishes_optional_profiles_from_required_registration(self):
+        setup = self.doctor_setup()
+        profile = self.home / ".config/google-chrome"
+        profile.mkdir(parents=True)
+        with patch.object(browser.Path, "home", return_value=self.home), \
+                patch.object(browser, "discover", return_value=(self.home, self.manifest, setup)), \
+                patch.object(browser.shutil, "which", side_effect=lambda value: value), \
+                patch("builtins.print") as output:
+            self.assertEqual(browser.doctor(), 0)
+            self.assertIn("not configured", str(output.call_args_list))
+            self.assertEqual(browser.doctor(profile), 1)
+            browser.register_linux(profile, self.manifest)
+            self.assertEqual(browser.doctor(profile), 0)
+
+    def test_doctor_reports_runtime_failure_and_rejects_an_unrelated_mcp_launcher(self):
+        self.doctor_setup()
+        (self.home / ".codex/config.toml").write_text(
+            '[mcp_servers.node_repl]\ncommand = "/unrelated"\nargs = ["mcp"]\n'
+        )
+        with patch.object(browser.Path, "home", return_value=self.home), \
+                patch.object(browser, "discover", side_effect=ValueError("stale runtime")), \
+                patch.object(browser.shutil, "which", side_effect=lambda value: value), \
+                patch("builtins.print") as output:
+            self.assertEqual(browser.doctor(), 1)
+        self.assertIn("stale runtime", str(output.call_args_list))
+        self.assertIn("Codex MCP launcher", str(output.call_args_list))
+
 
 if __name__ == "__main__":
     unittest.main()

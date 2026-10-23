@@ -1,12 +1,30 @@
 # User-global RTK filters — apply to all your projects.
 # Project-local .rtk/filters.toml takes precedence over these.
-# Docs: https://github.com/rtk-ai/rtk#custom-filters
+# Docs: https://github.com/rtk-ai/rtk/blob/master/src/filters/README.md
 schema_version = 1
 
-# Example: suppress noise from a tool you use everywhere
-# [filters.my-global-tool]
-# description = "Compact my-global-tool output"
-# match_command = "^my-global-tool\\b"
-# strip_ansi = true
-# strip_lines_matching = ["^\\s*$"]
-# max_lines = 40
+[filters.uvx-progress]
+description = "Remove UVX setup progress; retain tool output, package changes and errors"
+match_command = '^uvx\b'
+strip_ansi = true
+filter_stderr = true
+strip_lines_matching = [
+    '^\s*$',
+    '^(Resolved|Prepared) \d+ packages? in [\d.]+(ms|s)$',
+    '^\s*(Downloading|Downloaded) \S+ \([\d.]+ [KMGT]?i?B\)$',
+]
+
+[[tests.uvx-progress]]
+name = "keep installed versions and remove progress"
+input = "Resolved 2 packages in 120ms\nPrepared 2 packages in 0.4s\nDownloading mcp (1.2 MiB)\nInstalled 2 packages in 10ms\n + mcp==2.3.0\n + anyio==4.15.1\n"
+expected = "Installed 2 packages in 10ms\n + mcp==2.3.0\n + anyio==4.15.1"
+
+[[tests.uvx-progress]]
+name = "preserve failures and diagnostic context"
+input = "Resolved 2 packages in 120ms\nerror: Failed to build example\n  Caused by: compiler exited 1\nDownloading example failed\n"
+expected = "error: Failed to build example\n  Caused by: compiler exited 1\nDownloading example failed"
+
+[[tests.uvx-progress]]
+name = "preserve uninstall and upgrade changes"
+input = "Uninstalled 1 package in 1ms\nInstalled 1 package in 2ms\n - example==1.0\n + example==2.0\n"
+expected = "Uninstalled 1 package in 1ms\nInstalled 1 package in 2ms\n - example==1.0\n + example==2.0"

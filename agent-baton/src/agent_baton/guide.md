@@ -2,6 +2,12 @@ agent-baton hands a question or secret prompt to the human on their phone or PC.
 Ordinary answers are returned to the agent; secrets stay private and are typed into an approved app.
 Never put secrets in a question or chat.
 
+Native tools: `agent-baton mcp` serves MCP over stdio. Register with
+`codex mcp add agent_baton -- agent-baton mcp`, then reload the harness.
+Every call supplies its conversation owner, matching the CLI's session namespace;
+the package README lists tools and isolation. Secret values are never inputs or
+results. CLI commands below remain available for every workflow.
+
 Pick the command
   question  ordinary text or multiple-choice question; wait returns the answer as JSON.
   form   one-off ordinary form from a JSON file; wait returns answers keyed by question id.

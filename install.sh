@@ -25,7 +25,7 @@ same() { [[ $(tr -d '\r' <"$1") == "$(tr -d '\r' <"$2")" ]]; }
 # --- apt ---------------------------------------------------------------------------------------------------
 step_apt() {
   # package[:command]: a tool counts as present if its command resolves, even when it came from pip or a script
-  local want=(stow zsh tmux ranger ffmpeg imagemagick:convert poppler-utils:pdftoppm x11-utils:xwininfo libxtst6 bubblewrap:bwrap jq curl git)
+  local want=(stow zsh tmux ranger ffmpeg imagemagick:convert poppler-utils:pdftoppm x11-utils:xwininfo libxtst6 bubblewrap:bwrap jq curl git gh)
   local missing=() entry pkg cmd
   for entry in "${want[@]}"; do
     pkg=${entry%%:*}
@@ -73,6 +73,7 @@ step_npm() {
 # --- live symlinks -------------------------------------------------------------------------------------------
 # <path in the repo> <link under $HOME>. Every other package is a snapshot (see the snapshots step).
 LINKS=(
+  "github/.local/bin/github-mcp .local/bin/github-mcp"
   "shell/.bash_logout .bash_logout"
   "shell/.bash_profile .bash_profile"
   "shell/.bashrc .bashrc"

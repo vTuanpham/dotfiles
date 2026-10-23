@@ -41,6 +41,16 @@ a Claude Code connection. Check `/chrome` in Claude Code before relying on it.
 
 ## ChatGPT from WSL: gap and local compatibility patch
 
+Start diagnosis with `chatgpt-browser doctor` (read-only). It checks Windows
+native-host/runtime files, Codex's MCP launcher, and configured Linux profiles.
+Use `doctor <user-data-dir>` to require a particular Linux registration; unused
+profiles are informational. The script uses UV to select Python with TOML support,
+so it does not depend on the system Python version.
+
+Local checks do not prove a live extension connection. Finish with browser
+discovery through the harness's native Chrome tools; no separate browser client
+or alternative control route is needed.
+
 **The desktop app's WSL browser integration is the product gap.** The inspected
 Windows app reports browser availability as `reason=wsl-disabled` when running
 the agent in WSL. This is an installed-build observation, not a published promise

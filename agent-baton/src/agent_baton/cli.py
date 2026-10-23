@@ -324,6 +324,7 @@ def build_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("mcp", help="serve native handoff tools over MCP stdio").set_defaults(run=mcp)
     p = sub.add_parser("question", help="agent: ask a nonsecret question; wait returns the human's answer")
     p.add_argument("question", help="the complete question; do not include secrets")
     p.add_argument(
@@ -407,6 +408,13 @@ def build_parser():
     sub.add_parser("guard", help="PreToolUse hook (JSON on stdin)").set_defaults(run=lambda _: guard.main())
     sub.add_parser("_serve").add_argument("baton")
     return parser
+
+
+def mcp(_):
+    from agent_baton.mcp import server
+
+    server.run(transport="stdio")
+    return 0
 
 
 def main():

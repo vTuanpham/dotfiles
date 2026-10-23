@@ -12,6 +12,13 @@ Bash and Zsh startup.
 | `.config/shell/aliases.sh` | Shared interactive shortcuts and Ranger's directory-return function |
 | `.cuda_paths` | CUDA paths, sourced by the environment file |
 
+## Shortcuts
+
+Shared shortcuts preserve arguments: `ga path...` stages explicit paths, and
+`py` runs Python through UV. `pir` is only for requirements-based projects with
+an existing UV environment; projects with a lock use `uv sync` instead. Package
+managers own their caches; no generic cache-deletion shortcut is installed.
+
 ## Credentials
 
 Put credentials in `~/.config/shell/secrets.local.sh`, outside the repository:

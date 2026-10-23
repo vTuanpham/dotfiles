@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Start official GitHub tools with gh's managed credential, never a shell export."""
+
+import os
+import shutil
+import subprocess
+import sys
+
+
+def main():
+    gh, server = shutil.which("gh"), shutil.which("github-mcp-server")
+    if not gh or not server:
+        sys.exit("github-mcp: install gh and the official github-mcp-server binary first")
+    result = subprocess.run(
+        [gh, "auth", "token", "--hostname", "github.com"],
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30,
+    )
+    token = result.stdout.removesuffix("\n")
+    if result.returncode or not token or any(c.isspace() for c in token) or "\0" in token:
+        sys.exit("github-mcp: sign in with gh auth login --hostname github.com first")
+    os.execve(server, [server, "stdio", *sys.argv[1:]], {
+        **os.environ, "GITHUB_PERSONAL_ACCESS_TOKEN": token,
+    })
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, subprocess.SubprocessError):
+        sys.exit("github-mcp: credential lookup or server launch failed; check gh auth status")

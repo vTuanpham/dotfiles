@@ -129,6 +129,7 @@ does the linking). Every package README opens with its kind.
 | [agent-bridge](agent-bridge/README.md), [agent-baton](agent-baton/README.md) | uv tool | Cross-harness jobs and human handoff CLIs; editable uv tools |
 | [systemd](systemd/README.md) | Live + reference | User units, reference timer and service PATH |
 | [chrome](chrome/README.md) | Live + manual | Global Chrome extensions; ChatGPT browser transport from WSL |
+| [github](github/README.md) | Live + manual | Native GitHub tools using the GitHub CLI credential store |
 | [windows](windows/README.md) | Manual | GhostInTheWSL and Windows Terminal configs; copy separately |
 | [tests](tests/README.md) | n/a | Installer, shell and public-facing checks |
 

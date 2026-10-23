@@ -18,6 +18,17 @@ default_subagent_reasoning_effort = "max"
 [plugins."github@openai-curated"]
 enabled = true
 
+[plugins."github@openai-curated".mcp_servers.github]
+enabled = false # the native credential adapter below owns GitHub tools
+
+[mcp_servers.agent_baton]
+command = "agent-baton"
+args = ["mcp"]
+
+[mcp_servers.github]
+command = "github-mcp"
+args = ["--toolsets", "repos,issues,pull_requests,actions", "--read-only"]
+
 [plugins."ponytail@ponytail"]
 enabled = true
 

@@ -1,10 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# ///
 """Adapt the installed Windows ChatGPT browser runtime to WSL stdio."""
 
 import argparse
 import json
 import os
 from pathlib import Path, PureWindowsPath
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -117,6 +121,65 @@ def register_linux(root, manifest):
         output.write(json.dumps(wanted, indent=2) + "\n")
 
 
+def doctor(user_data_dir=None):
+    """Read-only installation checks; browser consent/connection stays in the native harness."""
+    failed = False
+
+    def report(label, problem=None):
+        nonlocal failed
+        failed |= problem is not None
+        print(f"{'FIX' if problem else 'ok '}  {label}" + (f": {problem}" if problem else ""))
+
+    for executable in ("powershell.exe", "wslpath"):
+        report(executable, None if shutil.which(executable) else "not on PATH")
+    try:
+        _, manifest, _ = discover()
+        report("Windows native host and installed browser runtime")
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        report("Windows native host and installed browser runtime", str(error))
+        manifest = None
+
+    try:
+        config = tomllib.loads((Path.home() / ".codex/config.toml").read_text())
+        entry = config["mcp_servers"]["node_repl"]
+        command = text(entry.get("command"), "MCP command")
+        args = entry.get("args", [])
+        adapter = Path(__file__).resolve()
+        executable = shutil.which(command) or command
+        uses_adapter = Path(executable).expanduser().resolve() == adapter or any(
+            isinstance(arg, str) and Path(arg).expanduser().resolve() == adapter for arg in args
+        )
+        if entry.get("enabled") is False or "mcp" not in args or not uses_adapter:
+            raise ValueError("register node_repl with this adapter's mcp command; see chrome/README.md")
+        if not Path(executable).is_file() or not os.access(executable, os.X_OK):
+            raise ValueError("the registered MCP executable is missing or not executable")
+        report("Codex MCP launcher")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        report("Codex MCP launcher", str(error))
+
+    roots = [user_data_dir.expanduser()] if user_data_dir else [
+        Path.home() / ".config" / name
+        for name in ("google-chrome", "google-chrome-beta", "google-chrome-unstable", "chromium")
+        if (Path.home() / ".config" / name).is_dir()
+    ]
+    for root in roots:
+        registration = root / "NativeMessagingHosts" / f"{HOST}.json"
+        if not registration.exists() and user_data_dir is None:
+            print(f"not configured: Linux native host ({root.name}); use doctor <user-data-dir> to require it")
+            continue
+        try:
+            local = json.loads(registration.read_text())
+            if manifest is None:
+                raise ValueError("Windows registration must pass before validating this adapter")
+            if local != {**manifest, "path": str(Path(__file__).absolute())}:
+                raise ValueError("registration differs; review register-linux setup")
+            report(f"Linux native host ({root.name})")
+        except (OSError, ValueError) as error:
+            report(f"Linux native host ({root.name})", str(error))
+    print("not probed: active extension connection; verify with the native Chrome tools in your harness")
+    return int(failed)
+
+
 def main():
     if len(sys.argv) == 2 and sys.argv[1].startswith("chrome-extension://"):
         home, manifest, (host, _, _, _) = discover()
@@ -125,13 +188,15 @@ def main():
         os.chdir(host.parent)
         os.execv(str(host), [str(host), sys.argv[1]])
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("mcp", "paths", "register-linux"))
+    parser.add_argument("mode", choices=("mcp", "paths", "register-linux", "doctor"))
     parser.add_argument("user_data_dir", nargs="?", type=Path)
     parser.add_argument("--disable-sandbox", action="store_true",
                         help="Explicit exception for the Windows browser kernel only; keeps MCP approval review")
     args = parser.parse_args()
     if args.disable_sandbox and args.mode != "mcp":
         parser.error("--disable-sandbox is only valid with mcp")
+    if args.mode == "doctor":
+        return doctor(args.user_data_dir)
     if (args.mode == "register-linux") != (args.user_data_dir is not None):
         parser.error("register-linux requires a Chrome user-data directory; other modes take none")
     home, manifest, (_, command, env, paths) = discover()
@@ -150,7 +215,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         print(f"chatgpt-browser: {error}. Check Settings > Computer Use in the Windows app.", file=sys.stderr)
         sys.exit(1)

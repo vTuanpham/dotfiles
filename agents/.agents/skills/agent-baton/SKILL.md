@@ -9,6 +9,12 @@ A cross-harness CLI for human handoffs through Windows notifications or a phone 
 
 Requests belong to one conversation, which Codex and Claude Code supply automatically; on other harnesses the CLI's error says how to set `AGENT_BATON_SESSION`. Keep the returned request id for `wait`/`withdraw`/`type`/`forget`; never pick up another session's pending question.
 
+Prefer native Baton MCP tools when available. Pass this conversation's owner on
+every call: `codex:<CODEX_THREAD_ID>`, `claude:<CLAUDE_CODE_SESSION_ID>` or
+`explicit:<unique id>`. Never substitute a shared server id. Native `wait` checks
+immediately by default; use the CLI in a background command for long event waits.
+The CLI remains the path for composite forms, approved commands and `pass`.
+
 For several ordinary questions or a disposable UI, `form <json-file>` composes built-in text, choice and select-many controls. `wait` returns answers keyed by question id; optional unanswered fields are omitted. This follows the same root-only reminder policy. The CLI help owns the JSON schema; do not invent an HTTP endpoint or supply HTML/scripts.
 
 ## When to reach for it

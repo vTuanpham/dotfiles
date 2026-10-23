@@ -56,10 +56,11 @@ def now():
     return int(time.time())
 
 
-def session():
+def session(environ=None):
     """A conversation owner, never a shared harness name, working directory or terminal."""
+    environ = os.environ if environ is None else environ
     for key, namespace in SESSION_KEYS:
-        value = os.environ.get(key)
+        value = environ.get(key)
         if value is not None:
             if not value or value != value.strip() or len(value) > 200 or any(c.isspace() for c in value):
                 raise ValueError(

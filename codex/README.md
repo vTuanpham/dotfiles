@@ -33,6 +33,15 @@ Background hooks cannot resolve an already-running tool or wake an idle turn;
 no question-cancellation hook is installed here.
 [OpenAI hooks reference](https://learn.chatgpt.com/docs/hooks#run-hooks-in-the-background).
 
+## Native integrations
+
+Native Baton and GitHub servers use the installed `agent-baton mcp` and
+`github-mcp` commands. Reload MCP configuration after installing them; the
+[Baton guide](../agent-baton/README.md#commands) owns conversation isolation,
+and [GitHub setup](../github/README.md) owns credentials and read-only toolsets.
+The old GitHub plugin server is disabled to avoid a duplicate unauthenticated
+connection. Tokens and host paths remain local.
+
 ## Cache and resuming threads
 
 | Route | Returning to old context |

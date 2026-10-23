@@ -18,6 +18,26 @@ agent-baton doctor             # checks the toast, typing, hooks and the phone p
 
 ## Commands
 
+For native tools, register `codex mcp add agent_baton -- agent-baton mcp`, then
+reload MCP configuration. Other harnesses can launch the same stdio command.
+Every call supplies the conversation owner: `codex:<CODEX_THREAD_ID>`,
+`claude:<CLAUDE_CODE_SESSION_ID>` or `explicit:<unique id>`, even when several
+conversations share a server. CLI and MCP select the same requests.
+
+| Native tool | Purpose |
+| --- | --- |
+| `question` | Free text, single choice or select-many; ordinary answers only |
+| `ask` | Human enters secrets; accepts field definitions, never values |
+| `status`, `wait` | Session state or answers; secret readiness without values |
+| `focus`, `type_answer` | Activate approved window, then type a held field by name |
+| `forget`, `withdraw` | Erase held answers or withdraw an obsolete question |
+
+Results contain `exit_code` and the existing CLI's `output`; exit 75 means pending.
+`wait` checks immediately by default; intentional waits are bounded to 30 seconds.
+For longer event waits, run CLI `wait --until-done` in the background.
+CLI still owns composite forms, command approval and human-only login handoffs.
+MCP adds no HTTP listener or global conversation state.
+
 - `question "Which scope?" --option "Current project" --option "All projects"`
   collects one ordinary answer. Omit options for free text; choices include Other.
   `wait <id> --until-done`, run in the background, ends when the human answers or the request

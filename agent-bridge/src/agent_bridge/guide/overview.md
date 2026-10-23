@@ -20,7 +20,7 @@ The free-tier zero-retention list lives in code (`ZDR_FREE` in `opencode.py`); c
 - Use a short owner tag (project + topic) unique to this session; sessions share job storage. Never use `/tmp` for job data.
 - Prepare a clear brief before starting a job. Reviewers need network for docs, API contracts and test scratch: start them workspace-write with `--writable-root <job>/out`, brief "don't edit the repo; scratch only under <job>/out", and check `git status` afterwards.
 - Approvals are auto-declined. Never bypass a backend's sandbox.
-- Every job runs in a systemd user scope inside `codex.slice`: per job `CODEX_JOB_MEMORY_MAX`=2500M and `CODEX_JOB_CPU_QUOTA`=300%, nice 10; slice total 7G/600% via `systemctl --user set-property codex.slice ...`. A runaway worker is OOM-killed in its scope instead of freezing WSL (10 GB RAM). Brief data-heavy agents to stream or chunk, and keep ≤ 2 worker processes.
+- Every job runs in a systemd user scope inside `codex.slice`, with per-job memory/CPU caps configured by `CODEX_JOB_MEMORY_MAX` and `CODEX_JOB_CPU_QUOTA`. Check available memory, CPU and the effective slice limits before choosing concurrency; do not assume a particular host size. A runaway worker is OOM-killed in its scope. Brief data-heavy agents to stream or chunk.
 
 ## Watch and wait
 - Which events are urgent: an agent message starting `URGENT:`, questions, errors, declined approvals or denials, and turn completion. Everything else is info and stays in `live.jsonl` (`grep '"kind":"message"' <job>/live.jsonl`).

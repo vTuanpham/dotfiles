@@ -1,16 +1,15 @@
 # Interactive commands shared by Bash and Zsh.
 alias ll='ls -la'
 alias gs='git status'
-alias ga='git add .'
+alias ga='git add'
 alias gc='git commit -m'
 alias gp='git push'
 alias ..='cd ..'
 alias ...='cd ../..'
 alias n='npm'
 alias d='docker'
-alias py='python'
-alias pir='pip install -r requirements.txt'
-alias clearCache='find ~/.cache/ -type f -atime +30 -delete'
+alias py='uv run python'
+alias pir='uv pip install -r requirements.txt'
 
 # A function keeps arguments on Ranger and changes directory only after success.
 unalias ranger 2>/dev/null || :
