@@ -92,6 +92,7 @@ LINKS=(
   "claude/.claude/skills/agent-baton .claude/skills/agent-baton"
   "claude/.claude/skills/agent-bridge .claude/skills/agent-bridge"
   "codex/.codex/AGENTS.md .codex/AGENTS.md"
+  "chrome/.local/bin/chatgpt-browser .local/bin/chatgpt-browser"
   "opencode/.config/opencode/AGENTS.md .config/opencode/AGENTS.md"
   "gemini/.gemini/AGENTS.md .gemini/AGENTS.md"
   "gemini/.gemini/config/skills/agent-baton .gemini/config/skills/agent-baton"

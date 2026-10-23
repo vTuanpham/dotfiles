@@ -4,6 +4,12 @@
 
 The instructions and skills every coding agent shares.
 
+Manual recovery backups live outside Git under
+`${XDG_STATE_HOME:-$HOME/.local/state}/backups/<scope>/<timestamp>/`, with private
+permissions and original paths/restore details. A scope can be a tool, project,
+system, or cross-tool change; bundles can contain files, directories, or archives.
+Application-managed rotating backups stay in the application's own location.
+
 - `.config/agents/AGENTS.md`: the one owner of the rules all harnesses share. Put harness-specific rules in
   that harness's own file, never here.
 - `.agents/skills/agent-bridge/SKILL.md` and `.agents/skills/agent-baton/SKILL.md`: short briefings that say

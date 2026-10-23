@@ -57,6 +57,10 @@ class CheckPublicTests(unittest.TestCase):
             "d.md": "Notes about My Real Name here",
             "e.md": "see the secret-project repo",
             "auth.json": "{}",
+            "chrome/NativeMessagingHosts/com.openai.codexextension.json": "{}",
+            "extension-host-config.json": "{}",
+            "backups/shell/old/config": "historical configuration",
+            "settings.json.bak-install": "{}",
         }
         for name, text in leaks.items():
             self.stage(name, text + "\n")
@@ -68,6 +72,22 @@ class CheckPublicTests(unittest.TestCase):
             self.assertIn(name, result.stderr)
         self.assertNotIn("ghp_", result.stderr)  # it says where, never what
         self.assertNotIn("someone@gmail.com", result.stderr)
+        for name in ("chrome/NativeMessagingHosts/com.openai.codexextension.json", "extension-host-config.json",
+                     "backups/shell/old/config", "settings.json.bak-install"):
+            self.assertIn(name + ":0", result.stderr)
+
+    def test_ignore_rules_cover_private_state_but_keep_the_public_chrome_setup(self):
+        private = ["backups/shell/20261020/config", ".local/state/backups/config",
+                   "settings.json.bak-install", ".zshrc.bak.123", ".claude.json.backup.123",
+                   "chrome/.config/google-chrome-unstable/Default/Preferences",
+                   "chrome/.config/chromium/Default/Preferences",
+                   "chrome/NativeMessagingHosts/com.openai.codexextension.json",
+                   "chrome/extension-host-config.json"]
+        public = ["chrome/extensions/hehggadaopoacecdllhhajmbjkdcmajg.json",
+                  "chrome/.local/bin/chatgpt-browser", "chrome/README.md"]
+        result = subprocess.run(["git", "-C", str(root), "check-ignore", "--no-index", "--stdin"],
+                                input="\n".join(private + public) + "\n", capture_output=True, text=True)
+        self.assertEqual(set(result.stdout.splitlines()), set(private), result.stderr)
 
     def test_only_added_lines_are_judged_so_old_content_never_blocks_a_commit(self):
         self.stage("old.md", "My Real Name wrote this long ago\n")

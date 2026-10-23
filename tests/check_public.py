@@ -32,7 +32,8 @@ NOT_A_TLD = {"png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "css", "js", "js
 MACHINE_LOCAL = re.compile(r'^\s*\[projects\.|^\s*\[hooks\.state|"trustedWorkspaces"|trusted_hash')
 BAD_NAME = re.compile(
     r"(^|/)(auth\.json|\.credentials\.json|\.env(\..*)?|\.netrc|\.git-credentials|id_(rsa|ed25519)(\.pub)?"
-    r"|[^/]*\.(pem|key|sqlite3?|db)|[^/]*cookies[^/]*\.json|secrets\.local\.sh)$"
+    r"|[^/]*\.(pem|key|sqlite3?|db)|[^/]*cookies[^/]*\.json|secrets\.local\.sh|extension-host-config\.json"
+    r"|(?:backups|NativeMessagingHosts)/.*|[^/]*\.(?:bak|backup)(?:[.-][^/]*)?)$"
 )
 SELF = {"tests/check_public.py", "tests/test_public.py"}  # they spell out the very patterns they look for
 

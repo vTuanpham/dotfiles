@@ -19,9 +19,22 @@ __pycache__/
 node_modules/
 *.log
 *.bak
+*.bak.*
+*.bak-*
 *.backup
+*.backup.*
+*.backup-*
 *.before-*
 *~
+/backups/
+/.local/state/
+
+# Browser profiles and generated native-host configuration stay on their host.
+NativeMessagingHosts/
+extension-host-config.json
+/chrome/profiles/
+/chrome/.config/google-chrome*/
+/chrome/.config/chromium/
 
 # Codex regenerates this catalog from the server and tracked overrides.
 codex/.codex/model-catalogs/gpt-6-models.json

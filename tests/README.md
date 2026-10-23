@@ -7,6 +7,7 @@ Checks for the repository itself, run from the repository root:
 ```sh
 python3 -B tests/test_shell_startup.py   # Bash and Zsh start quietly, keep cwd and PATH, find their tools
 python3 -B tests/test_install.py         # install.sh against a throwaway HOME: dry runs, links, conflicts
+python3 -B tests/test_chatgpt_browser.py # WSL browser transport boundaries, stale paths and safe registration
 python3 -B tests/test_public.py          # the public-facing check: what it refuses, and that this repo passes it
 ```
 

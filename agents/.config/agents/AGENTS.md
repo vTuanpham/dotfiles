@@ -36,6 +36,10 @@ heredoc scripts; shell is for reading, searching, and running commands.
 - Document durable contracts, decisions, and non-obvious pitfalls; skip trivial
   or transient detail. When documentation is needed, prefer maintained project
   docs over one-off notes/comments and link them from the relevant `AGENTS.md`.
+- Put agent-created recovery backups under `${XDG_STATE_HOME:-$HOME/.local/state}/backups/<scope>/<timestamp>/`,
+  outside repositories; scope can be a tool, project, system, or cross-tool change.
+  Use owner-only permissions; record original paths and restore details for files,
+  directories, or archives. Leave application-managed backup locations alone.
 
 ## Communication and verification
 

@@ -22,7 +22,7 @@ from Git, not encrypted. See [chezmoi's guidance](https://www.chezmoi.io/user-gu
 for the general dotfile-management approach.
 
 Original startup-file backups stay outside Git under
-`~/.local/state/dotfiles-shell-backups/`, with owner-only permissions.
+`${XDG_STATE_HOME:-$HOME/.local/state}/backups/shell/`, with owner-only permissions.
 
 ## Startup behavior
 

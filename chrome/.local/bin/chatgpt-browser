@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Adapt the installed Windows ChatGPT browser runtime to WSL stdio."""
+
+import argparse
+import json
+import os
+from pathlib import Path, PureWindowsPath
+import subprocess
+import sys
+import tomllib
+
+
+HOST = "com.openai.codexextension"
+RUNTIME_ENV = (
+    "NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS",
+    "NODE_REPL_NODE_MODULE_DIRS",
+    "NODE_REPL_NODE_PATH",
+    "NODE_REPL_TRUSTED_CODE_PATHS",
+    "CODEX_HOME",
+    "CODEX_CLI_PATH",
+    "BROWSER_USE_TINYSKY_ENABLED",
+    "BROWSER_USE_CODEX_APP_BUILD_FLAVOR",
+    "BROWSER_USE_CODEX_APP_VERSION",
+)
+
+
+def text(value, label):
+    if not isinstance(value, str) or not value.strip() or "\0" in value:
+        raise ValueError(f"Missing or invalid {label}")
+    return value
+
+
+def wsl_path(value):
+    text(value, "path")
+    if value.startswith("/"):
+        return Path(value)
+    if not PureWindowsPath(value).is_absolute():
+        raise ValueError("Expected an absolute Windows path")
+    return Path(subprocess.check_output(
+        ["wslpath", "-u", value], stdin=subprocess.DEVNULL, text=True,
+    ).strip())
+
+
+def load_setup(home, manifest):
+    """Read app-owned state; never copy credentials or computer-control services."""
+    if not isinstance(manifest, dict) or manifest.get("name") != HOST or manifest.get("type") != "stdio":
+        raise ValueError("Unexpected native host manifest")
+    origins = manifest.get("allowed_origins")
+    if not isinstance(origins, list) or not origins or any(
+        not isinstance(origin, str)
+        or not origin.startswith("chrome-extension://")
+        or not origin.endswith("/")
+        or "*" in origin
+        for origin in origins
+    ):
+        raise ValueError("Invalid native host allowed_origins")
+    host = wsl_path(text(manifest.get("path"), "native host path"))
+    host_config = json.loads((host.parent / "extension-host-config.json").read_text())
+    if not isinstance(host_config, dict):
+        raise ValueError("Invalid native host configuration")
+    if type(host_config.get("schemaVersion")) is not int or host_config["schemaVersion"] != 1:
+        raise ValueError("Unsupported native host configuration schema")
+    client = PureWindowsPath(text(host_config.get("browserClientPath"), "browserClientPath"))
+    client_path = wsl_path(str(client))
+    service = client.with_name("browser-service.mjs")
+    skill = client_path.parent.parent / "skills/control-chrome/SKILL.md"
+    config = tomllib.loads((home / ".codex/config.toml").read_text())["mcp_servers"]["node_repl"]
+    if config.get("args") != []:
+        raise ValueError("Unexpected node_repl arguments; review the app runtime before forwarding")
+    env = {key: text(config["env"].get(key), key) for key in RUNTIME_ENV}
+    command = wsl_path(text(config.get("command"), "node_repl command"))
+    for key, field in (("NODE_REPL_NODE_PATH", "nodePath"), ("CODEX_CLI_PATH", "codexCliPath")):
+        if wsl_path(env[key]) != wsl_path(text(host_config.get(field), field)):
+            raise ValueError("App and native host runtimes differ; repair browser setup in the app")
+    if command != wsl_path(text(host_config.get("nodeReplPath"), "nodeReplPath")):
+        raise ValueError("App and native host runtimes differ; repair browser setup in the app")
+    for path in (host, command, client_path, wsl_path(str(service)), skill,
+                 wsl_path(env["NODE_REPL_NODE_PATH"]), wsl_path(env["CODEX_CLI_PATH"])):
+        if not path.is_file():
+            raise ValueError(f"Required browser runtime file is missing: {path}")
+    env["BROWSER_USE_AVAILABLE_BACKENDS"] = "chrome"
+    env["NODE_REPL_TRUSTED_SERVICES"] = json.dumps({"browser": str(service)})
+    env["WSLENV"] = ":".join(f"{key}/w" for key in env)
+    return host, command, env, {"skill": str(skill), "client_url": client.as_uri()}
+
+
+def discover():
+    # The app owns the versioned paths; the registry owns native-host discovery.
+    command = (
+        "$ErrorActionPreference='Stop'; "
+        "@{home=[Environment]::GetFolderPath('UserProfile'); "
+        "manifest=(Get-Item 'HKCU:/Software/Google/Chrome/NativeMessagingHosts/"
+        + HOST + "').GetValue('')} | ConvertTo-Json -Compress"
+    )
+    result = json.loads(subprocess.check_output(
+        ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+        # A Windows discovery process must not drain the caller's framed stdio.
+        stdin=subprocess.DEVNULL, text=True, timeout=20,
+    ))
+    home = wsl_path(text(result.get("home"), "Windows home"))
+    manifest = json.loads(wsl_path(text(result.get("manifest"), "native host registration")).read_text())
+    return home, manifest, load_setup(home, manifest)
+
+
+def register_linux(root, manifest):
+    if not root.is_dir():
+        raise ValueError("Pass an existing Chrome user-data directory, not a profile subdirectory")
+    destination = root / "NativeMessagingHosts" / f"{HOST}.json"
+    wanted = {**manifest, "path": str(Path(__file__).absolute())}
+    if destination.exists():
+        if json.loads(destination.read_text()) != wanted:
+            raise ValueError(f"Existing native host differs; left unchanged: {destination}")
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("x") as output:
+        output.write(json.dumps(wanted, indent=2) + "\n")
+
+
+def main():
+    if len(sys.argv) == 2 and sys.argv[1].startswith("chrome-extension://"):
+        home, manifest, (host, _, _, _) = discover()
+        if sys.argv[1] not in manifest["allowed_origins"]:
+            raise ValueError("Extension origin is not allowed by the installed native host")
+        os.chdir(host.parent)
+        os.execv(str(host), [str(host), sys.argv[1]])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", choices=("mcp", "paths", "register-linux"))
+    parser.add_argument("user_data_dir", nargs="?", type=Path)
+    args = parser.parse_args()
+    if (args.mode == "register-linux") != (args.user_data_dir is not None):
+        parser.error("register-linux requires a Chrome user-data directory; other modes take none")
+    home, manifest, (_, command, env, paths) = discover()
+    if args.mode == "paths":
+        print(json.dumps(paths))
+    elif args.mode == "register-linux":
+        register_linux(args.user_data_dir.expanduser().absolute(), manifest)
+    else:
+        os.chdir(home)
+        # Keep inherited protocol/auth context; forward only the app's browser runtime settings.
+        os.execve(str(command), [str(command)], {**os.environ, **env})
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        print(f"chatgpt-browser: {error}. Check Settings > Computer Use in the Windows app.", file=sys.stderr)
+        sys.exit(1)
