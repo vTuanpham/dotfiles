@@ -57,9 +57,17 @@ the registered host, reads the app-managed runtime paths, and forwards browser
 stdio. Linux Chrome can use the same host through its own native-host manifest.
 It needs no Chrome remote-debugging setting or DevTools server.
 
+**Transport is not native WSL integration.** The Windows runtime rejects native
+WSL sandbox metadata (`sandboxCwd` is a Linux file URI). An explicitly authorized
+`chatgpt-browser mcp --disable-sandbox` uses the runtime's documented exception
+for its Windows JavaScript kernel. Keep it scoped to this browser launcher;
+Codex's own sandbox and mandatory approval review remain enabled. A standalone
+client without an attached execution reviewer fails strict approval checks.
+Neither launching Chrome nor opening a URL proves extension control works.
+
 | Route | Transport |
 | --- | --- |
-| WSL Codex → Windows runtime | `chatgpt-browser mcp` |
+| WSL Codex → Windows runtime | `chatgpt-browser mcp --disable-sandbox` after explicit authorization |
 | Windows Chrome → runtime | App-installed native host |
 | Linux Chrome → runtime | `chatgpt-browser` native-messaging adapter |
 
@@ -69,15 +77,13 @@ Account/workspace access and site permissions still apply. This is a local
 compatibility path, not official WSL desktop integration or a policy override.
 
 1. Link the adapter: `./install.sh --apply links`.
-2. Add this **locally** to WSL `~/.codex/config.toml`:
-
-   ```toml
-   [mcp_servers.node_repl]
-   command = "/usr/bin/env"
-   args = ["chatgpt-browser", "mcp"]
-   startup_timeout_sec = 20
-   tool_timeout_sec = 180
-   ```
+2. Configure `node_repl` in local WSL `~/.codex/config.toml` with an **absolute
+   Python 3.11+ interpreter** as `command` and the absolute adapter path followed
+   by `mcp` as `args`. WSL-to-Windows use also needs `--disable-sandbox` in those
+   args after explicit authorization. The default keeps the kernel sandbox;
+   the adapter never silently enables this exception. Keep machine paths and
+   authorization outside this public repository. Reload MCP configuration or
+   start a fresh chat to expose its `js` tool.
 
 3. For Linux Chrome, register its existing **user-data root**, not `Default` or
    `Profile 1` beneath it. For example, on the Dev channel:
@@ -90,15 +96,25 @@ compatibility path, not official WSL desktop integration or a policy override.
    preserves a different existing host and keeps the app's allowed extension
    origins. The generated manifest stays outside Git.
 4. `chatgpt-browser paths` reports the official skill and browser-client URL.
-   Link that skill's folder to `~/.codex/skills/control-chrome` locally. Start a
-   fresh Codex session to load it and the MCP server. Browser actions use the
-   official `js` tool and unchanged skill. During bootstrap, import the returned
-   `client_url`: this runtime uses Windows paths, not WSL `/mnt/...` paths.
+   Link that skill's folder to `~/.codex/skills/control-chrome` locally. Browser
+   actions use the official `js` tool and unchanged skill. During bootstrap,
+   import the returned `client_url`: this runtime uses Windows paths, not WSL
+   `/mnt/...` paths.
 
 The adapter checks the app and host runtime paths agree and refuses extra runtime
-flags. App upgrades can require repeating the app's browser setup. It preserves
-the runtime's normal sandbox and does not bring over the computer-control service.
+flags from app configuration. App upgrades can require repeating browser setup.
+Only the explicit launcher option disables the kernel sandbox; it does not
+change approval policies or bring over the computer-control service.
 Check the selected browser instance when both Windows and Linux Chrome are open.
+
+## Visible agent tabs
+
+For connected extension sessions, keep the task's controlled tabs in a named
+group such as **🤖 Agent · Google Photos**, using a consistent warm color. Reuse
+the task's existing group instead of making duplicates. On handoff, label it
+**Review · Google Photos**. Keep unrelated tabs outside it, and use only group
+controls documented by the selected browser runtime. A normal URL launch does
+not provide group management or indicate an active automation connection.
 
 To remove the compatibility path, remove the local `node_repl` MCP entry and only
 the Linux native-host manifest generated above. The app owns the Windows host;

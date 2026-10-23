@@ -20,6 +20,11 @@ Codex CLI config under `~/.codex`.
 [Agent Bridge](../agent-bridge/README.md) drives Codex workers;
 the separate `codex-auth` tool manages account selection and reads locally cached quota.
 
+Chrome control in WSL uses a locally registered `node_repl` MCP server and the
+app's unchanged Chrome skill. The [browser adapter guide](../chrome/README.md#chatgpt-from-wsl-gap-and-local-compatibility-patch)
+owns its setup and Windows kernel exception. Machine paths and authorization
+stay in the live config; future chats use the native browser tools directly.
+
 ## Questions and reminders
 
 For questions, prefer the native asynchronous tool when available, following the

@@ -134,6 +134,28 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
         self.assertIn("[Console]::OutputEncoding", run.call_args.args[0][-1])
 
+    def test_explicit_kernel_exception_preserves_approval_context(self):
+        setup = (self.host, self.map_path("C:/runtime/node_repl.exe"), {"BROWSER": "setting"}, {})
+        with patch.object(browser, "discover", return_value=(self.home, self.manifest, setup)), \
+                patch.object(browser.os, "chdir"), patch.object(browser.os, "execve") as execute, \
+                patch.dict(os.environ, {"CONVERSATION_CONTEXT": "retained"}), \
+                patch.object(browser.sys, "argv", [str(script), "mcp", "--disable-sandbox"]):
+            browser.main()
+        command, args, env = execute.call_args.args
+        self.assertEqual(args, [command, "--disable-sandbox"])
+        self.assertEqual(env["CONVERSATION_CONTEXT"], "retained")
+        self.assertEqual(env["BROWSER"], "setting")
+
+    def test_kernel_exception_is_not_a_registration_or_discovery_option(self):
+        for mode in ("paths", "register-linux"):
+            with self.subTest(mode=mode), \
+                    patch.object(browser.sys, "argv", [str(script), mode, "--disable-sandbox"]), \
+                    patch.object(browser, "discover") as discover, \
+                    patch.object(browser.sys, "stderr"), self.assertRaises(SystemExit) as error:
+                browser.main()
+            self.assertEqual(error.exception.code, 2)
+            discover.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

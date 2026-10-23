@@ -127,7 +127,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("mcp", "paths", "register-linux"))
     parser.add_argument("user_data_dir", nargs="?", type=Path)
+    parser.add_argument("--disable-sandbox", action="store_true",
+                        help="Explicit exception for the Windows browser kernel only; keeps MCP approval review")
     args = parser.parse_args()
+    if args.disable_sandbox and args.mode != "mcp":
+        parser.error("--disable-sandbox is only valid with mcp")
     if (args.mode == "register-linux") != (args.user_data_dir is not None):
         parser.error("register-linux requires a Chrome user-data directory; other modes take none")
     home, manifest, (_, command, env, paths) = discover()
@@ -138,7 +142,10 @@ def main():
     else:
         os.chdir(home)
         # Keep inherited protocol/auth context; forward only the app's browser runtime settings.
-        os.execve(str(command), [str(command)], {**os.environ, **env})
+        command_args = [str(command)]
+        if args.disable_sandbox:
+            command_args.append("--disable-sandbox")
+        os.execve(str(command), command_args, {**os.environ, **env})
 
 
 if __name__ == "__main__":
