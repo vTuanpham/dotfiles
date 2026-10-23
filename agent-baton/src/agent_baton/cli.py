@@ -240,12 +240,14 @@ def withdraw(args):
     return 0
 
 
-def type_secret(args):
+def secret_input(args):
     baton = pick(args.id, "ask")
     if baton["status"] != "held" or not baton.get("answered"):
         sys.exit("nothing is held to type: ask first and wait for the answer")
     try:
-        reply = asking.request(baton["id"], "type", [args.name], {"enter": args.enter, "clear": args.clear})
+        fields = [args.name] if args.command == "type" else []
+        opts = {"enter": args.enter, "clear": args.clear} if args.command == "type" else {}
+        reply = asking.request(baton["id"], args.command, fields, opts)
     except OSError:
         sys.exit("the held answers are gone (expired or forgotten); ask again")
     print(reply["text"])
@@ -367,7 +369,10 @@ def build_parser():
     p.add_argument("--enter", action="store_true", help="press Enter afterwards")
     p.add_argument("--clear", action="store_true", help="select all and delete what is in the field first")
     p.add_argument("--id", help="which ask, if several are held")
-    p.set_defaults(run=type_secret)
+    p.set_defaults(run=secret_input)
+    p = sub.add_parser("focus", help="agent: activate the approved window before clicking its field")
+    p.add_argument("--id", help="which ask, if several are held")
+    p.set_defaults(run=secret_input)
     p = sub.add_parser("forget", help="delete the held answers now")
     p.add_argument("id", nargs="?")
     p.set_defaults(run=forget)

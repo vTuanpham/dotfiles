@@ -73,10 +73,13 @@ Logins with ask + type
      Each field is name[:secret]=Label. `:secret` shows as a password input. The human sees the
      fields, your reason and the window title, then answers on a form.
   4. `agent-baton wait <id> --until-done` in the background, and do other work meanwhile.
-  5. For each field: click it with your own tool, then `agent-baton type <name> --id <id>` (--enter submits,
-     --clear first deletes what is in the field). Typing goes into whatever has focus in the approved window, so click first and
-     check the page afterwards. A password shows as dots; never try to read a value back.
-  6. `agent-baton forget <id>` when done. Answers also expire on their own (default 10 minutes).
+  5. `agent-baton focus --id <id>` activates the approved window. Then click its field with your own tool
+     and `agent-baton type <name> --id <id>` (`--clear` replaces existing text). Extension browser actions
+     can work in background tabs; select the intended tab for this desktop typing step. Windows typing
+     refuses a background window instead of stealing field focus. Check that the masked field filled
+     before submitting (`--enter` submits immediately). Never read a password value back.
+  6. `agent-baton forget <id>` after confirming submission succeeded. Answers also expire on their own
+     (default 10 minutes).
 
 Commands that need a password
   agent-baton run --reason "<why>" -- sudo apt-get install -y foo

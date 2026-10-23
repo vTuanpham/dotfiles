@@ -73,18 +73,22 @@ class Ask:
             conn.sendall((json.dumps(reply) + "\n").encode())
 
     def handle(self, verb, args, opts):
-        if verb != "type":
+        if verb not in ("type", "focus"):
             return {"text": f"unknown verb {verb!r}", "code": 2}
-        (name,) = args
-        with self.lock:
-            secret = self.secrets.get(name)
-        if secret is None:
-            known = ", ".join(self.secrets) or "nothing yet (the human has not answered)"
-            return {"text": f"refused: no secret named {name!r}; held: {known}", "code": 1}
+        if verb == "type":
+            (name,) = args
+            with self.lock:
+                secret = self.secrets.get(name)
+            if secret is None:
+                known = ", ".join(self.secrets) or "nothing yet (the human has not answered)"
+                return {"text": f"refused: no secret named {name!r}; held: {known}", "code": 1}
         for window in self.baton["windows"]:  # the titles the human approved, in order
-            status = inject.type_into(
-                window, secret, opts.get("enter", False), self.cfg["no_type"], opts.get("clear", False)
-            )
+            if verb == "focus":
+                status = inject.focus(window, self.cfg["no_type"])
+            else:
+                status = inject.type_into(
+                    window, secret, opts.get("enter", False), self.cfg["no_type"], opts.get("clear", False)
+                )
             if not status.startswith(NO_WINDOW):
                 break
         return {"text": status, "code": 1 if status.startswith("refused") else 0}

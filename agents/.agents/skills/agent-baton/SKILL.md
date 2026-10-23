@@ -21,8 +21,8 @@ A blocked agent cannot run the reminder timer. Use the harness's supported remot
 
 ## Secret handoffs
 1. `ask` builds the form and returns an id at once; the human may be on their phone, so run `agent-baton wait <id> --until-done` in the background and do other work meanwhile.
-2. Click the field yourself with your own tools, then `agent-baton type <name>` types the held answer into the approved window. Look at the page afterwards; passwords show as dots, and you never read a value back.
+2. Run `agent-baton focus --id <id>`, then click the field with your own tools before `agent-baton type <name> --id <id>`. Extension clicks can run in background tabs; ensure the intended tab is selected for this desktop typing step. Windows typing refuses a background window instead of changing focus and losing the field.
 3. Window titles change between steps (Google: "Sign in", then "Welcome"), and the human approves only the titles you list, so pass `--window` for every title you expect.
-4. Answers are held for about ten minutes, then forgotten; `forget <id>` clears them sooner. If a baton is cancelled or expires, stop and ask the user; do not retry on your own.
+4. Verify that the masked field filled and that submission succeeded before `forget <id>` clears the answer. Never read its value back. Answers expire after about ten minutes. If a baton is cancelled or expires, stop and ask the user; do not retry on your own.
 
 The CLI documents itself. Run `agent-baton --help` for the exact commands, flags and rules before first use; read it when you need it, not earlier. Never put a secret in chat, a file or a command line.

@@ -159,6 +159,10 @@ def test_human_page_is_one_use_token_and_host_bound(monkeypatch):
 
 def test_ask_form_answers_are_held_and_only_typed_into_the_approved_window(monkeypatch, capsys):
     typed = []
+    focused = []
+    monkeypatch.setattr(
+        cli.inject, "focus", lambda window, deny: focused.append((window, deny)) or "focused"
+    )
     monkeypatch.setattr(
         cli.inject,
         "type_into",
@@ -196,6 +200,10 @@ def test_ask_form_answers_are_held_and_only_typed_into_the_approved_window(monke
     assert cli.main() == 0
     received = capsys.readouterr().out
     assert "received: email, password" in received and secret not in received
+    monkeypatch.setattr("sys.argv", ["agent-baton", "focus", "--id", baton["id"]])
+    assert cli.main() == 0 and capsys.readouterr().out.strip() == "focused"
+    assert focused == [("Google Accounts", core.config()["no_type"])]
+    assert not typed
     monkeypatch.setattr("sys.argv", ["agent-baton", "type", "password", "--enter"])
     assert cli.main() == 0 and capsys.readouterr().out.strip() == "typed"
     assert typed == [("Google Accounts", secret, True, core.config()["no_type"], False)]
@@ -954,7 +962,11 @@ def test_secrets_are_never_typed_or_forgotten_from_another_session(monkeypatch, 
     monkeypatch.setattr("sys.argv", ["agent-baton", "type", "password"])
     assert cli.main() == 0 and requests == [first["id"]]
     capsys.readouterr()
-    for argv in (["type", "password", "--id", other["id"]], ["forget", other["id"]]):
+    for argv in (
+        ["type", "password", "--id", other["id"]],
+        ["focus", "--id", other["id"]],
+        ["forget", other["id"]],
+    ):
         monkeypatch.setattr("sys.argv", ["agent-baton", *argv])
         with pytest.raises(SystemExit, match="no baton matches"):
             cli.main()

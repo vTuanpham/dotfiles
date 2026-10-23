@@ -26,6 +26,9 @@ agent-baton doctor             # checks the toast, typing, hooks and the phone p
 - `ask` builds a secret form (`name[:secret]=Label`); the human answers on a Windows toast link or, over Tailscale, on
   a phone (ntfy). `type <name>` then puts the held answer into the approved window at the OS level, through
   X11 for WSLg windows or PowerShell for Windows ones, and refuses terminals and agent windows.
+  Use `focus --id <id>` before selecting the field: extension actions can target background tabs,
+  while desktop typing needs the intended tab selected. Windows typing preserves field focus and
+  refuses a background window, missing payload, or rejected keyboard input.
 - `run -- <command>` lets the human approve the exact command and type a password on a page (sudo, ssh, gpg).
 - `pass <site>` is for steps only a human can do (CAPTCHA, passkey): browser and screen tools stay blocked
   until they hand it back.
