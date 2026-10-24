@@ -21,6 +21,7 @@ from portlink.models import Link, Target
 ROOT = Path(__file__).resolve().parents[2]
 SCALE = 3
 URL = "https://demo.example.ts.net:18000"
+DEMO_QR_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 link = Link("0" * 32, "demo", URL, Target("proxy", "http://127.0.0.1:3000"), 18000, 1, 901)
 output = io.StringIO()
 with contextlib.redirect_stdout(output), patch("portlink.cli.time.time", return_value=1):
@@ -37,7 +38,7 @@ for y, text in [(8, "$ portlink open 3000 --name demo --ttl 15m"),
     assert draw.textbbox((0, 0), text, font=face)[2] <= image.width
     draw.text((0, y * SCALE), text, font=face, fill="#dcdfe4")
 qr = io.BytesIO()
-segno.make_qr(URL).save(qr, kind="png", scale=3 * SCALE, border=4)
+segno.make_qr(DEMO_QR_URL).save(qr, kind="png", scale=3 * SCALE, border=4)
 qr.seek(0)
 with Image.open(qr) as code:
     assert code.height <= 145 * SCALE

@@ -12,7 +12,7 @@ README capture never needs a screenshot of a live session and never shows person
 | `baton_gif.py` | `baton.gif` | The real Baton page server, screenshotted by Chrome; `baton-toast.png` is a real capture of its toast |
 | `flow_gifs.py` | one GIF per diagram in `flows/*.svg` | The SVG itself, rendered by Chrome with a packet on every arrow |
 | `starship_prompt.py` | `../../starship/docs/prompt.svg` | `starship.toml` (palette, format, symbols) drawn with the terminal's Nerd Font; `uv run --with pillow python docs/tools/starship_prompt.py OUT.svg` |
-| `portlink_preview.py` | `../../portlink/docs/preview.svg` | Portlink's CLI output and a real QR, drawn with the terminal's Propo face; `uv run --project portlink --with pillow python docs/tools/portlink_preview.py` |
+| `portlink_preview.py` | `../../portlink/docs/preview.svg` | Portlink's CLI output and a demo QR, drawn with the terminal's Propo face; `uv run --project portlink --with pillow python docs/tools/portlink_preview.py` |
 | `statusline.py` | (library) | Runs `claude/.claude/statusline.py` with demo input and a fake clock, then draws its ANSI output |
 
 Run them from the repository root with `README_WORK=<scratch dir> uv run --with pillow python docs/tools/<script>`
