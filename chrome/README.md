@@ -135,12 +135,33 @@ Check the selected browser instance when both Windows and Linux Chrome are open.
 
 ## Visible agent tabs
 
-For connected extension sessions, keep the task's controlled tabs in a named
-group such as **🤖 Agent · Google Photos**, using a consistent warm color. Reuse
-the task's existing group instead of making duplicates. On handoff, label it
-**Review · Google Photos**. Keep unrelated tabs outside it, and use only group
-controls documented by the selected browser runtime. A normal URL launch does
-not provide group management or indicate an active automation connection.
+Select the browser instance for the intended OS/host and profile, and use its
+existing window. Reuse a suitable tab or open a new tab in that window. Create
+a window only if no suitable window is open or the user requests one.
+`browser.user.openTabs()` discovers user tabs; an empty `browser.tabs.list()`
+does not mean the user has no browser window open.
+
+Name the browser session and group its controlled tabs under a task label such
+as **🤖 Agent · Research**, using a consistent warm color. Include claimed user
+tabs: claiming an existing tab does not group it automatically. Use the selected
+browser's documented management capability, with IDs returned by that capability.
+Reuse groups created by this task, one per window; respect pinned/shared-group
+restrictions and leave unrelated tabs in place.
+
+Before borrowing a tab, record its original grouping and group appearance.
+On release, close disposable agent-created tabs, remove retained tabs from the
+agent group, and restore borrowed tabs' original grouping. Recreate an original
+group if moving its last tab removed it. Preserve useful results and pending
+handoffs with the browser's native deliverable/handoff controls; a pending
+handoff group can use **Review · Research**. Restore grouping only while the tab
+remains in this task's group, respecting later user changes.
+
+Use documented task-scoped release controls when available. Where the harness
+owns release at turn end, finalize tab preservation and grouping before that
+cleanup. Ungrouping alone does not confirm that control or its pointer was
+released. Keep shared MCP servers and other tasks' browser sessions running.
+The installed Chrome client documents `markDeliverable()` and `markHandoff()`
+for turn-end preservation; these do not themselves end browser control.
 
 To remove the compatibility path, remove the local `node_repl` MCP entry and only
 the Linux native-host manifest generated above. The app owns the Windows host;
