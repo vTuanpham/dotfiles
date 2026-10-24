@@ -142,6 +142,7 @@ does the linking). Every package README opens with its kind.
 | [gemini](gemini/README.md) | Live | Antigravity links to the shared instructions and skills |
 | [agent-bridge](agent-bridge/README.md), [agent-baton](agent-baton/README.md) | uv tool | Cross-harness jobs and human handoff CLIs; editable uv tools |
 | [agent-inbox](agent-inbox/README.md) | uv tool + user service | Phone chat for existing root conversations; editable uv tool |
+| [portlink](portlink/README.md) | uv tool | Private preview URLs, QR codes and automatic route expiry |
 | [systemd](systemd/README.md) | Live + reference | User units, reference timer and service PATH |
 | [chrome](chrome/README.md) | Live + manual | Global Chrome extensions; ChatGPT browser transport from WSL |
 | [github](github/README.md) | Live + manual | Native GitHub tools using the GitHub CLI credential store |

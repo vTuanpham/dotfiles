@@ -44,6 +44,7 @@ heredoc scripts; shell is for reading, searching, and running commands.
   docs over one-off notes/comments and link them from the relevant `AGENTS.md`.
 - Browser lifecycle (window reuse, visible task groups, preserving tabs and
   task-scoped release): follow `~/dotfiles/chrome/README.md#visible-agent-tabs`.
+- Remote preview links: `portlink --help` (`~/dotfiles/portlink/README.md`).
 - Put agent-created recovery backups under `${XDG_STATE_HOME:-$HOME/.local/state}/backups/<scope>/<timestamp>/`,
   outside repositories; scope can be a tool, project, system, or cross-tool change.
   Use owner-only permissions; record original paths and restore details for files,
