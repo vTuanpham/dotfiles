@@ -51,6 +51,15 @@ Local checks do not prove a live extension connection. Finish with browser
 discovery through the harness's native Chrome tools; no separate browser client
 or alternative control route is needed.
 
+After an app update, `doctor` can report that app and native-host runtime paths
+differ. If the registered executables were removed and the app's current
+executables exist, run `chatgpt-browser repair-runtime`, then repeat `doctor` and
+restart the `node_repl` MCP server. The explicit repair updates only those three
+executable paths, preserves browser access settings, and makes an owner-only
+recovery backup under the local state directory. It refuses to choose between
+two still-installed runtimes or use missing replacement files. Other native-host
+problems still require the app's Computer Use setup.
+
 **The desktop app's WSL browser integration is the product gap.** The inspected
 Windows app reports browser availability as `reason=wsl-disabled` when running
 the agent in WSL. This is an installed-build observation, not a published promise
@@ -112,6 +121,11 @@ compatibility path, not official WSL desktop integration or a policy override.
    actions use the official `js` tool and unchanged skill. During bootstrap,
    import the returned `client_url`: this runtime uses Windows paths, not WSL
    `/mnt/...` paths.
+
+   The client is under the **plugin root's** `scripts/`, not under the skill
+   directory. Use the reported `client_url`; a missing `scripts/` beside a linked
+   skill is not evidence that the installed runtime is missing. If MCP startup
+   failed, fix and restart `node_repl` before looking for its `js` tool.
 
 The adapter checks the app and host runtime paths agree and refuses extra runtime
 flags from app configuration. App upgrades can require repeating browser setup.

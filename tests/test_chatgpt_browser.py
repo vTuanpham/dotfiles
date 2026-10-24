@@ -110,6 +110,59 @@ class BrowserTests(unittest.TestCase):
             browser.register_linux(self.home, self.manifest)
         self.assertEqual(json.loads(destination.read_text()), changed)
 
+    def test_repairs_retired_paths_with_private_backup_and_preserves_access_settings(self):
+        self.host_config.update(
+            nodePath="C:/retired/node.exe", codexCliPath="C:/retired/codex.exe",
+            nodeReplPath="C:/retired/node_repl.exe", proxyHost="127.0.0.1", proxyPort=12345,
+        )
+        self.write_config()
+        destination = self.host.parent / "extension-host-config.json"
+        original = destination.read_bytes()
+        state = self.home / "state"
+        with patch.dict(os.environ, {"XDG_STATE_HOME": str(state)}), patch("builtins.print"):
+            browser.repair_runtime(self.home, self.manifest)
+            browser.load_setup(self.home, self.manifest)
+            browser.repair_runtime(self.home, self.manifest)
+        repaired = json.loads(destination.read_text())
+        self.assertEqual(repaired["nodeReplPath"], r"C:\runtime\node_repl.exe")
+        for field in set(self.host_config) - {"nodePath", "codexCliPath", "nodeReplPath"}:
+            self.assertEqual(repaired[field], self.host_config[field])
+        backups = list((state / "backups/chrome").iterdir())
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].stat().st_mode & 0o777, 0o700)
+        saved = backups[0] / "extension-host-config.json"
+        self.assertEqual(saved.read_bytes(), original)
+        self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
+
+    def test_refuses_ambiguous_existing_runtimes_and_missing_replacement(self):
+        self.host_config["nodeReplPath"] = "C:/older/node_repl.exe"
+        older = self.map_path(self.host_config["nodeReplPath"])
+        older.parent.mkdir()
+        older.touch()
+        self.write_config()
+        destination = self.host.parent / "extension-host-config.json"
+        before = destination.read_bytes()
+        with self.assertRaisesRegex(ValueError, "still exist"):
+            browser.repair_runtime(self.home, self.manifest)
+        self.assertEqual(destination.read_bytes(), before)
+        older.unlink()
+        self.map_path("C:/runtime/node_repl.exe").unlink()
+        with self.assertRaisesRegex(ValueError, "missing"):
+            browser.repair_runtime(self.home, self.manifest)
+        self.assertEqual(destination.read_bytes(), before)
+
+    def test_invalid_state_directories_use_the_home_state_directory(self):
+        for value in ("", ".", "relative/state"):
+            with self.subTest(value=value):
+                self.host_config["nodeReplPath"] = "C:/retired/node_repl.exe"
+                self.write_config()
+                with patch.dict(os.environ, {"XDG_STATE_HOME": value}), \
+                        patch.object(browser.Path, "home", return_value=self.home), \
+                        patch("builtins.print"):
+                    browser.repair_runtime(self.home, self.manifest)
+        backups = list((self.home / ".local/state/backups/chrome").iterdir())
+        self.assertEqual(len(backups), 3)
+
     def test_mcp_exec_keeps_protocol_context_and_does_not_attach_flags(self):
         setup = (self.host, self.map_path("C:/runtime/node_repl.exe"), {"BROWSER": "setting"}, {})
         with patch.object(browser, "discover", return_value=(self.home, self.manifest, setup)), \
