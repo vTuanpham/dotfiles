@@ -53,6 +53,49 @@ def record_root(job):
     save(owner / "root.json", {"at": stamp(), "harness": harness()})
 
 
+def root_identity():
+    backend = harness()
+    identifier = os.environ.get("CLAUDE_CODE_SESSION_ID" if backend == "claude" else "CODEX_THREAD_ID")
+    if backend == "unknown":
+        backend = os.environ.get("AGENT_BRIDGE_ROOT_HARNESS", "unknown")
+        identifier = os.environ.get("AGENT_BRIDGE_ROOT_SESSION")
+    if (backend not in BACKENDS or not identifier or len(identifier) > 200
+            or any(ord(c) < 32 for c in identifier)):
+        return None
+    return {"backend": backend, "session_id": identifier}
+
+
+def session_bindings():
+    """Export identity metadata only, never prompts, credentials or account settings."""
+    result = []
+    if not JOBS.is_dir():
+        return {"version": 1, "sessions": result}
+    keys = {"codex": "threadId", "claude": "sessionId", "opencode": "sessionId", "agy": "conversationId"}
+    for path in sorted(JOBS.glob("*/*/state.json")):
+        try:
+            if (path.is_symlink() or not path.resolve().is_relative_to(JOBS.resolve())
+                    or path.stat().st_size > 1048576):
+                continue
+            state = load_state(path.parent)
+            backend = state.get("backend")
+            identifier = state.get(keys.get(backend))
+            title = state.get("title", "")
+            parent = state.get("parent")
+            if (backend not in keys or type(identifier) is not str or not identifier or len(identifier) > 200
+                    or type(title) is not str or len(title) > 1000):
+                continue
+            if parent is not None and (type(parent) is not dict or set(parent) != {"backend", "session_id"}
+                    or parent["backend"] not in keys or type(parent["session_id"]) is not str
+                    or not parent["session_id"] or len(parent["session_id"]) > 200):
+                parent = None
+            result.append({"backend": backend, "session_id": identifier,
+                           "job": path.parent.parent.name + "/" + path.parent.name,
+                           "title": title, "parent": parent})
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    return {"version": 1, "sessions": result}
+
+
 def events(job):
     try:
         return [json.loads(line) for line in (Path(job) / "live.jsonl").read_text().splitlines()]
@@ -177,7 +220,7 @@ def main():
         os.environ.get(WORKER_FLAG)
         and len(sys.argv) > 1
         and not any(flag in sys.argv[1:] for flag in ("-h", "--help"))
-        and sys.argv[1] in {"start", "resume", "steer", "interrupt", "stop", "compact", "retire"}
+        and sys.argv[1] in {"start", "resume", "steer", "interrupt", "stop", "compact", "retire", "sessions"}
     ):
         print("agent-bridge: delegated workers can't drive agent-bridge jobs", file=sys.stderr)
         raise SystemExit(2)
@@ -192,6 +235,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = p.add_subparsers(dest="command", required=True)
+    sub.add_parser("sessions", help="export native job identities across owners as JSON (no transcript data)")
     s = sub.add_parser(
         "start",
         help="create a job and run its first turn",
@@ -312,6 +356,9 @@ def main():
     a = p.parse_args()
     runner_fd = None
     try:
+        if a.command == "sessions":
+            print(json.dumps(session_bindings()))
+            return
         if a.command == "stale":
             if a.accept:
                 reference.accept()
@@ -485,6 +532,7 @@ def main():
                 "sandbox": a.sandbox,
                 "writableRoots": roots,
                 "activeTurnId": None,
+                "parent": root_identity(),
             }
             if a.backend == "codex":
                 state.update(

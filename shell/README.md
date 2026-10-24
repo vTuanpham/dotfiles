@@ -1,6 +1,6 @@
 # shell
 
-[← Packages](../README.md#packages) · **Live** · `./install.sh --apply links` symlinks every file here into `$HOME`
+[← Packages](../README.md#packages) · **Live** · `./install.sh --apply links` links the startup files listed in the installer into `$HOME`
 
 Bash and Zsh startup.
 
@@ -11,6 +11,8 @@ Bash and Zsh startup.
 | `.config/shell/env.sh` | Shared environment and PATH for both shells; sources the private `~/.config/shell/secrets.local.sh` when it exists |
 | `.config/shell/aliases.sh` | Shared interactive shortcuts and Ranger's directory-return function |
 | `.cuda_paths` | CUDA paths, sourced by the environment file |
+
+<img src="docs/startup.svg" alt="Zsh reads .zshenv, then .zprofile for login shells and .zshrc for interactive shells. Bash reads .bash_profile, which reads .profile, which reads .bashrc for interactive shells. Login and interactive files read the shared env.sh, and interactive files also read aliases.sh." width="100%">
 
 ## Shortcuts
 

@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="960" height="372" viewBox="0 0 960 372" role="img" aria-labelledby="title desc">
+  <title id="title">How Agent Inbox connects a phone to existing sessions</title>
+  <desc id="desc">A paired phone browser reaches Agent Inbox through Tailscale Serve inside the tailnet. Agent Inbox talks to four existing connections: the Codex app-server, the Claude Code CLI history and an opt-in channel, the OpenCode v2 service, and saved sessions of an ACP agent such as Antigravity.</desc>
+  <!-- Vendor marks identify products and keep their owners' terms; see src/agent_inbox/assets/NOTICE.md. Messages-square mark: Lucide, ISC License. -->
+  <rect width="960" height="372" fill="#faf9f6"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#263733">
+    <text x="40" y="38" font-size="11" letter-spacing="2.4" fill="#68766f">HOW IT CONNECTS</text>
+    <text x="40" y="72" font-family="Georgia, serif" font-size="26">One private door to the sessions you already run</text>
+
+    <!-- Phone -->
+    <rect x="48" y="150" width="84" height="140" rx="16" fill="#0b0e13" stroke="#2a3342" stroke-width="2"/>
+    <rect x="60" y="166" width="60" height="9" rx="4.5" fill="#232b38"/>
+    <rect x="60" y="184" width="44" height="22" rx="8" fill="#1a2a2a"/>
+    <rect x="76" y="212" width="44" height="22" rx="8" fill="#1d2431"/>
+    <rect x="60" y="262" width="60" height="18" rx="9" fill="#232b38"/>
+    <circle cx="108" cy="271" r="6" fill="#7ee0bd"/>
+    <text x="90" y="318" font-size="15" font-weight="700" text-anchor="middle">Paired browser</text>
+    <text x="90" y="337" font-size="12.5" fill="#68766f" text-anchor="middle">each browser pairs separately</text>
+
+    <path d="M152 220H280" fill="none" stroke="#737f7c" stroke-width="1.5"/>
+    <path d="M154 215L146 220L154 225ZM278 215L286 220L278 225Z" fill="#737f7c"/>
+    <text x="216" y="200" font-size="13" font-weight="700" fill="#a35e43" text-anchor="middle">Tailscale Serve</text>
+    <text x="216" y="216" font-size="12" fill="#68766f" text-anchor="middle" dy="-0">HTTPS in the tailnet</text>
+    <text x="216" y="244" font-size="12" fill="#68766f" text-anchor="middle">one-use pairing code</text>
+
+    <!-- Agent Inbox -->
+    <rect x="300" y="110" width="240" height="220" rx="16" fill="#ffffff" stroke="#cfd6d2" stroke-width="1.5"/>
+    <g transform="translate(320 128) scale(1.4)" fill="none" stroke="#23786f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+      <path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/>
+    </g>
+    <text x="364" y="150" font-size="19" font-weight="700">Agent Inbox</text>
+    <text x="320" y="186" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" fill="#68766f">127.0.0.1:8766</text>
+    <path d="M320 200H520" stroke="#e3e7e4"/>
+    <circle cx="326" cy="224" r="3.5" fill="#23786f"/><text x="340" y="228" font-size="13">Chat, commands, forms, images</text>
+    <circle cx="326" cy="250" r="3.5" fill="#23786f"/><text x="340" y="254" font-size="13">A delivery receipt for every send</text>
+    <circle cx="326" cy="276" r="3.5" fill="#23786f"/><text x="340" y="280" font-size="13">Root discovery every ten seconds</text>
+    <text x="320" y="306" font-size="12" fill="#68766f">Native history is never</text>
+    <text x="320" y="321" font-size="12" fill="#68766f">archived or deleted</text>
+
+    <!-- Connections -->
+    <path d="M540 220C564 220 564 121 590 121" fill="none" stroke="#737f7c" stroke-width="1.5"/>
+    <path d="M540 220C564 220 564 187 590 187" fill="none" stroke="#737f7c" stroke-width="1.5"/>
+    <path d="M540 220C564 220 564 253 590 253" fill="none" stroke="#737f7c" stroke-width="1.5"/>
+    <path d="M540 220C564 220 564 319 590 319" fill="none" stroke="#737f7c" stroke-width="1.5"/>
+    <path d="M590 116L598 121L590 126ZM590 182L598 187L590 192ZM590 248L598 253L590 258ZM590 314L598 319L590 324Z" fill="#737f7c"/>
+
+    <rect x="600" y="92" width="330" height="58" rx="12" fill="#ffffff" stroke="#cfd6d2" stroke-width="1.5"/>
+    <rect x="612" y="101" width="40" height="40" rx="11" fill="#ffffff" stroke="#c6cdd8"/>
+    <g transform="translate(619.5 108.5) scale(1.04)"><path d="M13.795 23.856q-1.188 0-2.256-.448a6.1 6.1 0 0 1-1.9-1.247 5.8 5.8 0 0 1-1.875.306 5.8 5.8 0 0 1-2.944-.777 6.1 6.1 0 0 1-2.184-2.12q-.807-1.34-.808-2.99 0-.682.19-1.482a6.3 6.3 0 0 1-1.472-2.002 5.76 5.76 0 0 1 .024-4.85q.546-1.177 1.52-2.024a5.5 5.5 0 0 1 2.303-1.2A5.55 5.55 0 0 1 5.485 2.62 6.06 6.06 0 0 1 7.575.925 5.85 5.85 0 0 1 10.21.313q1.187 0 2.255.447a6.1 6.1 0 0 1 1.9 1.248 5.8 5.8 0 0 1 1.875-.306q1.59 0 2.944.776a5.9 5.9 0 0 1 2.16 2.12q.832 1.34.832 2.99 0 .682-.19 1.483a6.2 6.2 0 0 1 1.472 2.024q.522 1.13.522 2.378 0 1.272-.546 2.449a6.1 6.1 0 0 1-1.543 2.048 5.45 5.45 0 0 1-2.28 1.177 5.4 5.4 0 0 1-1.115 2.402 5.8 5.8 0 0 1-2.066 1.695 5.85 5.85 0 0 1-2.635.612M7.93 20.913q1.188 0 2.066-.495l4.463-2.542a.52.52 0 0 0 .238-.448v-2.024L8.95 18.676a.97.97 0 0 1-1.044 0L3.419 16.11a.7.7 0 0 1-.024.165v.282q0 1.201.57 2.213.594.99 1.639 1.554 1.044.59 2.326.589m.238-3.838q.143.07.26.07a.46.46 0 0 0 .238-.07l1.781-1.012-5.722-3.296q-.522-.306-.522-.918v-5.11a4.27 4.27 0 0 0-1.9 1.602 4.13 4.13 0 0 0-.712 2.354q0 1.155.594 2.213.593 1.06 1.543 1.601zm5.627 5.227q1.258 0 2.279-.565a4.25 4.25 0 0 0 1.614-1.554q.594-.99.594-2.213v-5.085q0-.283-.237-.424l-1.805-1.036v6.568q0 .613-.522.919l-4.487 2.566q1.163.825 2.564.824m.902-8.617v-3.202l-2.683-1.507-2.707 1.507v3.202l2.707 1.507zm-6.933-7.51q0-.612.522-.918l4.488-2.567a4.34 4.34 0 0 0-2.564-.824q-1.26 0-2.28.565a4.25 4.25 0 0 0-1.614 1.554q-.57.99-.57 2.213v5.062q0 .283.237.447l1.781 1.036zm12.061 11.253a4.13 4.13 0 0 0 1.876-1.6 4.2 4.2 0 0 0 .712-2.355q0-1.154-.593-2.213-.594-1.06-1.544-1.6l-4.44-2.543q-.142-.095-.26-.071a.46.46 0 0 0-.238.07l-1.78.99 5.745 3.319q.26.141.38.377a.9.9 0 0 1 .142.518zm-4.772-11.96q.522-.33 1.045 0l4.51 2.614v-.424q0-1.13-.57-2.142a4.1 4.1 0 0 0-1.59-1.648q-1.02-.613-2.374-.613-1.187 0-2.066.495L9.545 6.292a.52.52 0 0 0-.238.448v2.025z" fill="#000000"/></g>
+    <text x="664" y="118" font-size="15" font-weight="700">Codex</text>
+    <text x="664" y="137" font-size="12.5" fill="#68766f">app-server · history, steer, queue</text>
+
+    <rect x="600" y="158" width="330" height="58" rx="12" fill="#ffffff" stroke="#cfd6d2" stroke-width="1.5"/>
+    <rect x="612" y="167" width="40" height="40" rx="11" fill="#f5f0e8" stroke="#c6cdd8"/>
+    <g transform="translate(619.5 174.5) scale(1.04)"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 0 1-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z" fill="#D97757" fill-rule="nonzero"/></g>
+    <text x="664" y="184" font-size="15" font-weight="700">Claude Code</text>
+    <text x="664" y="203" font-size="12.5" fill="#68766f">CLI history · opt-in channel replies</text>
+
+    <rect x="600" y="224" width="330" height="58" rx="12" fill="#ffffff" stroke="#cfd6d2" stroke-width="1.5"/>
+    <rect x="612" y="233" width="40" height="40" rx="11.2" fill="#131010"/>
+    <path d="M637 250.5V260.5H627V250.5Z" fill="#5A5858"/>
+    <path fill-rule="evenodd" d="M642 265.5H622V240.5H642ZM637 245.5H627V260.5H637Z" fill="#ffffff"/>
+    <text x="664" y="250" font-size="15" font-weight="700">OpenCode</text>
+    <text x="664" y="269" font-size="12.5" fill="#68766f">v2 service · history, prompts, forms</text>
+
+    <rect x="600" y="290" width="330" height="58" rx="12" fill="#ffffff" stroke="#cfd6d2" stroke-width="1.5"/>
+    <image x="612" y="299" width="40" height="40" xlink:href="data:image/png;base64,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"/>
+    <text x="664" y="316" font-size="15" font-weight="700">Antigravity / ACP</text>
+    <text x="664" y="335" font-size="12.5" fill="#68766f">saved ACP sessions · no approvals</text>
+
+  </g>
+</svg>

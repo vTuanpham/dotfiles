@@ -41,13 +41,19 @@ def payload(now, tick):
             "five_hour": {"used_percentage": 41, "resets_at": now + 2 * 3600 + 13 * 60},
             "seven_day": {"used_percentage": 23, "resets_at": now + 3 * 86400 + 5 * 3600},
         },
-        "cost": {"total_cost_usd": 4.62, "total_duration_ms": 47 * 60_000, "total_lines_added": 312, "total_lines_removed": 58},
+        "cost": {"total_cost_usd": 4.62, "total_duration_ms": 47 * 60_000,
+                 "total_lines_added": 312, "total_lines_removed": 58},
     }
 
 
-def font(bold):
-    name = f"SauceCodeProNerdFontMono-{'Bold' if bold else 'Regular'}.ttf"
-    folders = [os.environ.get("NERD_FONT_DIR", ""), *glob.glob("/mnt/c/Users/*/AppData/Local/Microsoft/Windows/Fonts")]
+def font(bold, name=None):
+    """The Mono face by default; `name` asks for another exact file (starship_prompt.py)."""
+    name = name or f"SauceCodeProNerdFontMono-{'Bold' if bold else 'Regular'}.ttf"
+    folders = [
+        os.environ.get("NERD_FONT_DIR", ""),
+        "/mnt/c/Windows/Fonts",
+        *glob.glob("/mnt/c/Users/*/AppData/Local/Microsoft/Windows/Fonts"),
+    ]
     for folder in folders:
         if folder and (Path(folder) / name).is_file():
             return str(Path(folder) / name)
@@ -78,7 +84,8 @@ class Typeface:
 
     def __init__(self, size):
         self.fonts = {b: ImageFont.truetype(font(b), size) for b in (False, True)}
-        self.spare = {b: ImageFont.truetype(FALLBACK.format("-Bold" if b else ""), size) for b in (False, True)}
+        self.spare = {b: ImageFont.truetype(FALLBACK.format("-Bold" if b else ""), size)
+                      for b in (False, True)}
         ascent, descent = self.fonts[False].getmetrics()
         self.cw, self.ch = round(self.fonts[False].getlength("M")), ascent + descent
         self.absent = self.ink(self.fonts[False], "\U0010fffe")  # what a missing glyph draws

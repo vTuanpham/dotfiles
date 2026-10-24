@@ -12,4 +12,6 @@
   video with the Windows default application (needs `powershell.exe` and `wslpath`).
 - `tests/test_wsl_media.py`: the plugin's check, run with `python3 -B ranger/.config/ranger/tests/test_wsl_media.py`.
 
+<img src="docs/media.svg" alt="When Ranger starts in WSL, images preview inline through kitten icat if the terminal is Ghostty outside tmux, and images, audio and video open in the Windows default app through PowerShell if powershell.exe is installed. Other files keep Ranger's normal rules." width="100%">
+
 Needs Ranger, `kitten` and ImageMagick; restart Ranger after changing a plugin.

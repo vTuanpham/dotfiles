@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" role="img" aria-labelledby="title desc">
+  <title id="title">Ranger media previews and opening in WSL</title>
+  <desc id="desc">When Ranger starts in WSL, the plugin checks two things. If the terminal is Ghostty outside tmux and kitten is installed, images preview inline through kitten icat. If powershell.exe is installed, images, audio and video open with the Windows default application through wslpath and PowerShell Start-Process. Other files keep Ranger's normal rules, and outside WSL nothing changes.</desc>
+  <rect width="960" height="360" fill="#faf9f6"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#263733">
+    <text x="40" y="38" font-size="11" letter-spacing="2.4" fill="#68766f">RANGER</text>
+    <text x="40" y="72" font-family="Georgia, serif" font-size="26">Media previews and opening in WSL</text>
+
+    <rect x="40" y="168" width="116" height="56" rx="10" fill="#ffffff" stroke="#cfd6d2" stroke-width="1.5"/>
+    <text x="98" y="193" font-size="14" font-weight="700" text-anchor="middle">Ranger starts</text>
+    <text x="98" y="211" font-size="12" fill="#68766f" text-anchor="middle">wsl_media plugin</text>
+    <path d="M156 196H172" stroke="#737f7c" stroke-width="1.5"/><path d="M172 191.5L180 196L172 200.5Z" fill="#737f7c"/>
+    <rect x="182" y="168" width="178" height="56" rx="10" fill="#ffffff" stroke="#a35e43" stroke-width="1.5"/>
+    <text x="271" y="193" font-size="14" font-weight="700" fill="#a35e43" text-anchor="middle">Running in WSL?</text>
+    <text x="271" y="211" font-size="12" fill="#68766f" text-anchor="middle">WSL_DISTRO_NAME is set</text>
+    <path d="M271 224V270" stroke="#737f7c" stroke-width="1.5"/><path d="M266.5 270L271 278L275.5 270Z" fill="#737f7c"/>
+    <text x="281" y="252" font-size="11.5" fill="#68766f">no</text>
+    <text x="271" y="298" font-size="13" text-anchor="middle">Ranger is unchanged</text>
+
+    <path d="M360 196H374V112H382M374 196V272H382" fill="none" stroke="#737f7c" stroke-width="1.5"/>
+    <path d="M382 107.5L390 112L382 116.5ZM382 267.5L390 272L382 276.5Z" fill="#737f7c"/>
+    <text x="366" y="150" font-size="11.5" fill="#68766f" text-anchor="end">yes</text>
+
+    <!-- Preview lane -->
+    <rect x="392" y="86" width="226" height="52" rx="10" fill="#ffffff" stroke="#cfd6d2" stroke-width="1.5"/>
+    <text x="408" y="108" font-size="13" font-weight="700">Ghostty, outside tmux,</text>
+    <text x="408" y="126" font-size="13" font-weight="700">with kitten installed?</text>
+    <path d="M618 112H652" stroke="#737f7c" stroke-width="1.5"/><path d="M652 107.5L660 112L652 116.5Z" fill="#737f7c"/>
+    <text x="640" y="104" font-size="11.5" fill="#68766f" text-anchor="middle">yes</text>
+    <rect x="662" y="86" width="274" height="52" rx="10" fill="#e9f2ef" stroke="#23786f" stroke-width="1.5"/>
+    <text x="678" y="108" font-size="13" font-weight="700" fill="#23786f">Inline image previews</text>
+    <text x="678" y="126" font-size="12" fill="#68766f">kitten icat streams into the preview pane</text>
+    <text x="392" y="160" font-size="12" fill="#68766f">Otherwise Ranger's preview setting stays as it is.</text>
+
+    <!-- Open lane -->
+    <rect x="392" y="246" width="226" height="52" rx="10" fill="#ffffff" stroke="#cfd6d2" stroke-width="1.5"/>
+    <text x="408" y="268" font-size="13" font-weight="700">powershell.exe</text>
+    <text x="408" y="286" font-size="13" font-weight="700">on PATH?</text>
+    <path d="M618 272H652" stroke="#737f7c" stroke-width="1.5"/><path d="M652 267.5L660 272L652 276.5Z" fill="#737f7c"/>
+    <text x="640" y="264" font-size="11.5" fill="#68766f" text-anchor="middle">yes</text>
+    <rect x="662" y="238" width="274" height="68" rx="10" fill="#e9f2ef" stroke="#23786f" stroke-width="1.5"/>
+    <text x="678" y="260" font-size="13" font-weight="700" fill="#23786f">Image, audio and video open</text>
+    <text x="678" y="278" font-size="12" fill="#68766f">in the Windows default app: wslpath -w,</text>
+    <text x="678" y="294" font-size="12" fill="#68766f">then PowerShell Start-Process</text>
+    <text x="392" y="330" font-size="12" fill="#68766f">Other files keep Ranger's normal rules, such as the editor.</text>
+  </g>
+</svg>

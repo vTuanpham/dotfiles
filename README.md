@@ -36,12 +36,19 @@ question for you, passed tests (fireworks), a failed command (storm), a finished
 
 [Scene behavior and commands](claude/README.md#landscapes-and-session-state).
 
+### Shared shell prompt
+
+<img src="starship/docs/prompt.svg" alt="Starship's Gruvbox prompt shows shell, directory, Git, language and time segments, with green and red command-status chevrons." width="100%">
+
+[Starship configuration and prompt segments](starship/README.md).
+
 ## Agent tools
 
 ![Agent Baton carries questions between you and the root; Agent Bridge carries work between the root and workers. Wake observes the session and its workers in Claude Code. Shared instructions apply across harnesses.](docs/images/agent-tools.gif)
 
 - **[Agent Bridge](agent-bridge/README.md)**: persistent jobs, live steering, resource limits.
 - **[Agent Baton](agent-baton/README.md)**: questions, choices and private secret handoffs.
+- **[Agent Inbox](agent-inbox/README.md)**: your existing root conversations, chat and questions, on your phone.
 - **[Wake](claude/README.md#wake-mod-live)**: the Claude-only landscape, crew and quota rows shown above.
 - **[Shared instructions](agents/README.md)**: one `AGENTS.md` plus the Bridge and Baton briefings.
 
@@ -59,6 +66,13 @@ The real toast and page, with an example site and fake values. Baton also sends 
 urgent phone push; the same form opens over Tailscale. Replies return to their
 originating session. [Phone setup](agent-baton/README.md#phone-alerts-and-remote-handoff)
 · [Question types and reminders](agent-baton/README.md#unanswered-questions).
+
+### Your sessions on your phone
+
+<img src="agent-inbox/docs/hero.svg" alt="Agent Inbox drawn on a phone in three scenes: chat with folded tool steps and an inline image, a slash menu of native commands, and a question form with attached images." width="100%">
+
+[Agent Inbox](agent-inbox/README.md) shows the root conversations already running on your
+machine. [Connections, pairing and delivery](agent-inbox/README.md#connect-a-harness).
 
 ### Plugin: ponytail
 
@@ -127,6 +141,7 @@ does the linking). Every package README opens with its kind.
 | [opencode](opencode/README.md) | Snapshot + live | Interface preferences and the shared-instructions link |
 | [gemini](gemini/README.md) | Live | Antigravity links to the shared instructions and skills |
 | [agent-bridge](agent-bridge/README.md), [agent-baton](agent-baton/README.md) | uv tool | Cross-harness jobs and human handoff CLIs; editable uv tools |
+| [agent-inbox](agent-inbox/README.md) | uv tool + user service | Phone chat for existing root conversations; editable uv tool |
 | [systemd](systemd/README.md) | Live + reference | User units, reference timer and service PATH |
 | [chrome](chrome/README.md) | Live + manual | Global Chrome extensions; ChatGPT browser transport from WSL |
 | [github](github/README.md) | Live + manual | Native GitHub tools using the GitHub CLI credential store |
@@ -154,7 +169,7 @@ python3 -B tests/test_shell_startup.py
 ```
 
 The installer checks use a throwaway home. See [tests](tests/README.md) for scope,
-[Ranger](ranger/README.md) for its media check, and the two CLI READMEs for their
+[Ranger](ranger/README.md) for its media check, and the tool READMEs for their
 `uv run pytest` suites. Restore only the steps you need, keep private backups
 outside the checkout, and resolve conflicts deliberately: `install.sh` never
 overwrites a file that differs.
@@ -164,3 +179,4 @@ overwrites a file that differs.
 Original files: [MIT](LICENSE). Third-party parts keep their own licenses:
 Ghostty's Zsh integration (`ghostty/`, GPL-3.0), ranger-devicons (`ranger/`, with the
 Nerd Fonts notice), and the LazyVim starter (`nvim/.config/nvim/LICENSE`, Apache-2.0).
+[Harness marks](agent-inbox/src/agent_inbox/assets/NOTICE.md) keep their owners' terms.

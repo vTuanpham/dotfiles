@@ -50,6 +50,10 @@ heredoc scripts; shell is for reading, searching, and running commands.
 ## Communication and verification
 
 - Result first; use short concrete prose. Lists/tables only when they clarify.
+- Product UI: let layout, visuals, familiar controls and meaningful motion carry
+  the explanation. Add text only when it helps users act, understand state or
+  make a decision; omit filler and repeated helper copy. Keep necessary labels,
+  errors, consent and accessible alternatives.
 - Root/coordinator only: ask ordinary questions through the harness's native
   question tool first, preferring its nonblocking variant (chat if unavailable).
   While the root can keep working, escalate an unanswered question after about

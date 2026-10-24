@@ -81,6 +81,8 @@ Neither launching Chrome nor opening a URL proves extension control works.
 | Windows Chrome → runtime | App-installed native host |
 | Linux Chrome → runtime | `chatgpt-browser` native-messaging adapter |
 
+<img src="docs/routes.svg" alt="Codex in WSL starts chatgpt-browser mcp, which launches the Windows app's browser runtime. Linux Chrome starts chatgpt-browser as a native-messaging adapter, which launches the app's native host. Windows Chrome reaches the same native host directly." width="100%">
+
 Requirements: WSL interoperability, Python 3.11+, `wslpath`, Windows PowerShell,
 and the Windows ChatGPT app with its Chrome plugin and native host installed.
 Account/workspace access and site permissions still apply. This is a local

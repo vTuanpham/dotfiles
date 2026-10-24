@@ -7,6 +7,14 @@ the other harnesses: start a job from a written brief, watch it live, steer or i
 then retire it. Jobs persist under `~/.local/state/agent-bridge`, so another root can resume or take over, and
 workers can message each other.
 
+`agent-bridge sessions` exports a versioned JSON inventory of native worker IDs
+across all owners and backends, for tools such as [Agent Inbox](../agent-inbox/README.md).
+It contains job identity and recorded launcher metadata, never prompts, credentials
+or account settings. New jobs record a parent when the root exposes its native
+session ID. Other harnesses can supply `AGENT_BRIDGE_ROOT_HARNESS` and
+`AGENT_BRIDGE_ROOT_SESSION` for that invocation; older jobs keep an unspecified
+parent rather than guessing one. Workers cannot export other owners' inventory.
+
 ![The root briefs workers across four harnesses, then reads their persistent job state to handle blockers and verify results.](../docs/images/agent-bridge-flow.gif)
 
 In Claude Code, [Wake](../claude/README.md#crew-and-quota-rows) draws these jobs as crew, with

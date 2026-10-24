@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="color-scheme" content="light dark">
+  <title>Agent Inbox</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <script src="/kit.js" defer></script>
+  <script src="/controls.js" defer></script>
+  <script src="/context.js" defer></script>
+  <script src="/forms.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main id="pairing" hidden>
+    <section class="pair-card">
+      <img class="logo" src="/mark.svg" alt="" width="40" height="40">
+      <h1>Connect your device</h1>
+      <form id="pair-form">
+        <label for="pair-code">Pairing code</label>
+        <input id="pair-code" required autocomplete="one-time-code" maxlength="10" spellcheck="false" autocapitalize="characters">
+        <label for="device-name">Device name</label>
+        <input id="device-name" value="My phone" required maxlength="60" autocomplete="off">
+        <button type="submit" class="primary">Connect this device</button>
+      </form>
+      <p id="pair-error" role="alert"></p>
+      <small>On your computer, run <code>agent-inbox pair</code>. Codes expire after five minutes.</small>
+    </section>
+  </main>
+
+  <div id="inbox" class="shell" hidden>
+    <nav id="sessions" class="sessions sheet" aria-label="Conversations">
+      <div class="sessions-head">
+        <img class="logo" src="/mark.svg" alt="" width="26" height="26"><strong>Agent Inbox</strong>
+        <button id="sessions-close" class="icon-btn only-narrow" type="button" aria-label="Close conversation list"></button>
+      </div>
+      <div class="session-search"><label class="sr-only" for="session-search">Search conversations</label>
+        <input id="session-search" type="search" placeholder="Search conversations" autocomplete="off">
+      </div>
+      <div id="roots" class="roots"></div>
+      <details id="saved-sessions" class="saved-sessions" hidden>
+        <summary id="saved-count">Saved conversations</summary>
+        <div id="saved-roots" class="roots"></div>
+      </details>
+      <p id="roots-empty" class="muted" hidden>No online sessions.</p>
+    </nav>
+    <div id="scrim" class="scrim" hidden></div>
+
+    <section class="conversation" aria-label="Selected conversation">
+      <header class="topbar">
+        <button id="switcher" class="icon-btn only-narrow" type="button" aria-controls="sessions" aria-expanded="false" aria-label="Switch conversation"></button>
+        <span id="root-mark" class="mark-slot"></span>
+        <div class="head-text">
+          <h1 id="root-title">Choose a conversation</h1>
+          <p><span id="root-detail"></span><span id="connection" role="status">Connecting</span></p>
+        </div>
+        <span id="state" class="badge" role="status"></span>
+        <button id="theme-toggle" class="icon-btn" type="button" aria-label="Theme: system" title="Theme: system"></button>
+        <a id="native" class="icon-btn" target="_blank" rel="noopener noreferrer" aria-label="Open native conversation" title="Open native conversation" hidden></a>
+        <button id="details-toggle" class="icon-btn" type="button" aria-controls="details" aria-expanded="false" aria-label="Session details" title="Session details" disabled></button>
+      </header>
+
+      <div id="thread" class="thread" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions" tabindex="0">
+        <button id="older" class="quiet" type="button" hidden>Load earlier messages</button>
+        <div id="messages" class="messages"></div>
+        <div id="forms" class="forms"></div>
+      </div>
+      <button id="latest" class="latest" type="button" aria-label="Jump to latest message" hidden></button>
+
+      <form id="compose" class="composer" autocomplete="off">
+        <div id="command-notice" class="notice" role="status" hidden>
+          <span id="command-status"></span>
+          <button id="command-check" class="quiet" type="button" hidden>Check delivery</button>
+          <button id="command-clear" class="quiet" type="button" hidden>Checked natively, clear receipt</button>
+        </div>
+        <div id="receipt" class="notice" hidden>
+          <button id="check" class="quiet" type="button" hidden>Check previous delivery</button>
+          <button id="resolve" class="quiet" type="button" hidden>Checked natively, clear receipt</button>
+        </div>
+        <div id="attachments" class="thumbs" aria-label="Images to send"></div>
+        <label class="sr-only" for="message">Message the selected conversation</label>
+        <textarea id="message" rows="1" maxlength="16384" placeholder="Message… or type / for commands" enterkeyhint="enter" aria-controls="command-menu" aria-autocomplete="list" aria-expanded="false" disabled></textarea>
+        <div class="toolbar">
+          <label id="attach" class="icon-btn attach" for="image-file" title="Attach images (4 max, 8 MiB)">
+            <span class="sr-only">Attach images, 4 max, 8 MiB</span>
+          </label>
+          <input id="image-file" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple disabled>
+          <div id="command-chips" class="chips" role="group" aria-label="Native session settings"></div>
+          <button id="command-menu-button" class="chip more" type="button" aria-expanded="false" aria-controls="command-menu" hidden>Commands</button>
+          <button id="send" class="send" type="submit" aria-label="Send" disabled></button>
+        </div>
+        <div id="command-menu" class="menu" role="listbox" tabindex="-1" aria-label="Native commands" hidden></div>
+        <p id="delivery" role="status"></p>
+      </form>
+    </section>
+
+    <aside id="details" class="sheet details" aria-label="Session details">
+      <header>
+        <h2>Details</h2>
+        <button id="details-close" class="icon-btn" type="button" aria-label="Close details" data-autofocus></button>
+      </header>
+      <div id="details-body"></div>
+    </aside>
+  </div>
+</body>
+</html>

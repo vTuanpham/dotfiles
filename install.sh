@@ -54,7 +54,7 @@ step_tools() {
 step_uvtools() {
   if ! have uv; then say "  uv is missing: run the tools step first"; return 0; fi
   local tool
-  for tool in agent-bridge agent-baton; do
+  for tool in agent-bridge agent-baton agent-inbox; do
     if uv tool list 2>/dev/null | grep -q "^$tool "; then say "  $tool installed"; else act uv tool install --editable "$REPO/$tool"; fi
   done
 }
