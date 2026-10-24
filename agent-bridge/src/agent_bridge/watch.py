@@ -87,6 +87,7 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
                 elif quiet > stall_min * 60 and job not in stalled:  # once per silence
                     stalled.add(job)
                     print(f"{label}: silent for {quiet // 60}m while running (stalled?)", flush=True)
+                    urgent = True  # A hung model stream looks exactly like this; root must look.
                 elif quiet <= stall_min * 60:
                     stalled.discard(job)
             else:

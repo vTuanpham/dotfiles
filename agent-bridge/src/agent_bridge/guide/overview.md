@@ -23,7 +23,7 @@ The free-tier zero-retention list lives in code (`ZDR_FREE` in `opencode.py`); c
 - Every job runs in a systemd user scope inside `codex.slice`, with per-job memory/CPU caps configured by `CODEX_JOB_MEMORY_MAX` and `CODEX_JOB_CPU_QUOTA`. Check available memory, CPU and the effective slice limits before choosing concurrency; do not assume a particular host size. A runaway worker is OOM-killed in its scope. Brief data-heavy agents to stream or chunk.
 
 ## Watch and wait
-- Which events are urgent: an agent message starting `URGENT:`, questions, errors, declined approvals or denials, and turn completion. Everything else is info and stays in `live.jsonl` (`grep '"kind":"message"' <job>/live.jsonl`).
+- Which events are urgent: an agent message starting `URGENT:`, questions, errors, declined approvals or denials, turn completion, and a running job going silent past `--stall-min` (default 15 minutes; once per silence). A silent turn with an idle worker process usually means a hung model stream: interrupt it and `resume` the same job. Everything else is info and stays in `live.jsonl` (`grep '"kind":"message"' <job>/live.jsonl`).
 - The runner injects the URGENT/info rule into every worker, so briefs needn't repeat it.
 - Watch covers the selected owner directories and picks up new jobs while it runs.
 - Launch with `start ... --watch` (or `resume ... --watch`) as a background command of your harness. It starts the worker detached, prints the job path, then stays until the first urgent event, so one command covers the job and no event is missed: reading begins at the log size from before the launch. `--watch SECONDS` (default 1800) bounds it; exit 124 means the time passed and the worker still runs. Keep bridge calls plain so harness allow rules match them.

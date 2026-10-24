@@ -64,6 +64,18 @@ def test_resumed_job_gets_a_fresh_stall_clock(monkeypatch, tmp_path, capsys):
     assert "stalled?" not in output
 
 
+def test_new_stall_wakes_an_until_event_watch(monkeypatch, tmp_path, capsys):
+    root, job = setup_job(tmp_path)
+    os.utime(job / "live.jsonl", (0, 0))
+    monkeypatch.setattr(watcher, "JOBS", root)
+    monkeypatch.setattr(watcher, "running", lambda state: True)
+    times = iter([1000, 1200])
+    monkeypatch.setattr(watcher.time, "time", lambda: next(times, 1200))
+    monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
+    assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=10_000) is True
+    assert "silent for 3m while running (stalled?)" in capsys.readouterr().out
+
+
 def test_root_wait_is_shown_without_a_stall_warning(monkeypatch, tmp_path, capsys):
     root, job = setup_job(tmp_path)
     (job / "live.jsonl").write_text('{"kind":"root_wait","level":"info","minutes":20}\n')
