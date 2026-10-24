@@ -27,16 +27,16 @@ The free-tier zero-retention list lives in code (`ZDR_FREE` in `opencode.py`); c
 - The runner injects the URGENT/info rule into every worker, so briefs needn't repeat it.
 - Watch covers the selected owner directories and picks up new jobs while it runs.
 - Launch with `start ... --watch` (or `resume ... --watch`) as a background command of your harness. It starts the worker detached, prints the job path, then stays until the first urgent event, so one command covers the job and no event is missed: reading begins at the log size from before the launch. `--watch SECONDS` (default 1800) bounds it; exit 124 means the time passed and the worker still runs. Keep bridge calls plain so harness allow rules match them.
-- Handle the event, timeout or interrupted watch, then re-arm while jobs still run: `agent-bridge watch <owner> --until-event --timeout 1800` in a background terminal (it also covers several jobs or owners). A bare watch tails existing logs from their end, so arm it first, then check the jobs' results and `live.jsonl` for unhandled urgent events.
+- Handle the event, timeout or interrupted watch, then check job state. Re-arm only if at least one job is running: `agent-bridge watch <owner> --until-event --timeout 1800` in a background terminal (it also covers several jobs or owners). Do not watch an owner with no running jobs. A bare watch tails existing logs from their end; after confirming running work and arming it, check the jobs' results and `live.jsonl` for unhandled urgent events.
 - Native harness triggers may replace the watch where they cover the relevant events: Claude Code can launch `start` without `--detach` as a background command for its exit notification.
 - Keep doing your own work while workers run; prefer background waits. If one runs longer than its task warrants or goes quiet, read `tail <job>/live.jsonl` and `<backend>.stderr.log` early, then steer it, stop it, or take over.
 - If a blocking wait is necessary, use a timeout of at least 180 seconds, subject to harness limits. Tool yield intervals are separate from command timeouts. Avoid foreground sleeps and short polling; a `pgrep -f` or `pkill -f` pattern can match the waiting shell itself.
 
 ## Steer, resume, peers
-- **Steer**: queues a message; delivery during a turn depends on the backend. For an idle job, `agent-bridge resume <owner>/<name>` delivers the queued message and starts a turn.
+- **Steer**: use for a running target; delivery during its turn depends on the backend. If the turn has finished, use `agent-bridge resume <owner>/<name>` on the same job for the follow-up. Steering an idle job only queues a message; neither steering nor watching starts a turn. Resume delivers queued messages and starts it.
 - **Interrupt and stop**: interrupt ends the current turn; stop ends the runner.
 - **Resume**: keeps the same session and sandbox. For writes after a read-only audit, start a fresh workspace-write job; never edit `state.json`.
-- **Peers**: workers under the same owner message each other. An agent message starting `TO <job>[, <job>]: ` is delivered as a steer into that job. Name peers and their file ownership in each brief, so cross-area requests go worker-to-worker. There is no `TO root`: workers reach root only with `URGENT:`.
+- **Peers**: workers under the same owner message each other. An agent message starting `TO <job>[, <job>]: ` is delivered as a steer into that job. Name peers and their file ownership in each brief, so cross-area requests go worker-to-worker. Plain messages already reach root as info; `TO root`, `TO coordinator` or `TO <owner>` are treated the same way, not as unknown peers. A worker that needs root to act now starts its message with `URGENT:`.
 - **Takeover**: watch, steer or resume another owner's jobs only when the user asks; find them with `owners` and use the full `<owner>/<name>`.
 - **Reporting**: brief agents to message only for blockers, questions, concrete checkpoints (edits done plus check results) and the final report. Relay to the user only those checkpoints and the final results.
 
@@ -58,7 +58,8 @@ The free-tier zero-retention list lives in code (`ZDR_FREE` in `opencode.py`); c
 - Merge the reviewed branches, then remove the worktrees. Cap concurrent test-running writers to what the host can take; read-only reviewers are light.
 
 ## Cleanup (root's job, never the user's)
-- Once a job's result is merged or discarded:
+- Keep jobs available for related follow-ups, verification and review. Retire only when the work is resolved and you are confident its context is no longer needed; a completed turn, saved report or merged result alone is not enough.
+- Once that condition holds:
   1. Remove its worktree (`git worktree remove`, no `--force`).
   2. Run `agent-bridge retire <owner>/<name>` to archive its prompt and final report, then delete the job dir.
-- At the end of a session, tidy finished jobs older than 3 days the same way. List a dirty worktree or anything still running for the user's OK; never delete it.
+- At the end of a session, review finished jobs older than 3 days and tidy only those that meet the same condition; age alone is not a reason to retire. List a dirty worktree or anything still running for the user's OK; never delete it.

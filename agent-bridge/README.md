@@ -3,9 +3,11 @@
 [← Packages](../README.md#packages) · **uv tool** (editable) · [Install](#install) · [When a worker needs you](#when-a-worker-needs-you) · [Restore](#restore-and-root-access) · [Reference refresh](#reference-refresh)
 
 A cross-harness CLI that lets a root coding agent (Codex, Antigravity/agy, Claude Code or OpenCode) hand work to workers of
-the other harnesses: start a job from a written brief, watch it live, steer or interrupt it, read its result,
-then retire it. Jobs persist under `~/.local/state/agent-bridge`, so another root can resume or take over, and
-workers can message each other.
+the other harnesses: start a job from a written brief, watch it live, steer or interrupt it, and review its result.
+Keep the job for related follow-ups; retire it only when its work is resolved and its context is no longer needed.
+Jobs persist under `~/.local/state/agent-bridge`, so another root can resume or take over, and
+workers can message each other with `TO <peer>:`. Plain worker messages, including ones addressed `TO root:`,
+go to the coordinator as info.
 
 `agent-bridge sessions` exports a versioned JSON inventory of native worker IDs
 across all owners and backends, for tools such as [Agent Inbox](../agent-inbox/README.md).
