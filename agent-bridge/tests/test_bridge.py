@@ -109,6 +109,16 @@ def test_peer_routing_rejects_path_segments(tmp_path):
     assert not (victim / "steer").exists()
 
 
+def test_peer_routing_treats_coordinator_addresses_as_plain_messages(tmp_path):
+    job = tmp_path / "owner" / "worker"
+    job.mkdir(parents=True)
+    route_to_peers(job, "TO root, coordinator, owner: checkpoint")
+    log = job / "live.jsonl"
+    assert not log.exists() or "peer_unknown" not in log.read_text()
+    route_to_peers(job, "TO missing: hello")
+    assert "peer_unknown" in log.read_text()
+
+
 def test_runner_finished_preserves_another_runner_pid(tmp_path, monkeypatch):
     state_path = tmp_path / "state.json"
     state_path.write_text(json.dumps({"runnerPid": 123, "activeTurnId": "turn"}))

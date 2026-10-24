@@ -29,7 +29,8 @@ MESSAGING_RULE = (
     "agent-bridge peers lists your sibling workers. "
     "Peer messaging needs no tool: to reach another worker (names come from your brief), just write "
     "an ordinary message to the coordinator whose text starts with 'TO <peer-name>: ' "
-    "(comma-separate several names). The runner delivers it into that peer's live turn. Use it for "
+    "(comma-separate several names). Plain messages already reach the coordinator, so never address "
+    "it with 'TO'. The runner delivers it into that peer's live turn. Use it for "
     "concrete cross-area requests or hand-offs, not chatter; replies arrive as '[from <name>] ...'. "
     "Coordinator steers may arrive mid-turn as user messages; follow them. You are a delegated worker "
     "and must never start agent-bridge jobs, subagents, or other agents yourself."
@@ -122,6 +123,8 @@ def route_to_peers(job, text):
     job = Path(job)
     job = job.resolve()
     for name in (n.strip() for n in head[3:].split(",")):
+        if name.lower() in ("root", "coordinator") or name == job.parent.name:
+            continue  # The coordinator already reads every message; not an unknown peer.
         peer = job.parent / name
         valid_name = name not in ("", ".", "..") and "/" not in name and "\\" not in name
         try:
