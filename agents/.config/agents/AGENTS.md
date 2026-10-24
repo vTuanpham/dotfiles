@@ -42,15 +42,8 @@ heredoc scripts; shell is for reading, searching, and running commands.
 - Document durable contracts, decisions, and non-obvious pitfalls; skip trivial
   or transient detail. When documentation is needed, prefer maintained project
   docs over one-off notes/comments and link them from the relevant `AGENTS.md`.
-- Use an existing browser window on the intended OS/host and profile. Reuse a
-  suitable tab or open a new tab there; create a window only if no suitable
-  window is open or the user requests one.
-- Retain browser control while useful to the task or a pending handoff; otherwise
-  release it and clean up task-owned resources. Group controlled tabs by task,
-  including borrowed tabs; restore borrowed tabs' prior grouping on release.
-  Preserve user content and needed results. Use supported, task-scoped cleanup;
-  leave shared MCP services and other sessions intact. Browser lifecycle details:
-  `~/dotfiles/chrome/README.md#visible-agent-tabs`.
+- Browser lifecycle (window reuse, visible task groups, preserving tabs and
+  task-scoped release): follow `~/dotfiles/chrome/README.md#visible-agent-tabs`.
 - Put agent-created recovery backups under `${XDG_STATE_HOME:-$HOME/.local/state}/backups/<scope>/<timestamp>/`,
   outside repositories; scope can be a tool, project, system, or cross-tool change.
   Use owner-only permissions; record original paths and restore details for files,

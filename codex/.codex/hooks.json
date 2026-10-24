@@ -16,12 +16,68 @@
         ]
       },
       {
+        "matcher": "^mcp__node_repl__(js|js_reset)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.local/libexec/chatgpt-browser-idle.py\"",
+            "timeout": 3
+          }
+        ]
+      },
+      {
         "matcher": "^mcp__.*([Bb]rowser|[Cc]hrome|[Cc]omputer|[Pp]laywright|[Pp]uppeteer|cua|[Dd]evtools)",
         "hooks": [
           {
             "type": "command",
             "command": "agent-baton guard",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^mcp__node_repl__js$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.local/libexec/chatgpt-browser-idle.py\"",
+            "async": true,
+            "timeout": 330
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.local/libexec/chatgpt-browser-idle.py\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.local/libexec/chatgpt-browser-idle.py\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.local/libexec/chatgpt-browser-idle.py\"",
+            "timeout": 3
           }
         ]
       }

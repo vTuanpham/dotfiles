@@ -135,6 +135,9 @@ Check the selected browser instance when both Windows and Linux Chrome are open.
 
 ## Visible agent tabs
 
+Retain control while useful to ongoing work or a pending handoff; otherwise
+release this task's resources, preserving user content and needed results.
+
 Select the browser instance for the intended OS/host and profile, and use its
 existing window. Reuse a suitable tab or open a new tab in that window. Create
 a window only if no suitable window is open or the user requests one.
@@ -162,6 +165,43 @@ cleanup. Ungrouping alone does not confirm that control or its pointer was
 released. Keep shared MCP servers and other tasks' browser sessions running.
 The installed Chrome client documents `markDeliverable()` and `markHandoff()`
 for turn-end preservation; these do not themselves end browser control.
+
+### Idle reminder
+
+Codex's native hooks run the linked
+[`chatgpt-browser-idle.py`](.local/libexec/chatgpt-browser-idle.py): one short
+lifecycle reminder on initial tool use, then one cleanup check after five idle
+minutes. Install with `./install.sh --apply links hooks`, then review the new
+hooks in Codex with `/hooks`. The official browser runtime and skill stay unchanged.
+
+Already-running app-server threads can need a config reload. Native clients can
+use `config/batchWrite` with `{"edits": [], "reloadUserConfig": true}` to reload
+without editing config or restarting the shared daemon. Verify discovery/trust
+through `hooks/list`, then check an actual tool invocation; discovery alone does
+not prove the running thread has adopted the hook. See the
+[app-server API](https://learn.chatgpt.com/docs/app-server).
+
+`PreToolUse` records activity; background `PostToolUse` waits without holding up
+the tool. New calls cancel older timers, and pending calls suppress idle notices.
+`Stop`, `Interrupt` and `SessionEnd` cancel the corresponding state. State uses
+session **and turn** IDs, so another conversation or turn cannot reset its timer.
+The private SQLite file under `${XDG_STATE_HOME:-$HOME/.local/state}/chatgpt-browser/`
+stores only call identities and timestamps; completed turns are removed, with
+abandoned records pruned after a day on subsequent hook activity.
+
+The reminder observes the browser-capable `node_repl` JavaScript tool, including
+non-browser JavaScript; it does not inspect Chrome or infer that tabs are held.
+It only asks the agent to review its own resources. It never closes tabs, stops
+MCP servers or changes tool output. Delivery waits for Codex's next safe model
+step; an inactive turn cannot be woken. Other harnesses retain the documented
+lifecycle rules without this Codex hook. See the
+[official hook contract](https://learn.chatgpt.com/docs/hooks#run-hooks-in-the-background).
+
+Test the hook with `python3 -B tests/test_browser_idle.py` from the repository root.
+
+Remove this reminder by removing its handlers from the five hook events in
+local `~/.codex/hooks.json`; keep unrelated handlers. Its local state directory
+can then be removed. The state directory and hook approvals are never synced.
 
 To remove the compatibility path, remove the local `node_repl` MCP entry and only
 the Linux native-host manifest generated above. The app owns the Windows host;

@@ -33,7 +33,8 @@ class InstallTests(unittest.TestCase):
             second = install(tmp, "--apply", "links")
 
             self.assertEqual(first.returncode, 0, first.stderr)
-            for name in (".zshrc", ".claude/CLAUDE.md", ".config/systemd/user/agent-bridge-reference.timer"):
+            for name in (".zshrc", ".claude/CLAUDE.md", ".config/systemd/user/agent-bridge-reference.timer",
+                         ".local/libexec/chatgpt-browser-idle.py"):
                 link = Path(tmp) / name
                 self.assertTrue(link.is_symlink(), name)
                 self.assertTrue(str(link.resolve()).startswith(str(root)), name)
@@ -97,6 +98,26 @@ class InstallTests(unittest.TestCase):
             self.assertIn("ponytail", result["extraKnownMarketplaces"])
             self.assertTrue((home / ".claude/settings.json.bak-install").is_file())
             self.assertIn("already has the hooks", install(home, "--apply", "hooks").stdout)
+
+    def test_codex_idle_hooks_merge_once_preserving_local_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            live = home / ".codex/hooks.json"
+            live.parent.mkdir()
+            live.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [
+                {"type": "command", "command": "mine"}]}]}}))
+            self.assertEqual(install(home, "--apply", "hooks").returncode, 0)
+            first = live.read_bytes()
+            self.assertEqual(install(home, "--apply", "hooks").returncode, 0)
+            self.assertEqual(live.read_bytes(), first)
+            hooks = json.loads(first)["hooks"]
+            post = hooks["PostToolUse"][0]["hooks"][0]
+            self.assertTrue(post["async"])
+            self.assertGreater(post["timeout"], 300)
+            self.assertIn("chatgpt-browser-idle.py", post["command"])
+            self.assertIn("mine", [h["command"] for g in hooks["Stop"] for h in g["hooks"]])
+            for name in ("Stop", "Interrupt", "SessionEnd"):
+                self.assertIn("chatgpt-browser-idle.py", hooks[name][0]["hooks"][-1]["command"])
 
     def test_the_cron_line_is_a_valid_five_field_entry(self):
         line = re.search(r"local line='([^']+)'", script.read_text()).group(1)

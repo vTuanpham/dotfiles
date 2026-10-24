@@ -7,7 +7,7 @@ Codex CLI config under `~/.codex`.
 - `AGENTS.md`: **live** link to the shared instructions (`agents/`).
 - `config.toml`: model, agents, plugins, features and the status line. A snapshot. Machine-local state
   (trusted projects, hook trust hashes, UI hints) is deliberately not tracked; Codex asks again.
-- `hooks.json`: the `PreToolUse` hooks (`rtk hook claude`, `agent-baton guard`). `install.sh --apply hooks`
+- `hooks.json`: RTK/Baton guards and the [browser idle reminder](../chrome/README.md#idle-reminder). `install.sh --apply hooks`
   adds any that the live `~/.codex/hooks.json` lacks, keeping the rest; Codex then asks you to trust them
   with `/hooks`.
 - The `ponytail` plugin is enabled in `config.toml` (`[plugins."ponytail@ponytail"]` and
