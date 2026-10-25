@@ -394,6 +394,7 @@ class History:
         self.update_count = 0
         self.image_budget = ImageBudget()
         self.usage = None
+        self._anonymous_message = None
 
     def load(self, value):
         modes, options = load_state(value)
@@ -401,11 +402,21 @@ class History:
             self.modes = modes
         if options is not None:
             self.config_options = options
+        self.end_turn()
 
-    def _message(self, role, native_id, body=None, image=None):
+    def end_turn(self):
+        self._anonymous_message = None
+
+    def _message(self, role, native_id, body=None, image=None, tool_index=None):
         if native_id is None:
-            native_id = "chunk-" + str(len(self.timeline) + 1)
-        identifier = "acp:" + text(native_id, "ACP message id", 200)
+            identifier = self._anonymous_message
+            if identifier is None or self.messages[identifier].role != role:
+                identifier = "acp-chunk:" + str(len(self.timeline) + 1)
+            self._anonymous_message = identifier
+        else:
+            self._anonymous_message = None
+            native_id = text(native_id, "ACP message id", 200)
+            identifier = "acp:" + native_id if tool_index is None else f"acp-tool:{native_id}:{tool_index}"
         existing = self.messages.get(identifier)
         if existing is not None and existing.role != role:
             raise ValueError("ACP message id changed role")
@@ -430,9 +441,8 @@ class History:
             if item["type"] == "content":
                 fields(item, ("type", "content"), ("_meta",))
                 body, image = _content(item["content"], self.image_budget)
-                if body is not None or image is not None:
-                    identifier = "tool-" + tool_id + "-" + str(index)
-                    self._message("assistant", identifier, body, image)
+                if image is not None:
+                    self._message("assistant", tool_id, image=image, tool_index=index)
             elif item["type"] == "diff":
                 fields(item, ("type", "path", "newText"), ("oldText", "_meta"))
                 text(item["path"], "ACP tool path", 4096)
@@ -446,6 +456,7 @@ class History:
                 raise ValueError("Unknown ACP tool content type")
 
     def _tool(self, kind, value):
+        self._anonymous_message = None
         required = (
             ("sessionUpdate", "toolCallId", "title")
             if kind == "tool_call"

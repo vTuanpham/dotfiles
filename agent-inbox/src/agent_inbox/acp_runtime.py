@@ -10,19 +10,24 @@ from pathlib import Path
 from queue import Empty, Queue
 from threading import Lock, Thread
 
-from . import acp_history
+from . import acp_history, acp_process
 from .models import DeliveryRejected, fields, text
 
 IDLE_SECONDS = 300
 MAX_RUNTIMES = 4
 START_TIMEOUT = 60
 CALL_TIMEOUT = 30 * 60
+CANCEL_TIMEOUT = 15
 LIST_TIMEOUT = 8
 LIST_PAGES = 50
 DISCOVERY_TIMEOUT = 30
 STOP_TIMEOUT = 120
 STOP_JOIN_TIMEOUT = 10
 _QUEUE_TIMEOUT = object()
+
+
+class RuntimeClosedError(RuntimeError):
+    """This connection cannot accept work; a prior native operation may have completed."""
 
 
 def settings(target):
@@ -67,24 +72,32 @@ class _Observer:
         try:
             if event.direction.value == "outgoing":
                 if "id" in message and type(message.get("method")) is str:
-                    self.methods[message["id"]] = message["method"]
+                    identifier, method = message["id"], message["method"]
+                    task = asyncio.current_task()
+                    self.methods[identifier] = (method, task)
+
+                    def forget(task):
+                        self.methods.pop(identifier, None)
+                        self.results.pop((task, method), None)
+
+                    task.add_done_callback(forget)
             elif message.get("method") == "session/update":
                 if self.history is not None:
                     self.history.update(message.get("params"))
             elif "id" in message and message["id"] in self.methods:
-                method = self.methods.pop(message["id"])
-                if "result" in message:
-                    self.results.setdefault(method, []).append(message["result"])
+                method, task = self.methods.pop(message["id"])
+                if "result" in message and not task.done():
+                    self.results[(task, method)] = message["result"]
         except Exception as error:
             if self.error is None:
                 self.error = error
 
     def take(self, method):
         self.raise_if_error()
-        results = self.results.get(method, [])
-        if not results:
+        key = (asyncio.current_task(), method)
+        if key not in self.results:
             raise ValueError("ACP response was not captured")
-        result = results.pop(0)
+        result = self.results.pop(key)
         if type(result) is not dict:
             raise ValueError("Invalid ACP response")
         return result
@@ -203,19 +216,21 @@ class _SessionRuntime:
         with self._state_lock:
             closing = self._closing
         if closing or not self.thread.is_alive() or self.loop is None:
-            raise RuntimeError("ACP runtime is not available")
+            raise RuntimeClosedError("ACP runtime is not available")
         result = concurrent.futures.Future()
         request = _Request(operation, arguments, result)
         try:
             with self._state_lock:
                 if self._closing:
-                    raise RuntimeError("ACP runtime is closing")
+                    raise RuntimeClosedError("ACP runtime is closing")
                 self._pending.add(result)
-            self.queue.put(request)
+                self.queue.put(request)
             self._signal()
             self.touch()
             return result.result(timeout=CALL_TIMEOUT if timeout is None else timeout)
         except concurrent.futures.TimeoutError as error:
+            if result.done() and result.exception() is error:
+                raise
             raise TimeoutError("ACP operation timed out; the native outcome is unknown") from error
         finally:
             with self._state_lock:
@@ -256,6 +271,8 @@ class _SessionRuntime:
         self.thread.join(timeout=STOP_JOIN_TIMEOUT)
         if self.thread.is_alive():
             raise RuntimeError("ACP runtime did not stop") from failure
+        if failure is None and self._failure is not None:
+            raise RuntimeError("ACP runtime shutdown failed") from self._failure
         if failure is not None:
             raise RuntimeError("ACP runtime stopped without a confirmed turn result") from failure
         return True
@@ -280,7 +297,6 @@ class _SessionRuntime:
             self._fail_pending(error)
 
     async def _serve(self):
-        from acp import spawn_agent_process
         from acp.schema import ClientCapabilities, Implementation
 
         self.loop = asyncio.get_running_loop()
@@ -297,35 +313,44 @@ class _SessionRuntime:
         )
         implementation = Implementation(name="agent-inbox", version="0.1.0")
         try:
-            async with spawn_agent_process(
+            async with acp_process.agent_process(
                 client,
-                command[0],
-                *command[1:],
+                command,
                 env=_environment(),
                 cwd=cwd,
-                transport_kwargs={"stderr": asyncio.subprocess.DEVNULL, "shutdown_timeout": 2.0},
                 observers=[observer],
             ) as (connection, process):
                 self.connection, self.observer = connection, observer
-                await asyncio.wait_for(
-                    self._attach(connection, observer, parameters, implementation),
-                    timeout=self.startup_timeout,
-                )
-                self.ready.set_result(True)
-                await self._serve_requests(process)
+                try:
+                    await asyncio.wait_for(
+                        self._attach(connection, observer, parameters, implementation),
+                        timeout=self.startup_timeout,
+                    )
+                    self.ready.set_result(True)
+                    await self._serve_requests(process)
+                finally:
+                    with self._state_lock:
+                        self._closing = True
+                    tasks = set(self._dispatch_tasks)
+                    if self._prompt_task is not None:
+                        tasks.add(self._prompt_task)
+                    for task in tasks:
+                        task.cancel()
+                    if tasks:
+                        await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as error:
             self._failure = error
             if not self.ready.done():
                 self.ready.set_exception(error)
             self._fail_queued(error)
         finally:
-            if not self.ready.done():
-                self.ready.set_exception(RuntimeError("ACP runtime stopped during startup"))
-            self._fail_pending(
-                self._failure or RuntimeError("ACP connection closed; native outcome may be unknown")
-            )
             with self._state_lock:
                 self._closing = True
+            if not self.ready.done():
+                self.ready.set_exception(RuntimeClosedError("ACP runtime stopped during startup"))
+            self._fail_pending(
+                self._failure or RuntimeClosedError("ACP connection closed; native outcome may be unknown")
+            )
             self.connection = None
 
     async def _attach(self, connection, observer, parameters, implementation):
@@ -359,7 +384,7 @@ class _SessionRuntime:
         observer.raise_if_error()
 
     async def _serve_requests(self, process):
-        process_exit = asyncio.create_task(process.wait())
+        process_exit = asyncio.create_task(acp_process.exited(process))
         while True:
             if self._prompt_task is not None and self._prompt_task.done():
                 self._prompt_task = None
@@ -405,7 +430,9 @@ class _SessionRuntime:
         while True:
             if process_exit.done():
                 returncode = process_exit.result()
-                raise RuntimeError(f"ACP agent process exited with status {returncode}")
+                raise RuntimeClosedError(
+                    f"ACP agent process exited with status {returncode}; native outcome may be unknown"
+                )
             try:
                 return self.queue.get_nowait()
             except Empty:
@@ -425,7 +452,9 @@ class _SessionRuntime:
             if process_exit in done:
                 woke.cancel()
                 returncode = process_exit.result()
-                raise RuntimeError(f"ACP agent process exited with status {returncode}")
+                raise RuntimeClosedError(
+                    f"ACP agent process exited with status {returncode}; native outcome may be unknown"
+                )
             if woke not in done:
                 woke.cancel()
                 return _QUEUE_TIMEOUT
@@ -451,9 +480,14 @@ class _SessionRuntime:
         except asyncio.CancelledError:
             self._set_exception(
                 request.result,
-                RuntimeError("ACP operation was interrupted; outcome is unknown"),
+                RuntimeClosedError("ACP operation was interrupted; native outcome is unknown"),
             )
             raise
+        except ConnectionError as error:
+            self._set_exception(
+                request.result,
+                RuntimeClosedError(f"ACP connection closed; native outcome is unknown: {error}"),
+            )
         except Exception as error:
             self._set_exception(request.result, error)
         else:
@@ -539,11 +573,12 @@ class _SessionRuntime:
             if self._prompt_task is None or self._prompt_task.done():
                 raise DeliveryRejected("This ACP root has no active inbox turn")
             task = self._prompt_task
-            await self.connection.cancel(session_id=self.session.id)
             try:
-                response = await asyncio.wait_for(asyncio.shield(task), timeout=120)
+                async with asyncio.timeout(CANCEL_TIMEOUT):
+                    await self.connection.cancel(session_id=self.session.id)
+                    response = await asyncio.shield(task)
             except asyncio.TimeoutError as error:
-                raise RuntimeError("ACP cancellation was sent but not confirmed") from error
+                raise TimeoutError("ACP cancellation timed out; the native outcome is unknown") from error
             if response != "cancelled":
                 raise DeliveryRejected("The ACP turn completed before cancellation")
             self.touch(busy=False)
@@ -585,9 +620,10 @@ class _SessionRuntime:
         if operation == "shutdown":
             if self._prompt_task is not None and not self._prompt_task.done():
                 task = self._prompt_task
-                await self.connection.cancel(session_id=self.session.id)
                 try:
-                    await asyncio.wait_for(asyncio.shield(task), timeout=STOP_TIMEOUT)
+                    async with asyncio.timeout(CANCEL_TIMEOUT):
+                        await self.connection.cancel(session_id=self.session.id)
+                        await asyncio.shield(task)
                 except asyncio.TimeoutError as error:
                     raise RuntimeError("ACP turn did not stop before runtime shutdown") from error
             self.touch()
@@ -610,6 +646,7 @@ class _SessionRuntime:
                 raise ValueError("Invalid ACP prompt receipt")
             return result["stopReason"]
         finally:
+            self.history.end_turn()
             self.touch(busy=False)
 
     def _fail_queued(self, error):
@@ -760,7 +797,8 @@ async def _list_sessions(connection, observer):
     deadline = time.monotonic() + LIST_TIMEOUT
     cursor = None
     for _ in range(LIST_PAGES):
-        await connection.list_sessions(cursor=cursor)
+        async with asyncio.timeout(deadline - time.monotonic()):
+            await connection.list_sessions(cursor=cursor)
         page = acp_history.sessions_page(observer.take("session/list"))
         for session in page.sessions:
             if session.id in seen:
