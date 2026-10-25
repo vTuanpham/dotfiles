@@ -726,7 +726,6 @@ export const register: Register = on => {
       const groups = quotaGroups([...readable.filter(q => inUse.has(q.cli)), ...readable.filter(q => !inUse.has(q.cli))])
       rows.push(
         <Text wrap="truncate-end">
-          <Text color={ink.subtle}>quota </Text>
           {groups.map((g, i) => {
             const first = i === 0 || groups[i - 1]!.cli !== g.cli
             return (

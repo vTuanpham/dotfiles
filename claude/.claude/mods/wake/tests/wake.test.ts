@@ -130,8 +130,8 @@ test('the quota line leads with the CLI at work and counts unreadable accounts',
   on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: [job], version: 1 } }))
   on('state.get', { plugin: 'wake', key: 'quotas' }, () => ({ value: { value: quotas, version: 1 } }))
   const bar = await mount($, 'AbovePrompt')
-  const line = flat((await bar.drawn()) as Node).split('\n').find(row => row.startsWith('quota'))!
-  expect(line).toBe('quota agy a1 C w0 · G w100 · a2 C w69 · G w100 │ codex 01* w98 · 3 offline')
+  const line = flat((await bar.drawn()) as Node).split('\n').find(row => row.startsWith('agy a1'))!
+  expect(line).toBe('agy a1 C w0 · G w100 · a2 C w69 · G w100 │ codex 01* w98 · 3 offline') // no earlier numbers to keep
   await bar.unmount()
 })
 
