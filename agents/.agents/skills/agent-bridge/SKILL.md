@@ -9,7 +9,7 @@ A CLI that lets a root agent drive workers of the other harnesses (Codex, agy, O
 
 ## When to reach for it
 - The user asks to delegate, fan work out in parallel, get a second opinion, or have another model review a change.
-- You pick the backend per task from the model it needs and the quota left; none is the default unless the user's instructions say so. Codex suits coding and audits, agy is a separate quota pool (Gemini and Claude models), OpenCode's free models suit cheap, non-sensitive work, and Claude suits UI and visual work (a Claude root uses its own agents for that, not the bridge). `agent-bridge --help` says how to choose, including where to check current model rankings.
+- You pick the backend per task from the model it needs and the quota left; none is the default unless the user's instructions say so. Codex suits coding and audits, agy is a separate quota pool (Gemini and Claude models), OpenCode's free models suit cheap, non-sensitive work, and Claude suits UI and visual work (a Claude root uses its own agents for that, not the bridge). `agent-bridge guide workflow` says how to choose; `agent-bridge guide plans` covers current model rankings.
 
 ## How it goes
 1. Write a clear brief (objective, owned files, constraints, checks), then `agent-bridge start` a job under a short owner tag unique to your session.
@@ -29,7 +29,7 @@ A CLI that lets a root agent drive workers of the other harnesses (Codex, agy, O
 4. Treat a worker's "checks passed" as a claim: verify the diff and rerun the checks before you merge.
 5. Keep the job available for related follow-ups, verification and review after a result arrives. Retire it only when its work is resolved and you are confident its context is no longer needed; a completed turn or saved report is not enough. Then `agent-bridge retire <owner>/<name>` archives its report and frees the disk. Retiring is your job, not the user's.
 
-The CLI documents itself. Run `agent-bridge --help` for the full workflow (routing, watching, briefs, review, cleanup) and `agent-bridge start --help` for each backend's models and quirks. Read them when you need them, not before.
+The CLI documents itself. Run `agent-bridge --help` for the command map, `agent-bridge guide workflow` for the full workflow (routing, watching, briefs, review, cleanup), `agent-bridge guide plans` for plans and model strength, and `agent-bridge start --help` for each backend's models and quirks. Read them when you need them, not before.
 
 - Never bridge to your own harness: a Claude root uses its Agent tool, a Codex root its own subagents, an agy root its own.
 - Never bypass a backend's sandbox, never put job data in `/tmp`, and delegate only when the user asked for it.

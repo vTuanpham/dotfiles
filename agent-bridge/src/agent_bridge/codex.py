@@ -370,7 +370,7 @@ def run(job, state, path, prompt, resume=False, compact=False):
                 not turn
                 and not awaiting
                 and not pending
-                and not list((Path(job) / "steer").glob("[0-9]*.md"))
+                and (compact or not list((Path(job) / "steer").glob("[0-9]*.md")))
             ):
                 return
     except Exception as exc:

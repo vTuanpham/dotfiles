@@ -190,7 +190,8 @@ def run_with_linger(job, state, state_path, backend, prompt, resume, extra):
     if backend is agy:
         agy.fallback(job, state, state_path)
     try:
-        linger(job, state, state_path, backend)
+        if not extra.get("compact"):
+            linger(job, state, state_path, backend)
     finally:
         state = load_state(job)
         runner_finished(state, state_path)
@@ -209,9 +210,7 @@ GUIDES = Path(__file__).with_name("guide")
 
 
 def guide(*names):
-    """The workflow and backend notes shown by --help, so the model reads them only when it asks."""
-    if not any(flag in sys.argv[1:] for flag in ("-h", "--help")):
-        return None
+    """Read the maintained workflow, plan reference or backend notes on demand."""
     return "\n\n".join((GUIDES / f"{name}.md").read_text(encoding="utf-8").strip() for name in names)
 
 
@@ -226,20 +225,31 @@ def main():
         raise SystemExit(2)
     p = argparse.ArgumentParser(
         prog="agent-bridge",
-        description=(
-            "Run delegated jobs stored under ~/.local/state/agent-bridge/jobs/<owner>/<name> "
-            "(or $AGENT_BRIDGE_HOME/jobs). Commands: start, resume, steer, interrupt, stop, watch, "
-            "owners, peers, result, retire, compact, models, quota."
+        description="Run delegated jobs; jobs are named <owner>/<name>.",
+        epilog=(
+            "Workflow: start ... --watch in a background terminal; keep working.\n"
+            "Steer only while running; resume when idle (delivers queued steers).\n"
+            "Read result, verify the work, then retire when its context is no longer needed.\n\n"
+            "Details: <command> --help for flags; start --help for backend notes.\n"
+            "Guides: guide workflow (routing, watch, briefs, review, Keeping the reference current);\n"
+            "        guide plans (Plans, model strength, quota and costs); guide prints both.\n"
+            "Storage: ~/.local/state/agent-bridge/jobs (or $AGENT_BRIDGE_HOME/jobs)."
         ),
-        epilog=guide("overview", "models"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = p.add_subparsers(dest="command", required=True)
-    sub.add_parser("sessions", help="export native job identities across owners as JSON (no transcript data)")
+    sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    g = sub.add_parser("guide", help="read full workflow or Plans guidance")
+    g.add_argument("topic", nargs="?", choices=("workflow", "plans"), help="omit to read both guides")
+    sub.add_parser(
+        "sessions", help="export native job identities as JSON (no transcripts)",
+        description="Export native job identities across owners as JSON (no transcript data).",
+    )
     s = sub.add_parser(
         "start",
         help="create a job and run its first turn",
-        epilog=guide("codex", "agy", "claude", "opencode"),
+        epilog=(guide("codex", "agy", "claude", "opencode")
+                if len(sys.argv) > 1 and sys.argv[1] == "start"
+                and any(flag in sys.argv[2:] for flag in ("-h", "--help")) else None),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     s.add_argument("job", help="job as <owner>/<name>")
@@ -297,9 +307,11 @@ def main():
         descriptions = {
             "interrupt": "request that the current turn end without stopping the job",
             "stop": "stop the job runner",
-            "compact": "compact an idle Codex thread",
+            "compact": "compact idle codex or claude history",
         }
-        sub.add_parser(name, help=descriptions[name]).add_argument("job", help="job as <owner>/<name>")
+        sub.add_parser(name, help=descriptions[name], description=descriptions[name]).add_argument(
+            "job", help="job as <owner>/<name>"
+        )
     sub.add_parser("owners", help="list owners, running jobs and unanswered urgent events")
     peers = sub.add_parser("peers", help="list sibling jobs under this job's owner")
     peers.add_argument("job", nargs="?", help="job used to select the owner; defaults to AGENT_BRIDGE_JOB")
@@ -347,15 +359,28 @@ def main():
     stale = sub.add_parser("stale", help="check whether the model and plan reference needs a refresh")
     stale.add_argument("--accept", action="store_true", help="record the live model lists as reviewed")
     rf = sub.add_parser(
-        "refresh", help="weekly: a sandboxed worker proposes a refreshed reference; you confirm it"
+        "refresh", help="propose, apply or discard a model reference refresh",
+        description="Weekly: a sandboxed worker proposes a refreshed reference; you confirm it.",
     )
     rf.add_argument("--force", action="store_true", help="run even if one ran in the last 7 days")
     rf.add_argument("--apply", action="store_true", help="apply the waiting proposal after confirmation")
     rf.add_argument("--yes", action="store_true", help="with --apply: the user already confirmed")
     rf.add_argument("--discard", action="store_true", help="drop the waiting proposal")
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "status":
+            p.error("unknown command 'status'; use watch <job>, result <job>, or owners")
+        if sys.argv[1] == "backends":
+            p.error("unknown command 'backends'; use models --backend <codex|agy|claude|opencode>")
+        flags = sys.argv[2:sys.argv.index("--")] if "--" in sys.argv[2:] else sys.argv[2:]
+        if sys.argv[1] == "steer" and any(arg.split("=", 1)[0] == "--message" for arg in flags):
+            st.error("steer takes the message as a positional argument: agent-bridge steer <job> 'message'")
     a = p.parse_args()
     runner_fd = None
     try:
+        if a.command == "guide":
+            names = {"workflow": ("overview",), "plans": ("models",)}
+            print(guide(*names.get(a.topic, ("overview", "models"))))
+            return
         if a.command == "sessions":
             print(json.dumps(session_bindings()))
             return
@@ -482,13 +507,18 @@ def main():
             path = make_steer(job, a.text if a.text is not None else read_prompt(a.prompt_file))
             log(job, "root_steer", level="info", file=path.name)
             print(path)
+            from .watch import running
+
+            if not state.get("activeTurnId") or not running(state):
+                print(f"job has no active turn: queued, not delivered; "
+                      f"deliver with agent-bridge resume {a.job}")
             return
         if a.command in ("interrupt", "stop"):
             record_root(job)
             (job / a.command).touch()
             return
-        if a.command == "compact" and load_state(job)["backend"] != "codex":
-            raise RuntimeError("compact is supported only by codex")
+        if a.command == "compact" and load_state(job)["backend"] not in ("codex", "claude"):
+            raise RuntimeError("compact is supported only by codex and claude")
         if a.command in ROOT_COMMANDS:
             record_root(job)
         runner_fd = lock_runner(job)
@@ -564,6 +594,9 @@ def main():
         save(state_path, state)
         backend = module if resume else BACKENDS[a.backend]
         extra = {"compact": True} if a.command == "compact" else {}
+        if a.command == "resume":
+            count = len(list((job / "steer").glob("[0-9]*.md")))
+            print(f"resume: delivering {count} queued steer(s)", flush=True)
         watching = getattr(a, "watch", None)
         if getattr(a, "detach", False) or watching:
             before = (job / "live.jsonl").stat().st_size if (job / "live.jsonl").exists() else 0

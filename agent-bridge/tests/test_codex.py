@@ -208,9 +208,12 @@ def test_resolved_server_request_is_removed_from_pending(monkeypatch, tmp_path):
     assert not any(message.get("id") == 7 for message in rpc.sent)
 
 
-def test_compact_waits_until_compaction_turn_completes(monkeypatch, tmp_path):
+@pytest.mark.parametrize("queued", [False, True])
+def test_compact_waits_until_compaction_turn_completes(monkeypatch, tmp_path, queued):
     job, path, state = job_state(tmp_path)
     state["threadId"] = "thread-1"
+    if queued:
+        (job / "steer/001.md").write_text("follow up")
     rpc = FakeRpc(
         state["cwd"],
         job / "stderr",
@@ -226,6 +229,9 @@ def test_compact_waits_until_compaction_turn_completes(monkeypatch, tmp_path):
     codex.run(job, state, path, "", resume=True, compact=True)
     assert "thread/compact/start" in [method for method, _ in rpc.calls]
     assert "compacted" in [json.loads(line)["kind"] for line in (job / "live.jsonl").read_text().splitlines()]
+    assert not any(method in ("turn/start", "turn/steer") for method, _ in rpc.calls)
+    if queued:
+        assert (job / "steer/001.md").read_text() == "follow up"
 
 
 def fake_real_home(tmp_path, monkeypatch, account="a", refreshed="2026-01-01"):

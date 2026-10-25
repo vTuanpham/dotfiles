@@ -6,7 +6,7 @@ Use the newest model of each family (highest version wins; never older or spark)
 - **Sol**: clearly stronger than Luna: tricky implementation, deep diagnosis, review. Effort `medium|high|xhigh`.
 - **Astra**: quota-heavy; reserve it for the hardest audits and tasks and for brainstorming (read-only). Effort `low|medium|high` (xhigh/max only when the user asks).
 
-How freely to spend each depends on the plan (the `*` row in `codex-auth list`): see "Plans" at the end of `agent-bridge --help`.
+How freely to spend each depends on the plan (the `*` row in `codex-auth list`): see "Plans" in `agent-bridge guide plans`.
 
 ## Specifics
 - Steers land inside the active turn.

@@ -38,11 +38,13 @@ Install and use (a uv tool, editable from this checkout):
 
 ```sh
 uv tool install --editable ~/dotfiles/agent-bridge
-agent-bridge --help            # the full workflow: routing, watching, briefs, review, cleanup, plans and costs
+agent-bridge --help            # compact command map and workflow rules
+agent-bridge guide workflow    # routing, watching, briefs, review, cleanup and reference refresh
+agent-bridge guide plans       # plans, model strength and costs
 agent-bridge start --help      # each backend's models, effort levels, quota and quirks
 ```
 
-The documentation is the `--help` output on purpose, so a model reads it when it decides to rather than
+The documentation is the `guide` and per-command `--help` output on purpose, so a model reads it when it decides to rather than
 carrying it in every prompt. It is assembled from `src/agent_bridge/guide/*.md`; the skill in
 `agents/.agents/skills/agent-bridge/` is only a short briefing.
 
@@ -63,7 +65,7 @@ skills and instructions is in [agents](../agents/README.md).
 Allow the root to execute the bridge CLI outside its sandbox, read the shared
 skill and read/write the jobs directory through its harness's permission controls.
 Keep the resulting grants in live machine-local files, outside this public
-repository. Follow `agent-bridge --help` for the backend workflow.
+repository. Follow `agent-bridge guide workflow` for the workflow and `agent-bridge start --help` for backend notes.
 Workers carry `AGENT_BRIDGE_WORKER`, which the CLI refuses, so root
 access does not grant workers permission to start more jobs. Worker sandboxing
 remains in place.
@@ -74,6 +76,6 @@ remains in place.
 warns when the reference is old or a proposal is waiting. `guide/models.md` and
 `models.lock` are checked by the [reference timer](../systemd/README.md#startup-and-timers).
 The check runs daily; a worker can propose an update at most weekly. Applying a proposal leaves it
-uncommitted. Follow **Keeping the reference current** in `agent-bridge --help`:
+uncommitted. Follow **Keeping the reference current** in `agent-bridge guide workflow`:
 read the report, re-check its cited sources, then apply or discard. Only a refresh
 with no change and no drift resets the staleness clock without root review.

@@ -9,4 +9,4 @@ OpenCode's user config under `~/.config/opencode`.
 - `opencode.jsonc`: the schema line only; no model or provider is pinned here. A snapshot.
 
 `agent-bridge` runs OpenCode workers confined by `bwrap`, and only on the zero-retention free models
-listed in `agent-bridge --help`.
+listed in `agent-bridge guide plans`.

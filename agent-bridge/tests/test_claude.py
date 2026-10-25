@@ -142,6 +142,59 @@ def test_empty_resume_exits_when_stream_is_idle(monkeypatch, tmp_path):
     assert not spawned
 
 
+@pytest.mark.parametrize("boundary", [True, False])
+def test_compact_resumes_session_and_reports_boundary_or_noop(monkeypatch, tmp_path, capsys, boundary):
+    state, path = make_state(tmp_path)
+    (tmp_path / "steer").mkdir()
+    (tmp_path / "steer/001.md").write_text("follow up")
+    state["inflight"] = {"id": "steer-001", "file": "001.md"}
+    events = [{"type": "system", "subtype": "init", "session_id": "sid"}]
+    if boundary:
+        events.append({"type": "system", "subtype": "compact_boundary",
+                       "compact_metadata": {"pre_tokens": 1842, "trigger": "manual"}})
+    events.append({"type": "result", "subtype": "success", "result": "Not enough messages to compact."})
+    proc = fake_stream(monkeypatch, events)
+    cmd = claude.command(state, tmp_path, resume=True)
+    assert cmd[cmd.index("--resume") + 1] == "sid"
+
+    claude.run(tmp_path, state, path, "", resume=True, compact=True)
+
+    assert [json.loads(line)["message"]["content"] for line in proc.stdin.lines] == ["/compact"]
+    assert proc.stdin.closed and state["activeTurnId"] is None
+    assert (tmp_path / "steer/001.md").read_text() == "follow up"
+    logged = [json.loads(line) for line in (tmp_path / "live.jsonl").read_text().splitlines()]
+    assert sum(event["kind"] == "compact_started" for event in logged) == 1
+    compacted = [event for event in logged if event["kind"] == "compacted"]
+    output = capsys.readouterr().out
+    if boundary:
+        assert len(compacted) == 1
+        assert compacted[0]["pre_tokens"] == 1842 and compacted[0]["trigger"] == "manual"
+        assert "compacted: pre_tokens=1842" in output
+        assert not any(event["kind"] == "compact_noop" for event in logged)
+    else:
+        assert not compacted and "compact: no-op: Not enough messages to compact." in output
+        assert any(event["kind"] == "compact_noop" for event in logged)
+
+
+def test_compact_error_is_not_reported_as_noop(monkeypatch, tmp_path, capsys):
+    state, path = make_state(tmp_path)
+    fake_stream(monkeypatch, [{"type": "result", "subtype": "error_during_execution",
+                              "is_error": True, "errors": ["compaction failed"]}])
+    with pytest.raises(RuntimeError, match="claude compact failed"):
+        claude.run(tmp_path, state, path, "", resume=True, compact=True)
+    assert "no-op" not in capsys.readouterr().out
+    assert '"kind":"compacted"' not in (tmp_path / "live.jsonl").read_text()
+
+
+@pytest.mark.parametrize("active, session", [(True, "sid"), (False, "")])
+def test_compact_requires_idle_existing_session(monkeypatch, tmp_path, active, session):
+    state, path = make_state(tmp_path)
+    state.update(activeTurnId="turn-1" if active else None, sessionId=session)
+    monkeypatch.setattr(claude.subprocess, "Popen", lambda *a, **kw: pytest.fail("must not spawn"))
+    with pytest.raises(RuntimeError, match="active turn" if active else "existing session"):
+        claude.run(tmp_path, state, path, "", resume=True, compact=True)
+
+
 def test_urgent_peer_message_routes_without_prefix(tmp_path):
     job = tmp_path / "owner" / "worker"
     peer = job.parent / "peer"

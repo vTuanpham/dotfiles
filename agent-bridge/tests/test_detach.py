@@ -148,11 +148,12 @@ def test_worker_cannot_drive_jobs(monkeypatch, capsys):
     assert "delegated workers can't drive agent-bridge jobs" in capsys.readouterr().err
 
 
-def test_compact_refuses_active_turn(monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize("backend", ["codex", "claude"])
+def test_compact_refuses_active_turn(monkeypatch, tmp_path, capsys, backend):
     monkeypatch.delenv("AGENT_BRIDGE_WORKER", raising=False)
     job = tmp_path / "job"
     job.mkdir()
-    (job / "state.json").write_text(json.dumps({"backend": "codex", "activeTurnId": "turn-1"}))
+    (job / "state.json").write_text(json.dumps({"backend": backend, "activeTurnId": "turn-1"}))
     monkeypatch.setattr(cli, "resolve_job", lambda _: job)
     monkeypatch.setattr(sys, "argv", ["agent-bridge", "compact", "owner/job"])
     with pytest.raises(SystemExit) as error:

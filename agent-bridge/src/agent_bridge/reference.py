@@ -108,5 +108,6 @@ def warning():
     if not notes:
         return None
     return (
-        "agent-bridge: " + "; ".join(notes) + '. See `agent-bridge --help`, "Keeping the reference current".'
+        "agent-bridge: " + "; ".join(notes)
+        + '. See `agent-bridge guide workflow`, "Keeping the reference current".'
     )

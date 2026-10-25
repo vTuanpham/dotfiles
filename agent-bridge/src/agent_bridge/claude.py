@@ -69,6 +69,9 @@ def process(event, state, job):
         save(Path(job) / "state.json", state)
         log(job, "thread_started", sessionId=state["sessionId"], model=event.get("model"))
         return False
+    elif typ == "system" and event.get("subtype") == "compact_boundary":
+        metadata = event["compact_metadata"]
+        log(job, "compacted", pre_tokens=metadata["pre_tokens"], trigger=metadata["trigger"])
     elif typ == "assistant":
         activity = False
         for block in (event.get("message") or {}).get("content", []):
@@ -151,7 +154,13 @@ def process(event, state, job):
         )
 
 
-def run(job, state, path, prompt, resume=False):
+def run(job, state, path, prompt, resume=False, compact=False):
+    if compact:
+        if state.get("activeTurnId"):
+            raise RuntimeError("job has an active turn; stop it before compacting")
+        if not resume or not state.get("sessionId"):
+            raise RuntimeError("claude compact requires an existing session")
+        prompt = "/compact"
     if not prompt and not list((Path(job) / "steer").glob("[0-9]*.md")):
         return
     cmd = command(state, job, resume)
@@ -169,6 +178,7 @@ def run(job, state, path, prompt, resume=False):
     buf = b""
     idle = False
     message_id = 0
+    compacted = False
 
     def send(text):
         nonlocal idle, message_id
@@ -183,16 +193,18 @@ def run(job, state, path, prompt, resume=False):
 
     stdin_closed = False
     try:
-        if state.get("inflight"):
+        if not compact and state.get("inflight"):
             poll_steers(job, send, state=state, defer=True, redeliver=True)
         if prompt:
             send(prompt)
+            if compact:
+                log(job, "compact_started")
         while True:
             ready, _, _ = select.select([proc.stdout], [], [], POLL)
             if ready:
                 data = os.read(proc.stdout.fileno(), 1 << 20)
                 if not data:
-                    if list((Path(job) / "steer").glob("[0-9]*.md")):
+                    if not compact and list((Path(job) / "steer").glob("[0-9]*.md")):
                         log(job, "steer_queued", level="urgent", message="resume to deliver")
                         return
                     if not idle:
@@ -203,7 +215,21 @@ def run(job, state, path, prompt, resume=False):
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
                     try:
-                        status = process(json.loads(line), state, job)
+                        event = json.loads(line)
+                        status = process(event, state, job)
+                        if compact:
+                            if event.get("type") == "system" and event.get("subtype") == "compact_boundary":
+                                compacted = True
+                                print(f"compacted: pre_tokens={event['compact_metadata']['pre_tokens']}")
+                            elif event.get("type") == "result":
+                                if event.get("subtype") != "success" or event.get("is_error"):
+                                    reason = (event.get("result") or event.get("errors")
+                                              or event.get("subtype"))
+                                    raise RuntimeError(f"claude compact failed: {reason}")
+                                if not compacted:
+                                    reason = event.get("result") or "no compact_boundary event received"
+                                    log(job, "compact_noop", text=reason)
+                                    print(f"compact: no-op: {reason}")
                         if status is not None:
                             idle = status
                     except json.JSONDecodeError:
@@ -229,12 +255,12 @@ def run(job, state, path, prompt, resume=False):
                 (Path(job) / "stop").unlink()
                 os.killpg(proc.pid, signal.SIGTERM)
                 return
-            if not stdin_closed:
+            if not compact and not stdin_closed:
                 poll_steers(job, send, state=state, defer=True)
-            elif list((Path(job) / "steer").glob("[0-9]*.md")):
+            elif not compact and list((Path(job) / "steer").glob("[0-9]*.md")):
                 log(job, "steer_queued", level="urgent", message="resume to deliver")
                 return
-            if idle and not list((Path(job) / "steer").glob("[0-9]*.md")):
+            if idle and (compact or not list((Path(job) / "steer").glob("[0-9]*.md"))):
                 if not stdin_closed:
                     proc.stdin.close()
                     stdin_closed = True

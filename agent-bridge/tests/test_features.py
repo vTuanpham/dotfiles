@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_bridge import agy, cli
+from agent_bridge import agy, cli, codex
 from agent_bridge.core import MESSAGING_RULE, human, tree_size, worker_env
 
 
@@ -132,6 +132,101 @@ def test_result_joins_messages_from_last_turn_only(tmp_path):
     assert cli.result_text(tmp_path, all_messages=True) == "old\n\npart one\n\npart two"
     event(tmp_path, "message", text="partial final turn")
     assert cli.result_text(tmp_path) == "partial final turn"
+
+
+def test_help_is_compact_command_map(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", "--help"])
+    with pytest.raises(SystemExit) as done:
+        cli.main()
+    assert done.value.code == 0
+    output = capsys.readouterr().out
+    assert len(output.encode()) < 3000
+    for command in ("start", "resume", "steer", "watch", "result", "retire", "compact", "guide", "sessions",
+                    "owners", "peers", "interrupt", "stop", "models", "quota", "stale", "refresh"):
+        assert f"    {command} " in output
+    assert "start ... --watch" in output and "resume when idle" in output
+    assert "guide workflow" in output and "guide plans" in output
+
+
+@pytest.mark.parametrize("topic, names", [(None, ("overview", "models")),
+                                        ("workflow", ("overview",)), ("plans", ("models",))])
+def test_long_guidance_remains_reachable(monkeypatch, capsys, topic, names):
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", "guide", *([topic] if topic else [])])
+    cli.main()
+    assert capsys.readouterr().out == cli.guide(*names) + "\n"
+
+
+@pytest.mark.parametrize("argv, hint", [
+    (["status", "owner/job"], "use watch <job>, result <job>, or owners"),
+    (["backends"], "use models --backend"),
+    (["steer", "owner/job", "--message", "follow up"], "positional argument"),
+    (["steer", "owner/job", "--message=follow up"], "positional argument"),
+])
+def test_guessed_commands_fail_with_hints(monkeypatch, capsys, argv, hint):
+    monkeypatch.delenv("AGENT_BRIDGE_WORKER", raising=False)
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", *argv])
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 2
+    assert hint in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("active, running", [(False, False), (False, True), (True, False), (True, True)])
+def test_steer_idle_warning_and_resume_queue_count(monkeypatch, tmp_path, capsys, active, running):
+    job = tmp_path / "owner/job"
+    job.mkdir(parents=True)
+    state = {"backend": "codex", "activeTurnId": "turn" if active else None}
+    (job / "state.json").write_text(json.dumps(state))
+    monkeypatch.delenv("AGENT_BRIDGE_WORKER", raising=False)
+    monkeypatch.setattr(cli, "resolve_job", lambda _: job)
+    monkeypatch.setattr("agent_bridge.watch.running", lambda _: running)
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", "steer", "owner/job", "follow up"])
+    cli.main()
+    output = capsys.readouterr().out
+    assert ("queued, not delivered" in output) == (not active or not running)
+    if not active or not running:
+        assert "agent-bridge resume owner/job" in output
+    assert (job / "steer/001.md").read_text().strip() == "follow up"
+    (job / "steer/002.md").write_text("another follow up")
+    (job / "steer/sent").mkdir()
+    (job / "steer/sent/000.md").write_text("already sent")
+    delivered = []
+
+    def run(job, state, path, prompt, resume=False):
+        from agent_bridge.core import poll_steers
+
+        assert resume and prompt == ""
+        while poll_steers(job, lambda text, cid: delivered.append(text), state=state):
+            pass
+
+    monkeypatch.setattr(codex, "run", run)
+    monkeypatch.setattr(cli, "linger", lambda *args: None)
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", "resume", "owner/job"])
+    cli.main()
+    assert "resume: delivering 2 queued steer(s)" in capsys.readouterr().out
+    assert delivered == ["follow up", "another follow up"]
+
+
+@pytest.mark.parametrize("backend", ["codex", "claude", "agy", "opencode"])
+def test_compact_cli_routes_only_supported_backends(monkeypatch, tmp_path, capsys, backend):
+    job = tmp_path / "owner/job"
+    job.mkdir(parents=True)
+    (job / "state.json").write_text(json.dumps({"backend": backend}))
+    monkeypatch.delenv("AGENT_BRIDGE_WORKER", raising=False)
+    monkeypatch.setattr(cli, "resolve_job", lambda _: job)
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", "compact", "owner/job"])
+    calls = []
+    monkeypatch.setattr(cli.BACKENDS[backend], "run", lambda *a, **kw: calls.append(kw))
+    monkeypatch.setattr(cli, "linger", lambda *a: pytest.fail("compaction must not resume queued steers"))
+    if backend in ("codex", "claude"):
+        cli.main()
+        assert calls == [{"resume": True, "compact": True}]
+    else:
+        with pytest.raises(SystemExit) as error:
+            cli.main()
+        assert error.value.code == 1
+        assert "compact is supported only by codex and claude" in capsys.readouterr().err
+        assert not calls
 
 
 def test_retire_archives_report_and_deletes_job(tmp_path, monkeypatch, capsys):

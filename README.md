@@ -52,7 +52,7 @@ question for you, passed tests (fireworks), a failed command (storm), a finished
 - **[Wake](claude/README.md#wake-mod-live)**: the Claude-only landscape, crew and quota rows shown above.
 - **[Shared instructions](agents/README.md)**: one `AGENTS.md` plus the Bridge and Baton briefings.
 
-The CLIs document their workflows through `agent-bridge --help` and
+The CLIs document their workflows through `agent-bridge guide workflow` and
 `agent-baton --help`; exact permission grants stay local.
 [Claude](claude/README.md#hooks) and [Codex](codex/README.md) document the shared
 RTK/Baton hooks and their trust setup. Antigravity and OpenCode have no hooks

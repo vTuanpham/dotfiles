@@ -13,7 +13,7 @@ Application-managed rotating backups stay in the application's own location.
 - `.config/agents/AGENTS.md`: the one owner of the rules all harnesses share. Put harness-specific rules in
   that harness's own file, never here.
 - `.agents/skills/agent-bridge/SKILL.md` and `.agents/skills/agent-baton/SKILL.md`: short briefings that say
-  what each tool is and when to reach for it. The full workflow prints from `agent-bridge --help` and
+  what each tool is and when to reach for it. The full workflow prints from `agent-bridge guide workflow` and
   `agent-baton --help`, so an agent reads it only when it decides to.
 
 How each harness reaches them: Codex `~/.codex/AGENTS.md`, OpenCode `~/.config/opencode/AGENTS.md` and
