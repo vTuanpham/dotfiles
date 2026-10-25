@@ -80,7 +80,8 @@ export function crewTiming(job: WakeChip, now: number, columns = Infinity): stri
   const quiet = now - job.lastEventAt
   if (job.isStale) return columns < 24 ? 'stalled' : `stalled ${span(quiet)}`
   const turn = job.startedAt ? now - job.startedAt : 0
-  return span(quiet) + (columns >= 60 && turn >= 60_000 && turn >= quiet * 2 ? ` · turn ${span(turn)}` : '')
+  // the turn clock says something the silence does not once the turn ran a minute before it went quiet
+  return span(quiet) + (columns >= 60 && turn - quiet >= 60_000 ? ` · turn ${span(turn)}` : '')
 }
 
 /** Lines in a block of text; "" is none, a trailing newline adds no line. */

@@ -220,7 +220,10 @@ function pollCodex($: EngineInterface) {
     const tick = () =>
       safely(async () => {
         const found = await scanQuotas($, { refreshAgy: quotaTicks++ % AGY_REFRESH === 0 })
-        await update($, quotas, () => found)
+        // an account that timed out this read keeps its last numbers rather than dropping off the line
+        await update($, quotas, previous =>
+          found.map(q => (q.parts.length > 0 || q.status !== undefined ? q : (previous ?? []).find(p => p.cli === q.cli && p.account === q.account) ?? q)),
+        )
       })
     void tick()
     quotaPoll = $.clock.every(QUOTA_POLL_MS, () => void tick())

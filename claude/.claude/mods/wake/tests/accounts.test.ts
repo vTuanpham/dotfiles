@@ -19,6 +19,11 @@ test('codex-auth rows keep number, plan and percents, never the email', () => {
   expect(q.map(x => x.account)).toEqual(['01', '02', '03'])
   expect(q[0]).toMatchObject({ plan: 'Pro Lite', active: false, parts: [{ label: 'w', pct: 39 }] }) // Pro: weekly only
   expect(q[1]).toMatchObject({ status: 'expired', parts: [] })
+  const blanks = parseCodexAuth(
+    '  08 a@example.com  Free      401 unauthorized_unknown  401 unauthorized_unknown  401 unauthorized_unknown  401 unauthorized_unknown  24d ago\n' +
+      '  09 b@example.com  Free      TimedOut  TimedOut  TimedOut  TimedOut  7h ago\n',
+  )
+  expect(blanks.map(x => x.status)).toEqual(['signed out', undefined]) // a timeout is transient, not signed out
   expect(q[2]).toMatchObject({ plan: 'Free', active: true, parts: [{ label: 'm', pct: 100 }] }) // Free: monthly only
   expect(JSON.stringify(q)).not.toContain('@')
 })

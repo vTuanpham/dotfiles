@@ -18,7 +18,9 @@ export function parseCodexAuth(text: string): WakeQuota[] {
       : /^free/i.test(plan) ? [{ label: 'm', pct: pcts[0]! }] // codex-auth prints the monthly number in its 5H column
       : /^plus/i.test(plan) ? pcts.map((pct, i) => ({ label: i === 0 ? 'h' : 'w', pct }))
       : [{ label: 'w', pct: pcts[1] ?? pcts[0]! }] // Pro: its 5H column repeats the weekly number
-    out.push({ cli: 'codex', account: m[2]!, plan, active: m[1] === '*', parts, status: rest.includes('token_expired') ? 'expired' : undefined })
+    // a 401 is signed out until someone logs in again; a timeout or other blank is transient
+    const status = rest.includes('token_expired') ? 'expired' : /\b401\b/.test(rest) ? 'signed out' : undefined
+    out.push({ cli: 'codex', account: m[2]!, plan, active: m[1] === '*', parts, status })
   }
   return out
 }
