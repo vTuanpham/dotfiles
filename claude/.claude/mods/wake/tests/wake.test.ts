@@ -102,6 +102,25 @@ test('one crew job at 180 columns keeps its status and model next to the title',
   await bar.unmount()
 })
 
+test('the quota line leads with the CLI at work and counts unreadable accounts', async ($, on) => {
+  engine(on)
+  const job: WakeChip = { name: 'takeover', title: 'Face validation', backend: 'agy', account: 'a2', model: 'gemini-3.8-flash-high', effort: '', running: true, isStale: false, since: 1, lastEventAt: 995_000 }
+  const quotas = [
+    { cli: 'codex', account: '01', plan: 'Pro Lite', active: true, parts: [{ label: 'w', pct: 98 }] },
+    { cli: 'codex', account: '02', plan: 'Free', active: false, parts: [] }, // 401
+    { cli: 'codex', account: '03', plan: 'Free', active: false, parts: [] }, // timed out
+    { cli: 'codex', account: '05', plan: 'Free', active: false, parts: [], status: 'expired' },
+    { cli: 'agy', account: 'a1', plan: 'Pro', active: false, parts: [{ label: 'Cw', pct: 0 }, { label: 'Gw', pct: 100 }] },
+    { cli: 'agy', account: 'a2', plan: 'Pro', active: false, parts: [{ label: 'Cw', pct: 69 }, { label: 'Gw', pct: 100 }] },
+  ]
+  on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: [job], version: 1 } }))
+  on('state.get', { plugin: 'wake', key: 'quotas' }, () => ({ value: { value: quotas, version: 1 } }))
+  const bar = await mount($, 'AbovePrompt')
+  const line = flat((await bar.drawn()) as Node).split('\n').find(row => row.startsWith('quota'))!
+  expect(line).toBe('quota agy a1 C w0 · G w100 · a2 C w69 · G w100 │ codex 01* w98 · 3 offline')
+  await bar.unmount()
+})
+
 test('two crew jobs share the width and identical model details appear once', async ($, on) => {
   engine(on)
   const base: WakeChip = { name: 'review', title: 'Review persisted worker messages', backend: 'codex', account: '01', model: 'gpt-6-sol', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 989_000 }

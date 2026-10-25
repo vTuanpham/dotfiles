@@ -22,8 +22,8 @@ import { COLOR, readable, clock, commandHead, crewTiming, fitSlots, hash, isAnsw
 const AWAY_MS = 10 * 60_000
 const ASK_AWAY_MS = 3 * 60_000
 const CODEX_POLL_MS = 15_000
-const QUOTA_POLL_MS = 5 * 60_000 // codex-auth reads its local cache; agy /usage refreshes every AGY_REFRESH polls
-const AGY_REFRESH = 6
+const QUOTA_POLL_MS = 60_000 // codex-auth and agy's quota.json are local caches; agy /usage refreshes every AGY_REFRESH polls
+const AGY_REFRESH = 30
 const ANIMATE_MS = 400
 const SCENE_MS = 50 // the diorama paints 20 a second: half steps of its frame, which motion paces at 10 a second
 const AGENTS_MS = 2_000
@@ -711,7 +711,12 @@ export const register: Register = on => {
       )
     }
     if (running.length > 0 && accounts.length > 0) {
-      const groups = quotaGroups(accounts)
+      // the CLIs at work first, so the end of a long line cuts the idle ones; accounts with no numbers
+      // (signed out, expired, timed out) shrink to a count
+      const inUse = new Set(running.map(job => job.backend ?? 'codex'))
+      const readable = accounts.filter(q => q.parts.length > 0 && q.status === undefined)
+      const offline = accounts.length - readable.length
+      const groups = quotaGroups([...readable.filter(q => inUse.has(q.cli)), ...readable.filter(q => !inUse.has(q.cli))])
       rows.push(
         <Text wrap="truncate-end">
           <Text color={ink.subtle}>quota </Text>
@@ -725,6 +730,7 @@ export const register: Register = on => {
               </Text>
             )
           })}
+          {offline > 0 ? <Text color={ink.subtle}>{groups.length > 0 ? ' · ' : ''}{offline} offline</Text> : ''}
         </Text>,
       )
     }
