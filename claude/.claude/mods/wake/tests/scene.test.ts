@@ -77,7 +77,7 @@ test('words on the scene floor stay readable: text 4.5:1, accents 3:1, light flo
     const ink = readable(floor)
     expect(ratio(ink.text, floor)).toBeGreaterThanOrEqual(4.5)
     expect(ratio(ink.subtext, floor)).toBeGreaterThanOrEqual(4.5)
-    expect(ratio(ink.green, floor)).toBeGreaterThanOrEqual(3)
+    for (const key of ['green', 'red', 'peach', 'teal', 'pink', 'blue'] as const) expect(ratio(ink[key], floor)).toBeGreaterThanOrEqual(3)
     expect(ratio(ink.subtle, floor)).toBeGreaterThanOrEqual(3)
   }
 })

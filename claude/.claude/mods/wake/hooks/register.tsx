@@ -11,7 +11,7 @@ import { KIND_COLOR } from './landscapes/kit'
 import { EFFECT_FRAMES, SCENE_ROWS, type SceneEffect, eventName, sceneCells, sceneFrame } from './scene'
 import { PRESETS, nextRain, skyOf } from './sources/weather'
 import { lookAround, namePlace, pinPreset } from './surroundings'
-import { COLOR, readable, clock, commandHead, crewTiming, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
+import { COLOR, readable, clock, commandHead, crewFreshness, crewName, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
 
 // Wake lives in the flow of the chat: a living diorama above the prompt (the session as a
 // town in the real weather where you are, Mochi on the street), a line of words and the
@@ -280,9 +280,9 @@ async function codexTick($: EngineInterface) {
   const now = await $.clock.now()
   await update($, chips, () =>
     scan.jobs
-      .filter(job => job.running || job.awaitingRoot || (job.finishedAt ?? 0) > now - 30 * 60_000)
+      .filter(job => job.running || job.awaitingRoot || job.attention || (job.finishedAt ?? 0) > now - 30 * 60_000)
       .slice(0, 6)
-      .map(job => ({ name: job.name, title: titleOf(job), backend: job.backend, account: job.account, model: job.model, effort: job.effort, running: job.running, isStale: job.isStale, since: job.finishedAt ?? job.lastEventAt, startedAt: job.startedAt, lastEventAt: job.lastEventAt, awaitingRoot: job.awaitingRoot, waitingForRoot: job.waitingForRoot, maker: makerOf(job.model) })),
+      .map(job => ({ name: job.name, title: titleOf(job), backend: job.backend, account: job.account, model: job.model, effort: job.effort, running: job.running, isStale: job.isStale, since: job.finishedAt ?? job.lastEventAt, startedAt: job.startedAt, lastEventAt: job.lastEventAt, awaitingRoot: job.awaitingRoot, waitingForRoot: job.waitingForRoot, attention: job.attention, maker: makerOf(job.model) })),
   )
   const away = await isAway($, ASK_AWAY_MS)
   for (const job of scan.jobs) {
@@ -619,7 +619,7 @@ export const register: Register = on => {
     const w = here?.weather
     const sky = w ? skyOf(w.code, w.isDay) : undefined
     const rain = w ? nextRain(w.hours) : undefined
-    const running = jobs.filter(job => job.running || job.awaitingRoot)
+    const running = jobs.filter(job => job.running || job.awaitingRoot || job.attention)
     const weather = here ? (
       <Text>
         {sky && w ? <Text color={ink.yellow}>{String.fromCodePoint(sky.icon)} </Text> : <Text color={ink.subtle}>{G.pin} </Text>}
@@ -650,64 +650,67 @@ export const register: Register = on => {
     const bridgeLabels = running.map(job => {
       const backend = job.backend ?? 'codex'
       const label = jobLabel(backend, job.model, job.effort)
-      return `${backend}${job.account ? `·${job.account}` : ''} ${label.model} ${label.effort}`.trim()
+      const effort = ({ low: 'lo', medium: 'med', high: 'hi', xhigh: 'xh' } as Record<string, string>)[label.effort] ?? label.effort
+      const defaultAccount = accounts.find(account => account.cli === backend && account.active)?.account ?? running.find(other => other.backend === job.backend)?.account
+      const model = label.model.length > 8 ? `${label.model.slice(0, 7)}…` : label.model
+      return `${model}${effort ? `·${effort}` : ''}${job.account && job.account !== defaultAccount ? `@${job.account}` : ''}`
     })
     const sharedLabel = bridgeLabels.length > 1 && bridgeLabels.every(label => label === bridgeLabels[0]) ? bridgeLabels[0]! : ''
     const crewCount = crewAgents.length + running.length
-    const sharedWidth = sharedLabel && width >= crewCount * 36 + sharedLabel.length + 3 ? sharedLabel.length + 3 : 0
+    const sharedWidth = sharedLabel ? sharedLabel.length + 1 : 0
     const crewShare = Math.max(1, Math.floor((width - Math.max(0, crewCount - 1) * 3 - sharedWidth) / Math.max(1, crewCount)))
     const crew: RenderElement[] = [
       ...crewAgents.map(agent => (
-        <Box width={crewShare} flexShrink={0} overflow="hidden"><Text wrap="truncate-end">
+        <Text>
           <Text color={ink.pink}>{diamond(frame)} </Text>
-          <Text color={ink.text}>{agent.name ?? agent.description}</Text>
+          <Text color={ink.text}>{crewName({ name: agent.name ?? agent.type, title: agent.description }, crewShare - 6)}</Text>
           <Text color={ink.pink}> {pips(agent.model ? modelTier('claude', agent.model) : parentTier)}</Text>
-          <Text color={ink.pink}> claude</Text>
-          <Text color={ink.subtle}>·{agent.type} · {span(now - agent.since)}</Text>
-        </Text></Box>
+        </Text>
       )),
       ...running.map((job, index) => {
         const backend = job.backend ?? 'codex'
         const [color, glyph] = backend === 'agy' ? [ink.blue, twinkle] : backend === 'claude' ? [ink.pink, diamond] : backend === 'opencode' ? [ink.green, balloon] : [ink.teal, orbit]
         const finished = !job.running || job.waitingForRoot
-        const statusColor = job.isStale ? ink.peach : finished ? ink.yellow : color
-        const title = job.title || job.name
-        const timing = crewTiming(job, now, crewShare)
-        const metadata = !sharedLabel && crewShare >= title.length + timing.length + bridgeLabels[index]!.length + 5 ? bridgeLabels[index] : ''
+        const statusColor = job.attention ? ink.red : job.isStale ? ink.peach : finished ? ink.green : color
+        const freshness = crewShare < 8 && !job.isStale ? '' : crewFreshness(job, now)
+        const glyphText = job.attention === 'error' ? '!' : job.attention === 'question' ? '?' : job.isStale ? `◷${freshness}` : finished ? '✓' : glyph(frame)
+        const metadata = !sharedLabel && crewShare >= bridgeLabels[index]!.length + 8 ? bridgeLabels[index]! : ''
+        const title = crewName(job, crewShare - 2 - (freshness ? freshness.length + 1 : 0) - (metadata ? metadata.length + 1 : 0))
         return (
-          <Box width={crewShare} flexShrink={0} overflow="hidden">
-            <Box flexShrink={0}><Text color={statusColor}>{job.isStale ? G.stale : finished ? G.done : glyph(frame)} </Text></Box>
-            <Box flexGrow={0} flexShrink={1} minWidth={1}><Text color={ink.text} wrap="truncate-end">{title}</Text></Box>
-            <Box flexShrink={0}><Text color={job.isStale || finished ? statusColor : ink.subtle}> {timing}{metadata ? ` ${metadata}` : ''}</Text></Box>
-          </Box>
+          <Text>
+            <Text color={statusColor}>{glyphText} </Text>
+            <Text color={ink.text}>{title}</Text>
+            {freshness && !job.isStale ? <Text color={ink.subtext}> {freshness}</Text> : ''}
+            {metadata ? <Text color={ink.subtext}> {metadata}</Text> : ''}
+          </Text>
         )
       }),
     ]
     if (crew.length > 0) {
       rows.push(
-        <Box width={width} overflow="hidden">
+        <Text wrap="truncate-end">
           {crew.map((part, i) => (
-            <Box flexShrink={0}>
+            <Text>
               {i > 0 ? <Text color={ink.surface}> │ </Text> : ''}
               {part}
-            </Box>
+            </Text>
           ))}
-          {sharedWidth ? <Text color={ink.subtle}> │ {sharedLabel}</Text> : ''}
-        </Box>,
+          {sharedLabel ? <Text color={ink.subtext}> {sharedLabel}</Text> : ''}
+        </Text>,
       )
     }
     if (running.length > 0 && accounts.length > 0) {
       const groups = quotaGroups(accounts)
       rows.push(
         <Text wrap="truncate-end">
-          <Text color={ink.subtle}>quota </Text>
+          <Text color={ink.subtext}>% </Text>
           {groups.map((g, i) => {
             const first = i === 0 || groups[i - 1]!.cli !== g.cli
             return (
               <Text>
-                {i > 0 ? <Text color={ink.surface}>{first ? ' │ ' : ' · '}</Text> : ''}
-                <Text color={g.cli === 'agy' ? ink.blue : ink.teal}>{first ? `${g.cli} ` : ''}{g.accounts.join(' ')}</Text>
-                <Text color={g.bad ? ink.red : g.low ? ink.peach : ink.subtle}> {g.text}</Text>
+                {i > 0 ? <Text color={ink.surface}>·</Text> : ''}
+                <Text color={g.cli === 'agy' ? ink.blue : ink.teal}>{first && g.cli === 'codex' ? 'c' : ''}{g.accounts.join(',')}</Text>
+                <Text color={g.bad ? ink.red : g.low ? ink.peach : ink.subtext}>:{g.text}</Text>
               </Text>
             )
           })}

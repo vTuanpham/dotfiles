@@ -12,7 +12,7 @@ export type WakeCall = { id: string; text: string; answer: string }
 
 /** A running or recent bridge job (Codex, agy, Claude or OpenCode), as a chip; account = codex-auth number or agy login dir;
  *  maker = the model's maker when it has a crew family of its own (a Claude model inside agy), read once from the model id. */
-export type WakeChip = { name: string; title?: string; backend: string; account: string; model: string; effort: string; running: boolean; isStale: boolean; since: number; lastEventAt?: number; startedAt?: number; awaitingRoot?: boolean; waitingForRoot?: boolean; maker?: 'claude' }
+export type WakeChip = { name: string; title?: string; backend: string; account: string; model: string; effort: string; running: boolean; isStale: boolean; since: number; lastEventAt?: number; startedAt?: number; awaitingRoot?: boolean; waitingForRoot?: boolean; attention?: 'error' | 'question'; maker?: 'claude' }
 
 /** Remaining quota of one signed-in account: Codex (5h/wk) or agy (G Gemini, C Claude, A Argon buckets). */
 export type WakeQuota = { cli: 'codex' | 'agy'; account: string; plan: string; active: boolean; parts: { label: string; pct: number }[]; status?: string }

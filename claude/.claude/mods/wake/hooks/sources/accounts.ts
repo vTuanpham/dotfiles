@@ -72,14 +72,15 @@ export function modelTier(backend: string, model: string): Tier {
 /** Whose model a job runs, when that maker has a crew family of its own: a Claude model inside agy wears Claude's pink. */
 export const makerOf = (model: string): 'claude' | undefined => (/\b(claude|opus|sonnet|haiku)\b/.test(model.toLowerCase()) ? 'claude' : undefined)
 
-/** Consecutive accounts of one CLI with the same numbers fold into one group, so four idle free accounts read once. */
+/** Consecutive accounts with the same displayed quota bars fold into one chip. */
 export function quotaGroups(quotas: WakeQuota[]): { cli: 'codex' | 'agy'; accounts: string[]; text: string; low: boolean; bad: boolean }[] {
   const out: ReturnType<typeof quotaGroups> = []
   for (const q of quotas) {
-    // agy parts are bucket+window ('Gh', 'Gw'): print each bucket once, then its windows, like codex's 'h39 w39'
-    const text = q.status ?? (q.cli === 'agy'
-      ? [...new Set(q.parts.map(p => p.label[0]))].map(b => `${b} ${q.parts.filter(p => p.label[0] === b).map(p => `${p.label.slice(1)}${p.pct}`).join(' ')}`).join(' · ')
-      : q.parts.map(p => `${p.label}${p.pct}`).join(' '))
+    const text = q.status ? '!' : q.parts.map(p => {
+      const bar = !Number.isFinite(p.pct) || p.pct < 0 || p.pct > 100 ? '?'
+        : p.pct === 0 ? '·' : '▁▂▃▄▅▆▇█'[Math.ceil(p.pct / 12.5) - 1]!
+      return p.label + bar
+    }).join('') || '?'
     const name = q.account + (q.active ? '*' : '')
     const last = out.at(-1)
     if (last && last.cli === q.cli && last.text === text) last.accounts.push(name)

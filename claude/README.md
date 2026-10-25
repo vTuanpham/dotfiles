@@ -75,16 +75,23 @@ It is Claude-only; [Agent Bridge](../agent-bridge/README.md) and
 
 *Call-outs follow each sprite. Below the scene: activity, crew and quota rows, the prompt, and the Claude Code status line (`statusline.py` here), all demo values.*
 
-Bridge crew rows put names first, each within an equal share of the width.
-`12s` means time since the last event; `stalled 16m` marks silence past Bridge's
-15-minute default (waiting for root is exempt). Known, longer turn times appear
-only when space allows; unknown turn times are omitted. Finished jobs stay as
-`done` until Bridge's `result` or explicit `ack` acknowledges their completion.
-Identical account/model details appear once when there is room.
+Crew chips pack left with single spaces and thin separators. The animated family
+glyph means active; `◷16m` marks silence past Bridge's 15-minute default, green
+`✓` means done and waiting for root, red `?` a question and red `!` an error.
+Shapes carry state as well as color. Freshness fades from `▰▰` (under 30 seconds)
+through `▰▱` (under two minutes) to `▱▱`; exact ages appear only for stalls.
+Short job names replace long titles when crowded; longer labels end in `…`.
+Model/effort badges use `sol·hi`, `luna·xh`, etc.; identical badges appear once.
+When very crowded, badges and freshness give way to names and status glyphs.
+An account suffix appears only when it differs from the active account (or the
+first visible account of that family if the active account is unknown).
+Done jobs and questions/errors remain until Bridge's acknowledgement rules clear them.
 
 The quota row belongs to Wake and appears while Bridge jobs are running. It shows
 account numbers, never emails. `h` is five-hour, `w` weekly and `m` monthly
-remaining percent; Codex plans report different windows (Plus `h w`, Pro `w`).
+remaining quota; Codex plans report different windows (Plus `h w`, Pro `w`).
+Quota chips use `c` (Codex) or `a` (agy), account IDs and a bar per window:
+`▁` is nearly empty, `█` nearly full or full, `·` empty, `?` unknown, `!` an account error.
 agy's `G`, `C`, `A` are Gemini, Claude/GPT and Argon buckets. Codex numbers come
 from the local `codex-auth` cache and can be stale; agy numbers come from each
 account's cache, refreshed with `agent-bridge quota --backend agy`.

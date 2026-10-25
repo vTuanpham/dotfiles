@@ -61,14 +61,22 @@ export function span(ms: number): string {
   return `${Math.floor(s / 3600)}h${pad(Math.floor((s % 3600) / 60))}m`
 }
 
-/** Separate the turn clock from event freshness, including chips saved before these fields existed. */
-export function crewTiming(job: WakeChip, now: number, columns = Infinity): string {
-  if (!job.running || job.waitingForRoot) return 'done'
-  if (!job.lastEventAt) return 'starting'
+/** Two freshness cells; exact silence is useful only once the job stalls. */
+export function crewFreshness(job: WakeChip, now: number): string {
+  if (!job.running || job.waitingForRoot || job.attention) return ''
+  if (!job.lastEventAt) return '▱▱'
   const quiet = now - job.lastEventAt
-  if (job.isStale) return columns < 24 ? 'stalled' : `stalled ${span(quiet)}`
-  const turn = job.startedAt ? now - job.startedAt : 0
-  return span(quiet) + (columns >= 60 && turn >= 60_000 && turn >= quiet * 2 ? ` · turn ${span(turn)}` : '')
+  if (job.isStale) return `${Math.max(0, Math.floor(quiet / 60_000))}m`
+  return quiet < 30_000 ? '▰▰' : quiet < 120_000 ? '▰▱' : '▱▱'
+}
+
+/** Prefer a short job ID when crowded, without adding a second copy of its title. */
+export function crewName(job: { name: string; title?: string }, columns: number): string {
+  const title = (job.title || job.name).replace(/\s+/g, ' ').trim()
+  const name = columns < 32 && job.name.length < title.length ? job.name : title
+  const limit = Math.max(1, Math.min(24, columns))
+  const chars = Array.from(name)
+  return chars.length > limit ? `${chars.slice(0, limit - 1).join('').trimEnd()}…` : name
 }
 
 /** Lines in a block of text; "" is none, a trailing newline adds no line. */

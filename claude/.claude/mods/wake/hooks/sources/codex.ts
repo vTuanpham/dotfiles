@@ -19,6 +19,7 @@ export type CodexJob = {
   startedAt?: number
   awaitingRoot: boolean // latest completion has not been acknowledged by bridge
   waitingForRoot: boolean // runner is alive but the completed turn is idle
+  attention?: 'error' | 'question' // urgent event still pending in bridge's acknowledgement cursor
   lastMessage?: string // <= 400 chars
   finishedAt?: number
   urgent: { at: number; text: string }[] // urgent events new since the cursor (turn_completed excluded), text <= 300
@@ -83,8 +84,8 @@ async function readAcknowledgements($: EngineInterface, path: string): Promise<R
   }
 }
 
-type Ev = { at: number; kind: string; level?: string; text?: string; end: number; quietSeconds?: number }
-type Meta = { lastMessage?: string; finishedAt?: number; completedEnd?: number; startedAt?: number; lastKind?: string; silentSince?: number; identity?: string }
+type Ev = { at: number; kind: string; level?: string; text?: string; end: number; quietSeconds?: number; attention?: 'error' | 'question' }
+type Meta = { lastMessage?: string; finishedAt?: number; completedEnd?: number; startedAt?: number; lastKind?: string; silentSince?: number; identity?: string; attention?: 'error' | 'question'; attentionEnd?: number }
 
 // What the last events said, per live.jsonl. Re-derivable from a 64 KB tail, so a reload only costs one read.
 const metaOf = new Map<string, Meta>()
@@ -125,6 +126,8 @@ function parseEvents(text: string, offset = 0): Ev[] {
         quietSeconds: typeof v.quietSeconds === 'number' && Number.isFinite(v.quietSeconds) && v.quietSeconds >= 0 ? v.quietSeconds : undefined,
         level: typeof v.level === 'string' ? v.level : undefined,
         text: typeof v.text === 'string' ? v.text : undefined,
+        attention: ['error', 'permission_denied', 'approval_declined', 'question_timeout'].includes(v.kind) || (v.kind === 'turn_completed' && Boolean(v.error))
+          ? 'error' : v.kind === 'question' || (v.kind === 'message' && v.level === 'urgent') ? 'question' : undefined,
       })
     } catch {
       // malformed or half-written line: skip
@@ -136,6 +139,10 @@ function parseEvents(text: string, offset = 0): Ev[] {
 function absorb(meta: Meta, events: Ev[]): void {
   for (const e of events) {
     meta.lastKind = e.kind
+    if (e.attention) {
+      meta.attention = e.attention
+      meta.attentionEnd = e.end
+    }
     meta.silentSince = e.kind === 'stalled' && e.quietSeconds !== undefined ? e.at - e.quietSeconds * 1000 : undefined
     if (e.kind === 'turn_started') meta.startedAt = e.at || undefined
     if (e.kind === 'message' && e.text) meta.lastMessage = clip(e.text, MESSAGE_CHARS)
@@ -195,7 +202,8 @@ export async function scanCodex(
       acknowledgements.set(owner, await readAcknowledgements($, `${root}/${owner}/ack.json`))
     }
     const ack = acknowledgements.get(owner)?.[name]
-    const acknowledged = ack?.log === identity && Math.max(ack.through, ack.completed, ack.seen) <= size ? Math.max(ack.through, ack.completed) : 0
+    const validAck = ack?.log === identity && Math.max(ack.through, ack.completed, ack.seen) <= size ? ack : undefined
+    const acknowledged = validAck ? Math.max(validAck.through, validAck.completed) : 0
     const cached = metaOf.get(path)
     const prev = cached?.identity && cached.identity !== identity ? undefined : cursor[path]
     next[path] = prev ?? size
@@ -248,8 +256,9 @@ export async function scanCodex(
     const running = st.runnerAlive
     const lastEventAt = meta.silentSince ?? mtime
     const awaitingRoot = (meta.completedEnd ?? 0) > acknowledged
+    const attention = (meta.attentionEnd ?? 0) > (validAck?.through ?? 0) ? meta.attention : undefined
     const waitingForRoot = running && !st.active && (awaitingRoot || meta.lastKind === 'root_wait')
-    if (!running && !awaitingRoot && now - lastEventAt > recentMs) continue
+    if (!running && !awaitingRoot && !attention && now - lastEventAt > recentMs) continue
 
     jobs.push({
       owner: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
@@ -267,6 +276,7 @@ export async function scanCodex(
       startedAt: meta.startedAt,
       awaitingRoot,
       waitingForRoot,
+      attention,
       lastMessage: meta.lastMessage,
       finishedAt: meta.finishedAt,
       urgent: fresh
