@@ -127,7 +127,7 @@ def test_pace_compares_recent_model_steps_with_the_jobs_usual(tmp_path):
     steps_log(log, [10] * 14)
     assert watcher.pace(log) is None  # too few steps to judge
     steps_log(log, [10] * 10 + [170, 160, 175, 180, 165])
-    assert watcher.pace(log) == (170, 10)
+    assert watcher.pace(log) == (170, 10, 20)
 
 
 def test_a_slow_job_is_reported_once(monkeypatch, tmp_path, capsys):
@@ -144,6 +144,9 @@ def test_a_slow_job_is_reported_once(monkeypatch, tmp_path, capsys):
     watcher.watch(["owner"], stall_min=60)
     output = capsys.readouterr().out
     assert output.count("slow, model steps take 170s (usually 10s)") == 1
+    alive = iter([True] * 4)  # a later watch finds the report in the log and stays quiet
+    watcher.watch(["owner"], stall_min=60)
+    assert "slow, model steps" not in capsys.readouterr().out
 
 
 def test_socket_bytes_sums_only_the_jobs_sockets(monkeypatch):

@@ -71,10 +71,11 @@ def socket_bytes(pids):
 
 
 def pace(path):
-    """(recent, usual) median seconds between a command's end and the next one's start: how long each
-    model step takes. Recent is the last PACE_RECENT steps; usual is every step before them. None while
-    there are fewer than PACE_RECENT + PACE_BASELINE steps, or for a backend that logs no commands."""
-    gaps, last = [], None
+    """(recent, usual, unreported) for the seconds between a command's end and the next one's start: how
+    long each model step takes. Recent is the median of the last PACE_RECENT steps, usual of every step
+    before them, unreported the steps since the log's last `slow` event. None while there are fewer
+    than PACE_RECENT + PACE_BASELINE steps, or for a backend that logs no commands."""
+    gaps, last, reported = [], None, None
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -91,9 +92,12 @@ def pace(path):
         elif kind == "command_start" and last is not None:
             gaps.append(at - last)
             last = None
+        elif kind == "slow":
+            reported = len(gaps)
     if len(gaps) < PACE_RECENT + PACE_BASELINE:
         return None
-    return statistics.median(gaps[-PACE_RECENT:]), statistics.median(gaps[:-PACE_RECENT])
+    unreported = len(gaps) - (reported if reported is not None else -PACE_RECENT)
+    return statistics.median(gaps[-PACE_RECENT:]), statistics.median(gaps[:-PACE_RECENT]), unreported
 
 
 def busy(before, after):
@@ -138,7 +142,6 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
     identities = {}
     first, idle_ticks, stalled, first_seen, last_kind = True, 0, set(), {}, {}
     samples, busy_at = {}, {}  # job -> (time, CPU seconds) at the last sample; job -> last time it was busy
-    slow = set()
     while True:
         alive = urgent = False
         fired = {}
@@ -163,14 +166,13 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
                             busy_at[job] = now
                         samples[job] = sample
                     steps = pace(f)
-                    if steps and steps[0] >= max(PACE_FLOOR, PACE_SLOW * steps[1]) and job not in slow:
-                        slow.add(job)  # once per slow spell
+                    # once per window of fresh steps, across watches: the log holds the last report
+                    slower = steps and steps[0] >= max(PACE_FLOOR, PACE_SLOW * steps[1])
+                    if slower and steps[2] >= PACE_RECENT:
                         recent, usual = round(steps[0]), round(steps[1])
                         print(f"{label}: slow, model steps take {recent}s (usually {usual}s)", flush=True)
                         log(job, "slow", level="urgent", recentSeconds=recent, usualSeconds=usual,
                             message=f"model steps take {recent}s, usually {usual}s")
-                    elif steps and steps[0] < PACE_SLOW / 2 * steps[1]:
-                        slow.discard(job)
                 quiet = min(
                     int(now - first_seen[job]),
                     int(now - f.stat().st_mtime) if f.exists() else 0,
