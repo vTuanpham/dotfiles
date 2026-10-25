@@ -6,6 +6,7 @@ import select
 import shutil
 import signal
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -27,6 +28,68 @@ from .core import (
 ACCOUNTS = Path.home() / ".agy-accounts"
 TOKEN = Path(".gemini/antigravity-cli/antigravity-oauth-token")
 READ_ALL = ["read_file(/)"]  # a directory target is recursive: reads anywhere, like a codex sandbox
+BURN_WINDOW = 60  # seconds per transcript sample
+BURN_WINDOWS = 3  # consecutive windows of model requests the stream never showed before the urgent report
+# agy caps a foreground command at 10 s (run_command's WaitMsBeforeAsync schema) and has no blocking wait for
+# a background one, so a model that waits for a long command polls it, one full-context request per poll.
+AGY_RULE = (
+    "agy backgrounds any command still running after 10 seconds, and every poll of it (tail, ps, "
+    "manage_task status, re-running a summary) is a full-context model request that spends quota. "
+    "Never poll. Do not start a command that may take more than two minutes: send one message with the "
+    "exact command, its working directory and what output to expect, then end your turn; the coordinator "
+    "runs it and resumes you with the result."
+)
+
+
+def transcript_path(job, conversation):
+    logs = Path(job) / "home/.gemini/antigravity-cli/brain" / conversation / ".system_generated/logs"
+    return logs / "transcript.jsonl"
+
+
+def burn_check(job, state, mon):
+    """Once per BURN_WINDOW, count the model requests agy's own transcript recorded since the last sample.
+    agy's stream-json holds back every step after one that is still running (a backgrounded command), so a
+    polling model leaves live.jsonl silent while it spends quota. A window with requests is logged as
+    `model_requests`; BURN_WINDOWS in a row without a single streamed step is one urgent `quota_burn`."""
+    now = time.monotonic()
+    if now - mon["at"] < BURN_WINDOW:
+        return
+    seconds, mon["at"] = round(now - mon["at"]), now
+    seen, mon["seen"] = mon["seen"], False
+    try:
+        with transcript_path(job, state.get("conversationId", "")).open("rb") as handle:
+            handle.seek(mon["offset"])
+            data = handle.read()
+    except OSError:
+        return
+    data = data[: data.rfind(b"\n") + 1]  # a half-written last line waits for the next sample
+    mon["offset"] += len(data)
+    requests = []
+    for line in data.splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict) and "input_tokens" in row:  # a model request; tool results carry none
+            requests.append(row)
+    if not requests:
+        mon["hidden"] = 0
+        return
+    keys = ("input_tokens", "cache_read_tokens", "output_tokens")
+    totals = {key: sum(r.get(key) or 0 for r in requests) for key in keys}
+    log(job, "model_requests", requests=len(requests), seconds=seconds, streamed=seen, **totals)
+    mon["hidden"] = 0 if seen else mon["hidden"] + 1
+    if mon["hidden"] == BURN_WINDOWS:
+        log(
+            job,
+            "quota_burn",
+            level="urgent",
+            message=(
+                f"{len(requests)} model requests in the last {seconds}s and none streamed for "
+                f"{BURN_WINDOWS} windows: the worker is likely polling a backgrounded command. "
+                "Interrupt and resume it, or run that command yourself."
+            ),
+        )
 
 
 def account_env(account):
@@ -201,6 +264,11 @@ def run(job, state, path, prompt, resume=False):
     buf = b""
     texts = {}
     reason = "normal"
+    try:  # a resumed conversation's transcript already holds the earlier requests
+        offset = transcript_path(job, state.get("conversationId", "")).stat().st_size
+    except OSError:
+        offset = 0
+    mon = {"at": time.monotonic(), "offset": offset, "seen": False, "hidden": 0}
 
     def send(text):
         proc.stdin.write(
@@ -216,7 +284,7 @@ def run(job, state, path, prompt, resume=False):
         if state.get("inflight"):
             poll_steers(job, send, state=state, defer=True, redeliver=True, turn_key="turnsSent")
         if prompt:
-            send(prompt if resume else f"{MESSAGING_RULE}\n\n---\n\n{prompt}")
+            send(prompt if resume else f"{MESSAGING_RULE}\n\n{AGY_RULE}\n\n---\n\n{prompt}")
         while True:
             ready, _, _ = select.select([proc.stdout], [], [], POLL)
             if ready:
@@ -232,9 +300,11 @@ def run(job, state, path, prompt, resume=False):
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
                     try:
-                        process(json.loads(line), state, job, send, texts)
+                        event = json.loads(line)
                     except json.JSONDecodeError:
-                        pass
+                        continue
+                    mon["seen"] = mon["seen"] or event.get("event") == "step_update"
+                    process(event, state, job, send, texts)
             if (Path(job) / "interrupt").exists():
                 (Path(job) / "interrupt").unlink()
                 os.killpg(proc.pid, signal.SIGINT)
@@ -246,6 +316,7 @@ def run(job, state, path, prompt, resume=False):
                 os.killpg(proc.pid, signal.SIGTERM)
                 return
             poll_steers(job, send, state=state, defer=True, turn_key="turnsSent")
+            burn_check(job, state, mon)
             if state.get("turnsDone", 0) >= state.get("turnsSent", 0) and not list(
                 (Path(job) / "steer").glob("[0-9]*.md")
             ):
