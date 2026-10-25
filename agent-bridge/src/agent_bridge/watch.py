@@ -3,7 +3,7 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 
-from .core import JOBS
+from .core import JOBS, load_state
 
 
 def running(state):
@@ -20,10 +20,14 @@ def job_dirs(owners):
     """<owner> globs its jobs; an <owner>/<name> argument names one job. Rescanned every tick."""
     for owner in owners:
         root = JOBS / owner
-        if (root / "state.json").is_file():
-            yield root
-        elif root.is_dir():
-            yield from (p for p in sorted(root.iterdir()) if (p / "state.json").is_file())
+        candidates = ([root] if (root / "state.json").is_file()
+                      else sorted(root.iterdir()) if root.is_dir() else [])
+        for job in candidates:
+            try:
+                if not load_state(job).get("retiredAt"):
+                    yield job
+            except (OSError, ValueError):
+                continue
 
 
 def line_for(job, event, title=None):

@@ -60,7 +60,9 @@ The free-tier zero-retention list lives in code (`ZDR_FREE` in `opencode.py`); c
 
 ## Cleanup (root's job, never the user's)
 - Keep jobs available for related follow-ups, verification and review. Retire only when the work is resolved and you are confident its context is no longer needed; a completed turn, saved report or merged result alone is not enough.
-- Once that condition holds:
-  1. Remove its worktree (`git worktree remove`, no `--force`).
-  2. Run `agent-bridge retire <owner>/<name>` to archive its prompt and final report, then delete the job dir.
-- At the end of a session, review finished jobs older than 3 days and tidy only those that meet the same condition; age alone is not a reason to retire. List a dirty worktree or anything still running for the user's OK; never delete it.
+- Run `agent-bridge retire <owner>/<name>` once that condition holds. Retirement archives its prompt head and final report, hides it from active listings/watch/sessions, and records `retiredAt` and `purgeAfter` in its state. The job directory, backend homes, session IDs and worktrees stay in place.
+- Retirement is reversible until the data is purged: `agent-bridge restore <owner>/<name>`, then `agent-bridge resume <owner>/<name>` continues the same native thread/session. Passing the purge date alone does not delete data, so restore still works until purge actually runs.
+- The default retention is 14 days from retirement. Set it for a job with `retire <owner>/<name> --keep-days N` (positive whole days). Repeating retire does not reset its date; restore and retire again to set a new window.
+- `agent-bridge purge` explicitly deletes all retired jobs past their recorded purge date; `purge <owner>/<name>` targets just one eligible job. Nothing purges automatically. Wake's tidy scan counts only expired retired jobs, excluding dirty worktrees and live runners, and asks the root to use `purge`. Purge removes clean `out/wt` git worktrees without force and refuses dirty/unreadable worktrees or live runners.
+- For immediate disk recovery, `retire <owner>/<name> --purge` archives and permanently deletes that job, bypassing retention. Restore cannot recover purged data. `result <owner>/<name>` still reads the live report while retained, or the archived final report after purge (including older archives); archives contain only the prompt head and up to 2,000 report characters, not native sessions or full transcripts.
+- At the end of a session, review finished work before retiring it; age alone is not a reason to retire. Keep worktrees needed for follow-ups. List dirty worktrees or anything still running for the user's OK; never force-delete them.

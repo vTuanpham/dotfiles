@@ -46,6 +46,10 @@ not implement a question timeout. No automatic-dismissal hook is installed.
 `.claude/mods/wake` is a Claude Code mod: the animated diorama above the prompt
 (the session as a town in the real weather where you are), the crew row
 (subagents, Bridge jobs), recaps, the plan in the spinner and the Bridge job tidy scan.
+Retired Bridge jobs leave the crew row. The tidy scan counts only retired jobs past their
+purge date, excludes dirty worktrees, and asks the root to run `agent-bridge purge`;
+it never recommends deleting jobs still within retention. `agent-bridge restore` reactivates
+a retained job with its original session.
 Unlike the snapshot files, the mod is used in place and reloads as its files change.
 It is Claude-only; [Agent Bridge](../agent-bridge/README.md) and
 [Agent Baton](../agent-baton/README.md) work in every harness.

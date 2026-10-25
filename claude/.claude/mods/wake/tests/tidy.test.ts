@@ -18,6 +18,10 @@ const JOBS: Record<string, { age: number; wt?: 'clean' | 'dirty' | 'plain' }> = 
   'pb/agyrun': { age: 7 },
   leg: { age: 4 },
   'pb/notgit': { age: 9, wt: 'plain' },
+  'pb/retained': { age: 30 },
+  'pb/malformed': { age: 30 },
+  'pb/localdate': { age: 30 },
+  'pb/missingdate': { age: 30 },
 }
 const DU: Record<string, number> = {
   [`${ROOT}/pb/old1/out/wt`]: 900,
@@ -73,7 +77,12 @@ function world(opts: { bridgeHome?: string; wrongCmdline?: boolean } = {}) {
         const root = opts.bridgeHome ? `${opts.bridgeHome}/jobs` : ROOT
         const dir = path.slice(root.length + 1, -'/state.json'.length)
         const pid = dir === 'pb/running' ? 123 : dir === 'pb/agyrun' ? 125 : undefined
-        return JSON.stringify({ runnerPid: pid })
+        if (dir === 'leg') return '{}' // pre-retirement layout stays active, regardless of age
+        if (dir === 'pb/malformed') return '{broken'
+        if (dir === 'pb/localdate') return JSON.stringify({ retiredAt: '1970-01-01T00:00:00', purgeAfter: '1970-01-02T00:00:00' })
+        if (dir === 'pb/missingdate') return JSON.stringify({ retiredAt: new Date(NOW - 20 * DAY).toISOString() })
+        return JSON.stringify({ runnerPid: pid, retiredAt: new Date(NOW - 20 * DAY).toISOString(),
+          purgeAfter: new Date(NOW + (dir === 'pb/retained' || dir === 'pb/fresh' ? 1 : -1) * DAY).toISOString() })
       },
     },
   } as unknown as EngineInterface
@@ -84,13 +93,13 @@ test('running, too-new and non-job dirs are excluded; dirty is reported apart an
   const { $, calls } = world()
   const scan = await scanTidy($)
 
-  expect(scan.jobs.map(j => j.name).sort()).toEqual(['leg', 'notgit', 'old1', 'old2'])
+  expect(scan.jobs.map(j => j.name).sort()).toEqual(['notgit', 'old1', 'old2'])
   expect(scan.worktrees.map(w => w.name)).toEqual(['old1'])
   expect(scan.dirty).toEqual([
     { kind: 'worktree', path: `${ROOT}/pb/dirty1/out/wt`, owner: 'pb', name: 'dirty1', bytes: 777, ageDays: 6, isDirty: true },
   ])
   expect(scan.jobs.find(j => j.name === 'dirty1')).toBeUndefined()
-  expect(scan.jobs.find(j => j.name === 'leg')).toMatchObject({ owner: '', path: `${ROOT}/leg`, ageDays: 4 })
+  expect(scan.jobs.some(j => ['leg', 'retained', 'malformed', 'localdate', 'missingdate'].includes(j.name))).toBe(false)
   expect(scan.scannedAt).toBe(NOW)
   expect(calls.map(c => c[0])).toEqual(['find', 'sh', 'du']) // one listing call, whatever the job count
 })
@@ -101,7 +110,7 @@ test('du output is parsed: a job counts its worktree once; reclaim excludes dirt
   const old1 = scan.jobs.find(j => j.name === 'old1')!
   expect(old1.bytes).toBe(1_000)
   expect(scan.worktrees[0]!.bytes).toBe(900)
-  expect(scan.reclaimBytes).toBe(1_000 + 2_000 + 50 + 30)
+  expect(scan.reclaimBytes).toBe(1_000 + 2_000 + 30)
   expect(scan.jobs[0]!.name).toBe('old2') // biggest first
 })
 
@@ -111,7 +120,7 @@ test('worktrees are listed before jobs in du, and nothing running or new is size
   const du = calls.find(c => c[0] === 'du')!.slice(2)
 
   expect(du.indexOf(`${ROOT}/pb/old1/out/wt`)).toBeLessThan(du.indexOf(`${ROOT}/pb/old1`))
-  expect(du.some(p => p.includes('/running') || p.includes('/fresh'))).toBe(false)
+  expect(du.some(p => p.includes('/running') || p.includes('/fresh') || p.includes('/retained') || p.includes('/leg'))).toBe(false)
 })
 
 test('olderThanDays narrows the scan', async () => {
@@ -149,12 +158,12 @@ test('tidyRequest names the plan, sizes, jobs and the dirty ones left for approv
   const scan = await scanTidy(world().$)
   const text = tidyRequest(scan)
 
-  expect(text).toContain('remove 1 clean worktrees with `git worktree remove` (no --force)')
+  expect(text).toContain('`agent-bridge purge <owner>/<name>`')
   expect(text).toContain(`${HOME}/.local/state/agent-bridge/archive.jsonl`)
   expect(text).toContain('Tidy bridge jobs:')
-  expect(text).toContain('delete these 4 finished job dirs older than 3 days')
+  expect(text).toContain('these 3 retired jobs past their purge date')
   expect(text).toContain('pb/old1')
-  expect(text).toContain('leg')
+  expect(text).not.toContain('pb/retained')
   expect(text).toContain('Leave the 1 dirty worktrees for my OK: pb/dirty1')
   expect(text).toMatch(/\(≈\d+ MB\)/)
 })
@@ -175,5 +184,5 @@ test('tidyRequest caps the list at 40 and stays under 2,500 characters', () => {
 test('tidyRequest has nothing to say when nothing qualifies', () => {
   const empty: TidyScan = { jobs: [], worktrees: [], dirty: [], reclaimBytes: 0, scannedAt: NOW, archivePath: `${HOME}/.local/state/agent-bridge/archive.jsonl` }
 
-  expect(tidyRequest(empty)).toContain('nothing')
+  expect(tidyRequest(empty)).toContain('no retired jobs past their purge date')
 })

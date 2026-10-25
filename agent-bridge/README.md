@@ -5,12 +5,17 @@
 A cross-harness CLI that lets a root coding agent (Codex, Antigravity/agy, Claude Code or OpenCode) hand work to workers of
 the other harnesses: start a job from a written brief, watch it live, steer or interrupt it, and review its result.
 Keep the job for related follow-ups; retire it only when its work is resolved and its context is no longer needed.
+`retire <owner>/<name>` archives the report and hides the job, keeping its data in place for
+14 days by default (`--keep-days N`). `restore <owner>/<name>` makes it active again, and
+`resume` continues the original thread/session. `purge` deletes expired retired jobs only
+when explicitly run; `retire --purge` deletes immediately. Both keep archived reports readable
+with `result`, but purged sessions cannot be restored. See `agent-bridge guide workflow`.
 Jobs persist under `~/.local/state/agent-bridge`, so another root can resume or take over, and
 workers can message each other with `TO <peer>:`. Plain worker messages, including ones addressed `TO root:`,
 go to the coordinator as info.
 
 `agent-bridge sessions` exports a versioned JSON inventory of native worker IDs
-across all owners and backends, for tools such as [Agent Inbox](../agent-inbox/README.md).
+across all owners and backends, excluding retired jobs, for tools such as [Agent Inbox](../agent-inbox/README.md).
 It contains job identity and recorded launcher metadata, never prompts, credentials
 or account settings. New jobs record a parent when the root exposes its native
 session ID. Other harnesses can supply `AGENT_BRIDGE_ROOT_HARNESS` and

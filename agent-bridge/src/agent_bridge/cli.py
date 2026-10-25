@@ -5,13 +5,12 @@ import sys
 import time
 from pathlib import Path
 
-from . import agy, claude, codex, opencode, reference, refresh
+from . import agy, claude, codex, opencode, reference, refresh, retirement
 from .core import (
     ARCHIVE,
     JOBS,
     POLL,
     WORKER_FLAG,
-    append,
     human,
     load_state,
     lock_runner,
@@ -77,6 +76,8 @@ def session_bindings():
                     or path.stat().st_size > 1048576):
                 continue
             state = load_state(path.parent)
+            if state.get("retiredAt"):
+                continue
             backend = state.get("backend")
             identifier = state.get(keys.get(backend))
             title = state.get("title", "")
@@ -219,7 +220,8 @@ def main():
         os.environ.get(WORKER_FLAG)
         and len(sys.argv) > 1
         and not any(flag in sys.argv[1:] for flag in ("-h", "--help"))
-        and sys.argv[1] in {"start", "resume", "steer", "interrupt", "stop", "compact", "retire", "sessions"}
+        and sys.argv[1] in {"start", "resume", "steer", "interrupt", "stop", "compact", "retire",
+                            "restore", "purge", "sessions"}
     ):
         print("agent-bridge: delegated workers can't drive agent-bridge jobs", file=sys.stderr)
         raise SystemExit(2)
@@ -318,9 +320,15 @@ def main():
     result = sub.add_parser("result", help="print messages from a job's final turn")
     result.add_argument("job", help="job as <owner>/<name>")
     result.add_argument("--all", action="store_true", help="print every message from every turn")
-    sub.add_parser(
-        "retire", help="archive a stopped job's prompt and final report, then delete it"
-    ).add_argument("job", help="job as <owner>/<name>")
+    retire = sub.add_parser("retire", help="archive and hide a stopped job; restorable until purged")
+    retire.add_argument("job", help="job as <owner>/<name>")
+    retire.add_argument("--keep-days", type=int, default=14,
+                        help="days before purge eligibility (default: 14)")
+    retire.add_argument("--purge", action="store_true", help="delete job data immediately; irreversible")
+    sub.add_parser("restore", help="reactivate a retired job with its original session").add_argument("job")
+    sub.add_parser("purge", help="delete expired retired jobs; archived reports remain").add_argument(
+        "job", nargs="?", help="one <owner>/<name>; omit for all expired retired jobs"
+    )
     w = sub.add_parser("watch", help="watch jobs under one or more owners, or a specific job")
     w.add_argument("owner", nargs="+", help="owner or <owner>/<name>")
     w.add_argument(
@@ -384,6 +392,19 @@ def main():
         if a.command == "sessions":
             print(json.dumps(session_bindings()))
             return
+        if a.command == "purge" and not a.job:
+            failed = False
+            for path in sorted(JOBS.glob("*/*/state.json")):
+                try:
+                    job = resolve_job(str(path.parent))
+                    if retirement.purge_due(load_state(job)):
+                        print(retirement.purge(job))
+                except (OSError, ValueError, RuntimeError) as exc:
+                    print(f"skipped {path.parent.parent.name}/{path.parent.name}: {exc}", file=sys.stderr)
+                    failed = True
+            if failed:
+                raise SystemExit(1)
+            return
         if a.command == "stale":
             if a.accept:
                 reference.accept()
@@ -444,13 +465,17 @@ def main():
                     state = load_state(peer)
                 except (OSError, json.JSONDecodeError):
                     continue
+                if state.get("retiredAt"):
+                    continue
                 print(
                     f"{peer.name}\t{state.get('backend', 'unknown')}\t{state.get('model') or ''}\t"
                     f"{state.get('title', '')}\t{'running' if running(state) else 'idle'}"
                 )
             return
         if a.command == "result":
-            print(result_text(resolve_job(a.job), a.all))
+            job = resolve_job(a.job)
+            print(result_text(job, a.all) if (job / "state.json").exists() else
+                  retirement.archived_result(ARCHIVE, f"{job.parent.name}/{job.name}"))
             return
         if a.command in ("models", "quota"):
             if a.backend == "agy":
@@ -464,36 +489,13 @@ def main():
             return
         job = resolve_job(a.job)
         if a.command == "retire":
-            from .watch import running
-
-            retire_fd = lock_runner(job)
-            try:
-                state = load_state(job)
-                if running(state):
-                    raise RuntimeError("job has a live runner; stop it before retiring")
-                ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
-                append(
-                    ARCHIVE,
-                    {
-                        "at": stamp(),
-                        "job": f"{job.parent.name}/{job.name}",
-                        "backend": state.get("backend"),
-                        "model": state.get("model"),
-                        "title": state.get("title"),
-                        "prompt": (job / "prompt.md").read_text(encoding="utf-8")[:300]
-                        if (job / "prompt.md").exists()
-                        else "",
-                        "final": result_text(job)[:2000],
-                    },
-                )
-                import shutil
-
-                freed = tree_size(job)
-                shutil.rmtree(job)
-                print(f"retired {job.parent.name}/{job.name}, freed {human(freed)}")
-            finally:
-                os.close(retire_fd)
+            print(retirement.retire(job, ARCHIVE, result_text, a.keep_days, a.purge))
             return
+        if a.command in ("restore", "purge"):
+            print(getattr(retirement, a.command)(job))
+            return
+        if (job / "state.json").exists() and load_state(job).get("retiredAt"):
+            raise RuntimeError(f"job is retired; run agent-bridge restore {a.job} before {a.command}")
         job.mkdir(parents=True, exist_ok=True)
         state_path = job / "state.json"
         if a.command == "steer":
@@ -522,9 +524,11 @@ def main():
         if a.command in ROOT_COMMANDS:
             record_root(job)
         runner_fd = lock_runner(job)
+        if state_path.exists() and load_state(job).get("retiredAt"):
+            raise RuntimeError(f"job is retired; run agent-bridge restore {a.job} first")
         resume = a.command in ("resume", "compact")
         if resume:
-            state = json.loads(state_path.read_text())
+            state = load_state(job)
             state.pop("runnerPid", None)
             if a.command == "resume":
                 state["autoAnswers"] = 0

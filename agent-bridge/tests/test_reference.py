@@ -131,6 +131,22 @@ def small_fix(text):
     return refreshed(text, **{LUNA_CELL: f"| Luna | {LUNA_LOW} / $0.0049"})
 
 
+def test_refresh_does_not_reuse_a_retained_job_name(home, monkeypatch):
+    reference.accept()
+    started = []
+    simulate = worker(home, lambda text: text)
+
+    def run(cmd, **kwargs):
+        if cmd[3:4] == ["start"]:
+            started.append(cmd[4])
+        return simulate(cmd, **kwargs)
+
+    monkeypatch.setattr(refresh.subprocess, "run", run)
+    assert refresh.run(force=True) == 0
+    assert refresh.run(force=True) == 0
+    assert len(started) == 2 and started[0] != started[1]
+
+
 def big_move(text):
     return refreshed(text, **{LUNA_CELL: "| Luna | 40 / $0.005"})
 

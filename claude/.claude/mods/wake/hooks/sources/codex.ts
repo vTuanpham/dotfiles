@@ -117,13 +117,13 @@ function absorb(meta: Meta, events: Ev[]): void {
   }
 }
 
-async function activeTurn($: EngineInterface, dir: string): Promise<{ active: boolean; runnerAlive: boolean; backend: string; account: string; model: string; effort: string; cwd: string; title: string }> {
+async function activeTurn($: EngineInterface, dir: string): Promise<{ active: boolean; retired: boolean; runnerAlive: boolean; backend: string; account: string; model: string; effort: string; cwd: string; title: string }> {
   try {
     const s = JSON.parse(await $.fs.read(`${dir}/state.json`)) as Record<string, unknown>
     const str = (k: string) => (typeof s[k] === 'string' ? (s[k] as string) : '')
-    return { active: s.activeTurnId != null, runnerAlive: await bridgeRunnerAlive($, s.runnerPid), backend: str('backend') || 'codex', account: str('account'), model: str('model'), effort: str('effort'), cwd: str('cwd'), title: str('title') }
+    return { active: s.activeTurnId != null, retired: Boolean(s.retiredAt), runnerAlive: await bridgeRunnerAlive($, s.runnerPid), backend: str('backend') || 'codex', account: str('account'), model: str('model'), effort: str('effort'), cwd: str('cwd'), title: str('title') }
   } catch {
-    return { active: false, runnerAlive: false, backend: 'codex', account: '', model: '', effort: '', cwd: '', title: '' }
+    return { active: false, retired: false, runnerAlive: false, backend: 'codex', account: '', model: '', effort: '', cwd: '', title: '' }
   }
 }
 
@@ -201,6 +201,7 @@ export async function scanCodex(
     metaOf.set(path, meta)
 
     const st = await activeTurn($, dir)
+    if (st.retired) continue
     const isActive = st.active
     const running = st.runnerAlive
     if (!running && now - lastEventAt > recentMs) continue

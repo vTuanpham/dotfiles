@@ -141,7 +141,8 @@ def test_help_is_compact_command_map(monkeypatch, capsys):
     assert done.value.code == 0
     output = capsys.readouterr().out
     assert len(output.encode()) < 3000
-    for command in ("start", "resume", "steer", "watch", "result", "retire", "compact", "guide", "sessions",
+    for command in ("start", "resume", "steer", "watch", "result", "retire", "restore", "purge",
+                    "compact", "guide", "sessions",
                     "owners", "peers", "interrupt", "stop", "models", "quota", "stale", "refresh"):
         assert f"    {command} " in output
     assert "start ... --watch" in output and "resume when idle" in output
@@ -229,7 +230,7 @@ def test_compact_cli_routes_only_supported_backends(monkeypatch, tmp_path, capsy
         assert not calls
 
 
-def test_retire_archives_report_and_deletes_job(tmp_path, monkeypatch, capsys):
+def test_retire_archives_report_and_keeps_job(tmp_path, monkeypatch, capsys):
     jobs = tmp_path / "jobs"
     job = jobs / "owner" / "done"
     job.mkdir(parents=True)
@@ -247,11 +248,14 @@ def test_retire_archives_report_and_deletes_job(tmp_path, monkeypatch, capsys):
     assert error.value.code == 1 and job.exists() and not archive.exists()
     monkeypatch.setattr("agent_bridge.watch.running", lambda _: False)
     cli.main()
-    assert "retired owner/done, freed " in capsys.readouterr().out
+    assert "retired owner/done; purge after " in capsys.readouterr().out
     row = json.loads(archive.read_text())
     assert row["job"] == "owner/done" and row["prompt"] == "prompt body"
     assert row["final"] == "Final report"
-    assert not job.exists()
+    assert job.exists()
+    state = json.loads((job / "state.json").read_text())
+    assert state["retiredAt"] == row["retiredAt"]
+    assert state["purgeAfter"] == row["purgeAfter"]
 
 
 def test_agy_fallback_uses_fresh_account_quota_and_resumes(monkeypatch, tmp_path):

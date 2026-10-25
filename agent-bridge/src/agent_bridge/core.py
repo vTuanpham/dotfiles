@@ -80,7 +80,10 @@ def lock_runner(job):
 
 
 def load_state(job):
-    return json.loads((Path(job) / "state.json").read_text(encoding="utf-8"))
+    state = json.loads((Path(job) / "state.json").read_text(encoding="utf-8"))
+    if not isinstance(state, dict):
+        raise ValueError("job state must be a JSON object")
+    return state
 
 
 def log(job, kind, level=None, **fields):
@@ -131,7 +134,12 @@ def route_to_peers(job, text):
             sibling = peer.resolve().parent == job.parent
         except (OSError, RuntimeError):
             sibling = False
-        if valid_name and name != job.name and sibling and (peer / "state.json").is_file():
+        try:
+            available = (valid_name and name != job.name and sibling and (peer / "state.json").is_file()
+                         and not load_state(peer).get("retiredAt"))
+        except (OSError, ValueError):
+            available = False
+        if available:
             make_steer(peer, f"[from {job.name}] {body.strip()}")
             log(job, "peer_sent", to=name)
         else:

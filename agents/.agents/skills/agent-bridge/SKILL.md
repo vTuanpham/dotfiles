@@ -27,7 +27,7 @@ A CLI that lets a root agent drive workers of the other harnesses (Codex, agy, O
    running; if its turn has finished, use `resume` on the same job to start a turn.
    Steering an idle job only queues text; watching it does not make it run.
 4. Treat a worker's "checks passed" as a claim: verify the diff and rerun the checks before you merge.
-5. Keep the job available for related follow-ups, verification and review after a result arrives. Retire it only when its work is resolved and you are confident its context is no longer needed; a completed turn or saved report is not enough. Then `agent-bridge retire <owner>/<name>` archives its report and frees the disk. Retiring is your job, not the user's.
+5. Keep the job available for related follow-ups, verification and review after a result arrives. Retire only when its work is resolved; a completed turn or saved report is not enough. `agent-bridge retire <owner>/<name>` archives its report and hides it, keeping its session for 14 days by default (`--keep-days N`). Use `restore <owner>/<name>` before `resume` to continue the same session. `purge` deletes only retired jobs past their purge date; `retire --purge` deletes immediately and cannot be undone. Retiring is your job, not the user's; details in `guide workflow`.
 
 The CLI documents itself. Run `agent-bridge --help` for the command map, `agent-bridge guide workflow` for the full workflow (routing, watching, briefs, review, cleanup), `agent-bridge guide plans` for plans and model strength, and `agent-bridge start --help` for each backend's models and quirks. Read them when you need them, not before.
 

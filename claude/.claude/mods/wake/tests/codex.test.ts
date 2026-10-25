@@ -10,7 +10,7 @@ const NOW = 10_000_000_000
 const sec = (ms: number) => (ms / 1000).toFixed(3)
 const ev = (o: Record<string, unknown>) => JSON.stringify({ at: '2026-10-15T10:00:00+00:00', level: 'info', ...o })
 
-type Fake = { content: string; mtime: number; active?: boolean; alive?: boolean; title?: string }
+type Fake = { content: string; mtime: number; active?: boolean; alive?: boolean; title?: string; retired?: boolean }
 
 /**
  * The test engine's `$` has no env, clock, fs or process nouns (they are not engine-raised events in a test),
@@ -47,7 +47,7 @@ function world(files: Record<string, Fake>, bridgeHome?: string) {
         const root = bridgeHome ? `${bridgeHome}/jobs` : ROOT
         const f = files[path.slice(root.length + 1, -'/state.json'.length)]
         if (!f) throw new Error('ENOENT')
-        return JSON.stringify({ activeTurnId: f.active ? 't1' : null, runnerPid: f.alive || f.active ? 123 : undefined, backend: 'codex', model: 'gpt-6-luna', effort: 'high', cwd: '/repo', title: f.title })
+        return JSON.stringify({ activeTurnId: f.active ? 't1' : null, runnerPid: f.alive || f.active ? 123 : undefined, backend: 'codex', model: 'gpt-6-luna', effort: 'high', cwd: '/repo', title: f.title, retiredAt: f.retired ? '2026-01-01T00:00:00+00:00' : undefined })
       },
     },
   } as unknown as EngineInterface
@@ -55,6 +55,16 @@ function world(files: Record<string, Fake>, bridgeHome?: string) {
 }
 
 const tails = (calls: string[][]) => calls.filter(c => c[0] === 'tail').map(c => c[2])
+
+test('retired jobs leave the crew until restored', async () => {
+  const f: Fake = { content: ev({ kind: 'message', text: 'report' }) + '\n', mtime: NOW, retired: true }
+  const { $ } = world({ 'pb/retired': f })
+  const first = await scanCodex($, {})
+  expect(first.jobs).toEqual([])
+  f.retired = false
+  const restored = await scanCodex($, first.cursor)
+  expect(restored.jobs.map(j => j.name)).toEqual(['retired'])
+})
 
 test('first sight reads only the tail, nothing is new, last message is kept', async () => {
   const big = ev({ kind: 'message', text: 'old' }) + '\n' + 'x'.repeat(70_000) + '\n'

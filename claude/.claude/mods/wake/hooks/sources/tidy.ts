@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 import { bridgePaths, bridgeRunnerAlive } from './bridge'
 
-// Scan-only view of finished bridge jobs that could be tidied. Nothing here deletes, moves or edits.
+// Scan-only view of retired bridge jobs past their purge date. Nothing here edits data.
 
 export type TidyItem = {
   kind: 'job' | 'worktree'
@@ -14,7 +14,7 @@ export type TidyItem = {
 }
 
 export type TidyScan = {
-  jobs: TidyItem[] // finished, old, no dirty worktree: safe to delete as a dir
+  jobs: TidyItem[] // expired retirement, no dirty worktree: eligible for agent-bridge purge
   worktrees: TidyItem[] // clean git worktrees inside those jobs (out/wt)
   dirty: TidyItem[] // dirty worktrees: reported, never counted
   reclaimBytes: number // sum of `jobs` (a job's size includes its worktree)
@@ -43,7 +43,7 @@ function ident(root: string, dir: string): { owner: string; name: string } {
 }
 
 export async function scanTidy($: EngineInterface, opts: { olderThanDays?: number } = {}): Promise<TidyScan> {
-  const days = opts.olderThanDays ?? 3
+  const days = opts.olderThanDays ?? 0
   const paths = await bridgePaths($)
   const now = await $.clock.now()
   if (!paths) return EMPTY(now, days)
@@ -81,9 +81,16 @@ export async function scanTidy($: EngineInterface, opts: { olderThanDays?: numbe
   const candidates = [...dirs].filter(([dir, d]) => d.hasState && !dir.endsWith('/out') && now - d.newest > days * DAY_MS)
   const old = [] as typeof candidates
   for (const item of candidates) {
-    let state: Record<string, unknown> = {}
-    try { state = JSON.parse(await $.fs.read(`${item[0]}/state.json`)) as Record<string, unknown> } catch { /* missing or malformed state: runner cannot be confirmed */ }
-    if (!(await bridgeRunnerAlive($, state.runnerPid))) old.push(item)
+    try {
+      const state = JSON.parse(await $.fs.read(`${item[0]}/state.json`)) as Record<string, unknown>
+      const retired = typeof state.retiredAt === 'string' ? Date.parse(state.retiredAt) : NaN
+      const after = typeof state.purgeAfter === 'string' ? Date.parse(state.purgeAfter) : NaN
+      // Bridge writes UTC timestamps; reject missing, local or normalized malformed dates.
+      const valid = (value: unknown, parsed: number) => typeof value === 'string' && Number.isFinite(parsed)
+        && new Date(parsed).toISOString().replace('.000Z', 'Z') === value.replace('+00:00', 'Z').replace('.000Z', 'Z')
+      if (valid(state.retiredAt, retired) && valid(state.purgeAfter, after) && after >= retired && after <= now
+        && !(await bridgeRunnerAlive($, state.runnerPid))) old.push(item)
+    } catch { /* missing or malformed state: never claim its data is reclaimable */ }
   }
   if (old.length === 0) return EMPTY(now, days, archivePath)
 
@@ -140,13 +147,11 @@ function names(items: TidyItem[], cap: number): string {
 }
 
 export function tidyRequest(scan: TidyScan): string {
-  const days = scan.olderThanDays ?? 3
-  if (scan.jobs.length === 0 && scan.dirty.length === 0) return 'Tidy bridge jobs: nothing finished and older than ' + days + ' days to clean up.'
+  if (scan.jobs.length === 0 && scan.dirty.length === 0) return 'Tidy bridge jobs: no retired jobs past their purge date.'
   const dirty = scan.dirty.length > 0 ? ` Leave the ${scan.dirty.length} dirty worktrees for my OK: ${names(scan.dirty, 15)}.` : ''
-  const wt = scan.worktrees.length > 0 ? `remove ${scan.worktrees.length} clean worktrees with \`git worktree remove\` (no --force), ` : ''
   const head =
-    `Tidy bridge jobs: ${wt}archive each job's prompt head and last message to ${scan.archivePath}, ` +
-    `then delete these ${scan.jobs.length} finished job dirs older than ${days} days (≈${size(scan.reclaimBytes)}): `
+    `Tidy bridge jobs: run \`agent-bridge purge <owner>/<name>\` for these ${scan.jobs.length} retired jobs ` +
+    `past their purge date (≈${size(scan.reclaimBytes)}); archived reports remain in ${scan.archivePath}: `
   // The job list takes whatever the fixed text leaves of the cap.
   const room = REQUEST_CAP - head.length - dirty.length - 1
   let list = names(scan.jobs, LIST_CAP)

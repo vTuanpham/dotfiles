@@ -323,8 +323,8 @@ export const register: Register = on => {
       await $.tool.register({
         name: 'tidy_scan',
         description:
-          'Read-only scan of finished agent-bridge job folders ($AGENT_BRIDGE_HOME/jobs, default ~/.local/state/agent-bridge/jobs) and their git worktrees that can be cleaned up, with sizes and dirty worktrees. Returns a cleanup request for you (the root agent) to carry out per your instructions; deletes nothing itself.',
-        inputSchema: { type: 'object', properties: { olderThanDays: { type: 'number', description: 'Only jobs idle at least this long (default 3)' } } },
+          'Read-only scan of retired agent-bridge jobs past their purge date ($AGENT_BRIDGE_HOME/jobs, default ~/.local/state/agent-bridge/jobs), with reclaimable sizes and dirty worktrees. Returns a purge request for the root; deletes nothing itself. Restorable jobs before their purge date are excluded.',
+        inputSchema: { type: 'object', properties: { olderThanDays: { type: 'number', description: 'Also require this many idle days (default 0); never overrides the purge date' } } },
         isDeferred: true,
       })
       pollCodex($)
