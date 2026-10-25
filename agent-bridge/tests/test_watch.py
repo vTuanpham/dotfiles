@@ -1,3 +1,4 @@
+import itertools
 import json
 import os
 
@@ -74,6 +75,37 @@ def test_new_stall_wakes_an_until_event_watch(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
     assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=10_000) is True
     assert "silent for 3m while running (stalled?)" in capsys.readouterr().out
+
+
+def test_a_silent_job_still_using_cpu_is_not_stalled(monkeypatch, tmp_path, capsys):
+    root, job = setup_job(tmp_path)
+    os.utime(job / "live.jsonl", (0, 0))
+    monkeypatch.setattr(watcher, "JOBS", root)
+    monkeypatch.setattr(watcher, "running", lambda state: True)
+    clock, cpu = itertools.count(1000, 100), itertools.count(0, 50)
+    monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
+    monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
+    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: next(cpu))
+    assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=0.2) is False
+    assert "stalled?" not in capsys.readouterr().out
+
+
+def test_a_silent_job_with_idle_processes_is_stalled(monkeypatch, tmp_path, capsys):
+    root, job = setup_job(tmp_path)
+    os.utime(job / "live.jsonl", (0, 0))
+    monkeypatch.setattr(watcher, "JOBS", root)
+    monkeypatch.setattr(watcher, "running", lambda state: True)
+    clock = itertools.count(1000, 100)
+    monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
+    monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
+    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: 7.0)  # an app-server waiting on nothing
+    assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=10) is True
+    assert "while running (stalled?)" in capsys.readouterr().out
+
+
+def test_tree_cpu_reads_this_process():
+    assert watcher.tree_cpu(os.getpid()) >= 0
+    assert watcher.tree_cpu(None) is None
 
 
 def test_root_wait_is_shown_without_a_stall_warning(monkeypatch, tmp_path, capsys):

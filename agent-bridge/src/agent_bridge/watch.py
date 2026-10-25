@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from pathlib import Path
 
@@ -15,6 +16,29 @@ def running(state):
         return b"agent-bridge" in Path(f"/proc/{pid}/cmdline").read_bytes()
     except OSError:
         return False
+
+
+TICKS = os.sysconf("SC_CLK_TCK")
+BUSY_WINDOW = 60  # seconds per CPU sample
+BUSY_CPU = 3.0  # CPU seconds per window (5% of a core): real work, well above an idle app-server
+
+
+def tree_cpu(pid):
+    """CPU seconds used so far by `pid` and its live descendants, or None if `pid` is unreadable."""
+    if not pid or not Path(f"/proc/{pid}/stat").exists():
+        return None
+    total, stack = 0, [pid]
+    while stack:
+        pid = stack.pop()
+        try:
+            # utime and stime: the 12th and 13th fields after the parenthesised command name
+            fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+            total += int(fields[11]) + int(fields[12])
+            for task in Path(f"/proc/{pid}/task").iterdir():
+                stack.extend(int(child) for child in (task / "children").read_text().split())
+        except (OSError, IndexError, ValueError):
+            continue  # a process that exited mid-walk
+    return total / TICKS
 
 
 def job_dirs(owners):
@@ -51,6 +75,7 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
     offsets = {j: cursor_for(j, read_owner(j.parent))["through"] for j in job_dirs(owners)}
     identities = {}
     first, idle_ticks, stalled, first_seen, last_kind = True, 0, set(), {}, {}
+    samples, busy_at = {}, {}  # job -> (time, CPU seconds) at the last sample; job -> last time it was busy
     while True:
         alive = urgent = False
         fired = {}
@@ -66,9 +91,18 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
             if running(state):
                 alive = True
                 first_seen.setdefault(job, now)
+                # a long command logs nothing while it runs; CPU used by the job's processes counts as work
+                cpu = tree_cpu(state.get("runnerPid"))
+                if cpu is not None:
+                    since, used = samples.setdefault(job, (now, cpu))
+                    if now - since >= BUSY_WINDOW:
+                        if cpu - used >= BUSY_CPU * (now - since) / BUSY_WINDOW:
+                            busy_at[job] = now
+                        samples[job] = (now, cpu)
                 quiet = min(
                     int(now - first_seen[job]),
                     int(now - f.stat().st_mtime) if f.exists() else 0,
+                    int(now - busy_at.get(job, first_seen[job])),
                 )
                 if first:
                     data = f.read_bytes() if f.exists() else b""
