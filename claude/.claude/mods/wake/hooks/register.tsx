@@ -666,9 +666,13 @@ export const register: Register = on => {
     }
     const crewRoom = width - Math.max(0, crewCount - 1) * 3 - sharedWidth
     const agentNeeds = crewAgents.map(agent => 2 + agentText(agent).length)
-    const first = fitSlots([...agentNeeds, ...running.map((job, index) => details(job, index, Infinity).length)], crewRoom)
-    // decide each job's details at its first fit, then fit again to what those details need
-    const shown = running.map((job, index) => details(job, index, first[crewAgents.length + index]!))
+    const full = running.map((job, index) => details(job, index, Infinity))
+    const first = fitSlots([...agentNeeds, ...full.map(one => one.length)], crewRoom)
+    // a job whose full details fit keeps them; a capped one drops details at its width; then fit again
+    const shown = running.map((job, index) => {
+      const width = first[crewAgents.length + index]!
+      return width >= full[index]!.length ? full[index]! : details(job, index, width)
+    })
     const slots = fitSlots([...agentNeeds, ...shown.map(one => one.length)], crewRoom)
     const crew: RenderElement[] = [
       ...crewAgents.map((agent, index) => (

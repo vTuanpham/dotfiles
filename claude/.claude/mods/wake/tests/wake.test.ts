@@ -102,6 +102,19 @@ test('one crew job at 180 columns keeps its status and model next to the title',
   await bar.unmount()
 })
 
+test('a fitted slot keeps the turn clock, whatever backend runs the job', async ($, on) => {
+  engine(on)
+  const title = 'Face validation'
+  let shown: WakeChip[] = []
+  on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: shown, version: 1 } }))
+  for (const [backend, account, model, label] of [['codex', '01', 'gpt-6-luna', 'codex·01 luna high'], ['agy', 'a2', 'gemini-3.8-flash-high', 'agy·a2 flash high']] as const) {
+    shown = [{ name: 'v5', title, backend, account, model, effort: 'high', running: true, isStale: false, since: 1, startedAt: 40_000, lastEventAt: 992_000 }]
+    const bar = await mount($, 'AbovePrompt', false, 120)
+    expect(flat((await bar.drawn()) as Node).replace(/\s+/g, ' ')).toContain(`${title} 8s · turn 16m ${label}`)
+    await bar.unmount()
+  }
+})
+
 test('the quota line leads with the CLI at work and counts unreadable accounts', async ($, on) => {
   engine(on)
   const job: WakeChip = { name: 'takeover', title: 'Face validation', backend: 'agy', account: 'a2', model: 'gemini-3.8-flash-high', effort: '', running: true, isStale: false, since: 1, lastEventAt: 995_000 }
