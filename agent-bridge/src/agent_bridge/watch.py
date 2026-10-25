@@ -2,8 +2,10 @@ import json
 import math
 import os
 import re
+import statistics
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 
 from .acknowledgements import cursor_for, displayed, event_lines, pending, read_owner
@@ -26,6 +28,8 @@ BUSY_WINDOW = 60  # seconds per activity sample
 BUSY_CPU = 3.0  # CPU seconds per window (5% of a core): real work, well above an idle app-server
 BUSY_BYTES = 16 * 1024  # TCP bytes per window: a live model stream or download, well above keep-alives
 BUSY_STALL_FACTOR = 3  # a busy silent job is reported after 3x --stall-min
+PACE_RECENT, PACE_BASELINE = 5, 10  # model steps judged, and earlier steps they are judged against
+PACE_SLOW, PACE_FLOOR = 5, 60  # slow: recent steps 5x the job's usual, and at least a minute each
 SS_PID = re.compile(r"pid=(\d+)")
 SS_BYTES = re.compile(r"\bbytes_(?:acked|received):(\d+)")
 
@@ -64,6 +68,32 @@ def socket_bytes(pids):
         elif owner:  # its tcp_info line
             sockets[owner] = sum(int(n) for n in SS_BYTES.findall(line))
     return sockets
+
+
+def pace(path):
+    """(recent, usual) median seconds between a command's end and the next one's start: how long each
+    model step takes. Recent is the last PACE_RECENT steps; usual is every step before them. None while
+    there are fewer than PACE_RECENT + PACE_BASELINE steps, or for a backend that logs no commands."""
+    gaps, last = [], None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        try:
+            event = json.loads(line)
+            at = datetime.fromisoformat(event["at"]).timestamp()
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+        kind = event.get("kind")
+        if kind in ("turn_started", "command_end"):
+            last = at
+        elif kind == "command_start" and last is not None:
+            gaps.append(at - last)
+            last = None
+    if len(gaps) < PACE_RECENT + PACE_BASELINE:
+        return None
+    return statistics.median(gaps[-PACE_RECENT:]), statistics.median(gaps[:-PACE_RECENT])
 
 
 def busy(before, after):
@@ -108,6 +138,7 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
     identities = {}
     first, idle_ticks, stalled, first_seen, last_kind = True, 0, set(), {}, {}
     samples, busy_at = {}, {}  # job -> (time, CPU seconds) at the last sample; job -> last time it was busy
+    slow = set()
     while True:
         alive = urgent = False
         fired = {}
@@ -131,6 +162,15 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
                         if job in samples and busy(samples[job], sample):
                             busy_at[job] = now
                         samples[job] = sample
+                    steps = pace(f)
+                    if steps and steps[0] >= max(PACE_FLOOR, PACE_SLOW * steps[1]) and job not in slow:
+                        slow.add(job)  # once per slow spell
+                        recent, usual = round(steps[0]), round(steps[1])
+                        print(f"{label}: slow, model steps take {recent}s (usually {usual}s)", flush=True)
+                        log(job, "slow", level="urgent", recentSeconds=recent, usualSeconds=usual,
+                            message=f"model steps take {recent}s, usually {usual}s")
+                    elif steps and steps[0] < PACE_SLOW / 2 * steps[1]:
+                        slow.discard(job)
                 quiet = min(
                     int(now - first_seen[job]),
                     int(now - f.stat().st_mtime) if f.exists() else 0,

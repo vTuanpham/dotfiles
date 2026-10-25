@@ -1,6 +1,8 @@
 import itertools
 import json
 import os
+import time
+from datetime import datetime, timezone
 
 import pytest
 
@@ -106,6 +108,42 @@ def test_a_busy_silent_job_is_reported_later_and_as_busy(monkeypatch, tmp_path, 
     assert "silent for 3m while running (processes busy: a long command, or a spinning one?)" in (
         capsys.readouterr().out
     )
+
+
+def steps_log(path, gaps):
+    """A live.jsonl whose model steps (command end to next start) take `gaps` seconds."""
+    at, lines = 0.0, ['{"kind":"turn_started","at":"1970-01-01T00:00:00+00:00"}']
+    stamp = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat()  # noqa: E731
+    for gap in gaps:
+        at += gap
+        lines.append(json.dumps({"kind": "command_start", "at": stamp(at)}))
+        at += 1
+        lines.append(json.dumps({"kind": "command_end", "at": stamp(at)}))
+    path.write_text("\n".join(lines) + "\n")
+
+
+def test_pace_compares_recent_model_steps_with_the_jobs_usual(tmp_path):
+    log = tmp_path / "live.jsonl"
+    steps_log(log, [10] * 14)
+    assert watcher.pace(log) is None  # too few steps to judge
+    steps_log(log, [10] * 10 + [170, 160, 175, 180, 165])
+    assert watcher.pace(log) == (170, 10)
+
+
+def test_a_slow_job_is_reported_once(monkeypatch, tmp_path, capsys):
+    root, job = setup_job(tmp_path)
+    steps_log(job / "live.jsonl", [10] * 10 + [170] * 5)
+    monkeypatch.setattr(watcher, "JOBS", root)
+    alive = iter([True] * 4)
+    monkeypatch.setattr(watcher, "running", lambda state: next(alive, False))
+    clock = itertools.count(time.time(), 61)
+    monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
+    monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
+    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (7.0, {1}))
+    monkeypatch.setattr(watcher, "socket_bytes", lambda pids: {})
+    watcher.watch(["owner"], stall_min=60)
+    output = capsys.readouterr().out
+    assert output.count("slow, model steps take 170s (usually 10s)") == 1
 
 
 def test_socket_bytes_sums_only_the_jobs_sockets(monkeypatch):
