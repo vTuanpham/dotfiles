@@ -3,7 +3,8 @@
 import time
 from urllib.parse import quote, urlencode
 
-from . import opencode_commands, opencode_context, opencode_forms, opencode_history
+from . import opencode_commands, opencode_context, opencode_forms, opencode_history, opencode_permissions
+from .forms import Forms
 from .models import DeliveryRejected, RootInfo, Snapshot, fields, text
 from .opencode_http import ApiRejected, Connection
 
@@ -46,19 +47,32 @@ class OpenCode:
     def forms(self, target):
         api = Connection(target)
         root(api, target.session_id)
-        return opencode_forms.read(api, session_path(target.session_id), target.session_id)
+        path = session_path(target.session_id)
+        questions = opencode_forms.read(api, path, target.session_id)
+        permissions = opencode_permissions.read(api, path, target.session_id)
+        return Forms(questions.forms + permissions.forms)
 
     def answer(self, target, identifier, answer, cancel=False):
         api = Connection(target)
         root(api, target.session_id)
         path = session_path(target.session_id)
-        question = opencode_forms.read(api, path, target.session_id).selected(identifier)
+        text(identifier, "question id", 200)
+        permission = identifier.startswith("per_")
+        questions = (opencode_permissions if permission else opencode_forms).read(
+            api, path, target.session_id,
+        )
+        question = questions.selected(identifier)
         if not cancel:
             question.validate(answer)
-        operation = "/cancel" if cancel else "/reply"
+        if permission:
+            # 2.0.3 uses `reply`; newer online documentation calls this field `decision`.
+            operation = path + opencode_permissions.permission_path(identifier) + "/reply"
+            payload = {"reply": "reject" if cancel else answer["decision"]}
+        else:
+            operation = path + opencode_forms.form_path(identifier) + ("/cancel" if cancel else "/reply")
+            payload = None if cancel else {"answer": answer}
         try:
-            api.call("POST", path + opencode_forms.form_path(identifier) + operation,
-                     None if cancel else {"answer": answer})
+            api.call("POST", operation, payload)
         except ApiRejected as error:
             if error.status in (400, 401, 404, 409):
                 raise DeliveryRejected("Native question reply rejected") from error

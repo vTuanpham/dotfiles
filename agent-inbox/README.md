@@ -29,7 +29,7 @@ share one feature set.
 | --- | --- | --- | --- |
 | Codex | History, progress, queue / active-turn steering, images | Model, reasoning, rename, compact, stop | Connection account and allowance, descendants, MCP servers |
 | Claude Code | Official SDK history; replies through an explicitly enabled channel | Native terminal owns model and menus | Subagent IDs; account allowance unavailable |
-| OpenCode v2 | History, image input, prompt admission, pending forms | Native models, variants, agents, commands, stop | Session usage, descendants, project MCP servers |
+| OpenCode v2 | History, image input, prompt admission, forms and permission decisions | Native models, variants, agents, commands, stop | Session usage, descendants, project MCP servers |
 | Antigravity / ACP | Its own saved ACP sessions, replayed chat/images, prompt updates | Native config, modes, commands, cancel | Available native measurements only |
 
 No generic service-homepage links are added. Optional `add-native` entries open
@@ -43,6 +43,12 @@ Its [native APIs](https://learn.chatgpt.com/docs/app-server) provide discovery,
 history, `turn/steer` with the authoritative active turn ID, and the experimental
 `thread/queue/add` while idle. Reading never resumes or clones a conversation.
 Model and reasoning changes affect subsequent turns.
+
+When a server reports that paginated history is unsupported, Inbox uses the
+read-only `thread/read(includeTurns=true)` API and pages the result locally.
+Legacy history is limited to 10,000 turns/items and the connection's 16 MiB
+response limit; larger histories stay native. Its cursors are bound to the root
+and ordered item identities, so rewritten history requires a reload.
 
 </details>
 
@@ -74,7 +80,10 @@ profile and native session IDs.
 OpenCode uses its already-running [v2 service API](https://dev.opencode.ai/v2/docs/api)
 and currently verifies protocol version 2.0.3. Registration never starts or
 reconfigures the service. Models, commands and question IDs come from the selected
-session. Unsupported terminal menus and external-auth forms stay native.
+session. Permission requests offer **Allow once** or **Deny**, with no default or
+persistent grant. Inbox rechecks that the request is still pending in the
+selected session before replying; cancelling the question denies it.
+Unsupported terminal menus and external-auth forms stay native.
 Its unarchived list includes saved idle roots: idle does not prove a terminal
 is attached. Provider account identity and allowance are not exposed here.
 

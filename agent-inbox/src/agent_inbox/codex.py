@@ -1,16 +1,15 @@
 """Read and send to an existing Codex daemon without resuming or cloning it."""
 
-import json
 import time
 from contextlib import contextmanager
-from dataclasses import replace
 from pathlib import Path
 
 from websockets.sync.client import unix_connect
 
 from . import codex_commands, codex_context
-from .codex_history import history
-from .models import DeliveryRejected, RootInfo, Snapshot, decode_json, fields, text
+from .codex_history import history, turns
+from .codex_rpc import Rpc, RpcRejected, validate_root
+from .models import DeliveryRejected, RootInfo, Snapshot, fields, text
 
 
 def settings(target):
@@ -24,37 +23,6 @@ def settings(target):
     if not Path(command[0]).is_absolute():
         raise ValueError("Harness executable must be absolute")
     return target.settings
-
-
-class RpcRejected(RuntimeError):
-    def __init__(self, code, message):
-        super().__init__("Harness rejected the request; check its native interface")
-        self.code, self.message = code, message
-
-
-class Rpc:
-    def __init__(self, connection):
-        self.connection, self.number = connection, 0
-
-    def call(self, method, params):
-        self.number += 1
-        self.connection.send(json.dumps({"id": self.number, "method": method, "params": params}))
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            value = decode_json(self.connection.recv(timeout=max(0, deadline - time.monotonic())))
-            if type(value) is not dict:
-                raise ValueError("Invalid harness response")
-            if type(value.get("id")) is int and value["id"] == self.number:
-                if "error" in value:
-                    error = value["error"]
-                    if (type(error) is not dict or type(error.get("code")) is not int
-                            or type(error.get("message")) is not str):
-                        raise ValueError("Invalid harness error")
-                    raise RpcRejected(error["code"], error["message"])
-                if type(value.get("result")) is not dict:
-                    raise ValueError("Invalid harness result")
-                return value["result"]
-        raise TimeoutError("Harness request timed out")
 
 
 @contextmanager
@@ -71,20 +39,7 @@ def connection(target):
 
 def root(rpc, target):
     value = rpc.call("thread/read", {"threadId": target.session_id})["thread"]
-    return validate_root(value, target)
-
-
-def validate_root(value, target):
-    if type(value) is not dict or value.get("id") != target.session_id or "parentThreadId" not in value:
-        raise ValueError("Harness did not identify the selected root")
-    if value["parentThreadId"] is not None or value.get("sessionId") != target.session_id:
-        raise ValueError("Only root sessions can be registered")
-    if type(value.get("canAcceptDirectInput")) is not bool:
-        raise ValueError("Harness did not report input capability")
-    status = value.get("status")
-    if type(status) is not dict or status.get("type") not in ("active", "idle", "notLoaded", "systemError"):
-        raise ValueError("Harness returned an unsupported session status")
-    return value
+    return validate_root(value, target.session_id)
 
 
 def activity(info):
@@ -129,9 +84,7 @@ class Codex:
             codex_commands.commands(rpc, info).selected(command, value)
             turn_id = None
             if command == "interrupt":
-                turn_id = active_turn(rpc.call("thread/turns/list", {
-                    "threadId": target.session_id, "limit": 3, "itemsView": "notLoaded",
-                }))
+                turn_id = active_turn(turns(rpc, target.session_id))
                 if turn_id is None:
                     raise DeliveryRejected("The active turn has finished")
             codex_commands.execute(rpc, target, command, value, turn_id)
@@ -155,12 +108,11 @@ class Codex:
                     raise ValueError("Missing session ancestry")
                 if info["parentThreadId"] is not None or info["sessionId"] != identifier:
                     continue
-                info = validate_root(info, replace(seed, session_id=identifier))
+                info = validate_root(info, identifier)
                 if info["status"]["type"] not in ("active", "idle"):
                     continue
                 try:
-                    rpc.call("thread/turns/list", {"threadId": identifier, "limit": 1,
-                                                  "itemsView": "notLoaded"})
+                    turns(rpc, identifier, limit=1)
                 except RpcRejected as error:
                     # Blank native placeholders cannot serve conversation history yet.
                     if error.code == -32600 and error.message == (
@@ -194,10 +146,7 @@ class Codex:
             for _ in range(2):
                 if info["status"]["type"] != "active":
                     break
-                page = rpc.call("thread/turns/list", {
-                    "threadId": target.session_id, "limit": 3,
-                    "sortDirection": "desc", "itemsView": "notLoaded",
-                })
+                page = turns(rpc, target.session_id)
                 turn_id = active_turn(page)
                 if turn_id:
                     try:

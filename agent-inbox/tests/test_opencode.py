@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import uuid
 from dataclasses import replace
 from urllib.parse import parse_qs, urlsplit
 
@@ -11,6 +12,9 @@ from agent_inbox import opencode, opencode_history
 from agent_inbox.media import raster
 from agent_inbox.models import DeliveryRejected, Outgoing, Target
 from agent_inbox.opencode_http import ApiRejected, Connection
+from agent_inbox.presentation import render_forms
+from agent_inbox.server import App
+from agent_inbox.store import Store
 
 
 def target():
@@ -36,6 +40,8 @@ class NativeApi:
     def __init__(self):
         self.calls, self.items, self.metadata = [], [assistant()], root()
         self.error = None
+        self.forms = []
+        self.permissions = []
 
     def call(self, method, path, body=None):
         self.calls.append((method, path, body))
@@ -53,6 +59,10 @@ class NativeApi:
             return native_page([self.metadata], following=None)
         if parsed.path == "/api/session/ses_root":
             return {"data": self.metadata}
+        if parsed.path == "/api/session/ses_root/form":
+            return {"data": self.forms}
+        if parsed.path == "/api/session/ses_root/permission":
+            return {"data": self.permissions}
         if parsed.path.endswith("/message/msg_assistant"):
             return {"data": self.items[0]}
         if parsed.path.endswith("/message"):
@@ -212,3 +222,104 @@ def test_tool_events_keep_native_interleaving_and_update_stable_ids(api):
     updated = opencode.OpenCode().snapshot(target())
     assert updated.timeline == snapshot.timeline
     assert updated.activity[0].duration_ms == 80 and updated.activity[0].status == "completed"
+
+
+def permission(**values):
+    return {"id": "per_one", "sessionID": "ses_root", "action": "write",
+            "resources": ["/project/requested.txt"], **values}
+
+
+@pytest.mark.parametrize("decision", ["once", "reject"])
+def test_native_permissions_are_explicit_session_bound_decisions_with_no_default(api, decision):
+    api.permissions = [permission()]
+    provider = opencode.OpenCode()
+    question = provider.forms(target()).selected("per_one")
+    assert "write" in question.title and "/project/requested.txt" in question.fields[0].description
+    assert question.fields[0].default is None
+    assert [(choice.value, choice.label) for choice in question.fields[0].choices] == [
+        ("once", "Allow once"), ("reject", "Deny"),
+    ]
+    with pytest.raises(DeliveryRejected):
+        question.validate({})
+    assert provider.answer(target(), "per_one", {"decision": decision}) == "applied"
+    assert api.calls[-1] == ("POST", "/api/session/ses_root/permission/per_one/reply", {"reply": decision})
+
+
+def test_permissions_and_forms_share_the_question_list_and_keep_their_native_reply_routes(api):
+    api.permissions = [permission()]
+    api.forms = [{"id": "frm_one", "sessionID": "ses_root", "title": "Choose", "fields": [
+        {"key": "choice", "type": "boolean", "required": True},
+    ]}]
+    provider = opencode.OpenCode()
+    assert {form.id for form in provider.forms(target()).forms} == {"frm_one", "per_one"}
+    assert provider.answer(target(), "frm_one", {"choice": False}) == "applied"
+    assert api.calls[-1] == (
+        "POST", "/api/session/ses_root/form/frm_one/reply", {"answer": {"choice": False}},
+    )
+    assert provider.answer(target(), "per_one", {}, cancel=True) == "applied"
+    assert api.calls[-1] == ("POST", "/api/session/ses_root/permission/per_one/reply", {"reply": "reject"})
+
+
+@pytest.mark.parametrize("answer", [{}, {"decision": "always"}, {"decision": True},
+                                    {"decision": "once", "extra": "value"}])
+def test_permissions_never_accept_missing_or_persistent_or_malformed_decisions(api, answer):
+    api.permissions = [permission()]
+    with pytest.raises(DeliveryRejected):
+        opencode.OpenCode().answer(target(), "per_one", answer)
+    assert not any(method == "POST" for method, *_ in api.calls)
+
+
+def test_permission_is_rechecked_before_answer_and_stale_rejection_is_not_retried(api):
+    api.permissions = [permission()]
+    provider = opencode.OpenCode()
+    provider.forms(target()).selected("per_one")
+    api.permissions = []
+    with pytest.raises(DeliveryRejected):
+        provider.answer(target(), "per_one", {"decision": "once"})
+    assert not any(method == "POST" for method, *_ in api.calls)
+    api.permissions = [permission()]
+    api.error = ApiRejected(409)
+    with pytest.raises(DeliveryRejected):
+        provider.answer(target(), "per_one", {"decision": "once"})
+    assert len([call for call in api.calls if call[0] == "POST"]) == 1
+
+
+@pytest.mark.parametrize("change", [{"sessionID": "ses_other"}, {"id": "per_one/../../other"},
+                                    {"resources": "all files"}, {"resources": [None]},
+                                    {"action": ""}, {"metadata": "invalid"}])
+def test_permission_boundary_rejects_foreign_or_malformed_native_requests(api, change):
+    api.permissions = [permission(**change)]
+    with pytest.raises(ValueError):
+        opencode.OpenCode().forms(target())
+    assert not any(method == "POST" for method, *_ in api.calls)
+
+
+def test_permission_boundary_rejects_duplicate_native_ids(api):
+    api.permissions = [permission(), permission()]
+    with pytest.raises(ValueError, match="Duplicate"):
+        opencode.OpenCode().forms(target())
+
+
+def test_permission_action_and_scope_render_literally_without_hidden_markdown(api):
+    api.permissions = [permission(action="[write](https://example.test)", resources=[
+        "/project/```[allowed](https://example.test)```", "/project/first\nsecond",
+    ])]
+    rendered = render_forms(opencode.OpenCode().forms(target()))["forms"][0]
+    assert "<a " not in rendered["title_html"]
+    html = rendered["fields"][0]["description_html"]
+    assert "<a " not in html and "[allowed](https://example.test)" in html
+    assert "first\\nsecond" in html
+
+
+def test_unconfirmed_permission_reply_keeps_its_receipt_and_is_never_repeated(api, tmp_path):
+    api.permissions = [permission()]
+    store = Store(tmp_path / "inbox")
+    store.register(target())
+    app = App(store)
+    data = {"id": str(uuid.uuid4()), "target": target().id, "form": "per_one",
+            "answer": {"decision": "once"}}
+    api.error = TimeoutError()
+    assert app.answer(data)["status"] == "unknown"
+    api.permissions = []
+    assert app.answer(data)["status"] == "unknown"
+    assert len([call for call in api.calls if call[0] == "POST"]) == 1

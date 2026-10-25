@@ -1,12 +1,18 @@
+import hashlib
+import json
 import shlex
 from dataclasses import dataclass, field
 from pathlib import PurePath
 
+from .codex_rpc import RpcRejected, validate_root
 from .media import MAX_BYTES, ImageBudget, native_image
 from .models import Activity, Answer, Message, decode_json, fields, text
 
 REPLY_OPEN = "<send_user_message_question_reply>"
 REPLY_CLOSE = "</send_user_message_question_reply>"
+PAGE_SIZE = 100
+LEGACY_ITEM_LIMIT = 10000
+LEGACY_CURSOR = "codex-legacy:"
 
 
 @dataclass(frozen=True)
@@ -207,7 +213,101 @@ def decode_page(page, descending=True, budget=None):
 def history(rpc, thread_id, older=None, since=None):
     if older is not None and since is not None:
         raise ValueError("Choose older history or forward catch-up")
-    params = {"threadId": thread_id, "limit": 100, "sortDirection": "desc"}
+    anchor = cursor(older if older is not None else since)
+    if anchor is not None and anchor.startswith(LEGACY_CURSOR):
+        return _legacy_history(rpc, thread_id, older, since)
+    try:
+        return _paginated_history(rpc, thread_id, older, since)
+    except RpcRejected as error:
+        if error.code != -32601:
+            raise
+        return _legacy_history(rpc, thread_id, older, since)
+
+
+def turns(rpc, thread_id, limit=3):
+    try:
+        return rpc.call("thread/turns/list", {
+            "threadId": thread_id, "limit": limit, "sortDirection": "desc", "itemsView": "notLoaded",
+        })
+    except RpcRejected as error:
+        if error.code != -32601:
+            raise
+        raw_turns, _ = _legacy_records(rpc, thread_id)
+        return {"data": list(reversed(raw_turns[-limit:]))}
+
+
+def _legacy_records(rpc, thread_id):
+    response = rpc.call("thread/read", {"threadId": thread_id, "includeTurns": True})
+    info = validate_root(response.get("thread"), thread_id)
+    raw_turns = info.get("turns")
+    if type(raw_turns) is not list or len(raw_turns) > LEGACY_ITEM_LIMIT:
+        raise ValueError("Invalid legacy history or turn limit exceeded")
+    records, turn_ids, item_ids = [], set(), set()
+    for turn in raw_turns:
+        if type(turn) is not dict or turn.get("status") not in (
+            "inProgress", "completed", "interrupted", "failed",
+        ) or type(turn.get("items")) is not list:
+            raise ValueError("Invalid legacy turn")
+        if "itemsView" in turn and turn["itemsView"] != "full":
+            raise ValueError("Legacy history did not provide full turn items")
+        turn_id = text(turn.get("id"), "turn id", 200)
+        if turn_id in turn_ids:
+            raise ValueError("Duplicate legacy turn id")
+        turn_ids.add(turn_id)
+        if len(records) + len(turn["items"]) > LEGACY_ITEM_LIMIT:
+            raise ValueError("Legacy history item limit exceeded")
+        for item in turn["items"]:
+            if type(item) is not dict:
+                raise ValueError("Invalid legacy item")
+            identifier = (turn_id, text(item.get("id"), "item id", 200))
+            if identifier in item_ids:
+                raise ValueError("Duplicate legacy item id")
+            item_ids.add(identifier)
+            records.append({"turnId": turn_id, "item": item})
+    return raw_turns, records
+
+
+def _legacy_anchor(records, offset):
+    identities = [(record["turnId"], record["item"]["id"]) for record in records[:offset]]
+    return hashlib.sha256(json.dumps(identities, separators=(",", ":")).encode()).hexdigest()
+
+
+def _legacy_cursor(thread_id, records, offset):
+    return LEGACY_CURSOR + json.dumps({
+        "thread": thread_id, "offset": offset, "anchor": _legacy_anchor(records, offset),
+    }, separators=(",", ":"))
+
+
+def _legacy_history(rpc, thread_id, older, since):
+    _, records = _legacy_records(rpc, thread_id)
+    anchor = older if older is not None else since
+    offset = len(records)
+    if anchor is not None:
+        if not anchor.startswith(LEGACY_CURSOR):
+            raise ValueError("History backend changed; reload the conversation")
+        value = decode_json(anchor[len(LEGACY_CURSOR):])
+        fields(value, ("thread", "offset", "anchor"))
+        offset = value["offset"]
+        if value["thread"] != thread_id or type(offset) is not int or not 0 <= offset <= len(records):
+            raise ValueError("Legacy history cursor changed root or history; reload")
+        if value["anchor"] != _legacy_anchor(records, offset):
+            raise ValueError("Legacy history changed; reload the conversation")
+    if since is not None:
+        start = max(0, offset - 1)
+        end = min(len(records), start + PAGE_SIZE)
+    else:
+        end = offset
+        start = max(0, end - PAGE_SIZE)
+    older_cursor = _legacy_cursor(thread_id, records, start) if start and since is None else None
+    newer_cursor = _legacy_cursor(thread_id, records, end)
+    page = decode_page({"data": records[start:end], "nextCursor": older_cursor,
+                        "backwardsCursor": newer_cursor}, descending=False)
+    return Page(page.messages, page.identifiers, older_cursor, newer_cursor,
+                end < len(records) if since is not None else False, page.activity, page.timeline)
+
+
+def _paginated_history(rpc, thread_id, older=None, since=None):
+    params = {"threadId": thread_id, "limit": PAGE_SIZE, "sortDirection": "desc"}
     budget = ImageBudget()
     if since is not None:
         head = decode_page(rpc.call("thread/items/list", {**params, "limit": 1}),
