@@ -17,6 +17,7 @@ server = MCPServer(
         "claude:<CLAUDE_CODE_SESSION_ID>, or explicit:<unique conversation id>. "
         "Never use another conversation's id. Use native questions first; only the root sends reminders. "
         "Ask collects secrets from the human; tools never accept or return secret values. "
+        "env_secret has a human enter a secret into environment files; never provide secret values. "
         "Focus the approved window, click its field with your browser tool, then type_answer. "
         "Verify submission before forget. wait is nonblocking by default; use the CLI's "
         "wait --until-done in a background command for event waits. "
@@ -95,6 +96,20 @@ async def ask(
     if ttl is not None:
         args.append(f"--ttl={ttl}")
     args.extend(["--", *(f"{f.name}{':secret' if f.secret else ''}={f.label}" for f in fields)])
+    return await invoke(session, *args)
+
+
+@server.tool()
+async def env_secret(
+    session: Text, name: Text, files: Annotated[list[Text], Field(min_length=1)],
+    prefix: StrictStr = "", reason: Reason = "", ttl: TTL | None = None,
+) -> Result:
+    """Have the human enter a secret privately and store it in the listed environment files."""
+    args = ["env", name, f"--reason={reason}", *(f"--file={path}" for path in files)]
+    if prefix:
+        args.append(f"--prefix={prefix}")
+    if ttl is not None:
+        args.append(f"--ttl={ttl}")
     return await invoke(session, *args)
 
 

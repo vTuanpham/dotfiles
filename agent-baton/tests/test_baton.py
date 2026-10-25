@@ -534,6 +534,53 @@ def test_ask_wait_says_the_answers_are_gone_rather_than_that_nobody_answered(mon
     assert "declined" in capsys.readouterr().out
 
 
+def test_env_secret_is_stored_from_the_masked_form_without_agent_visible_value(monkeypatch, capsys, tmp_path):
+    secret = "liquid_private-canary"
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    target = tmp_path / ".env"
+    target.write_text("LIQUID_API_KEY=old\n")
+    baton = core.create(
+        str(target), "Configure the API", "Codex", 600,
+        kind="env", name="LIQUID_API_KEY", prefix="liquid_", files=[str(target)],
+        fields=[{"name": "LIQUID_API_KEY", "label": "LIQUID_API_KEY", "secret": True}], answered=False,
+    )
+    link, thread = open_serve(monkeypatch, baton["id"])
+    page = get(link)[1]
+    assert 'type="password"' in page and str(target) in page and "Configure the API" in page
+    assert post(f"{link}/answer", LIQUID_API_KEY=secret) == 303
+    thread.join(5)
+    monkeypatch.setattr("sys.argv", ["agent-baton", "wait", baton["id"]])
+    assert cli.main() == 0
+    captured = capsys.readouterr()
+    output = captured.out
+    assert secret not in captured.out + captured.err
+    assert secret not in core.path_of(baton["id"]).read_text()
+    assert "LIQUID_API_KEY" in output and str(target) in output and "backups/env-secrets" in output
+    assert target.read_text().count("LIQUID_API_KEY=") == 1
+    assert target.read_text() == f"LIQUID_API_KEY={secret}\n"
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_env_secret_cancel_or_expiry_leaves_files_untouched(monkeypatch, tmp_path, expired):
+    target = tmp_path / ".env"
+    target.write_text("LIQUID_API_KEY=old\n")
+    baton = core.create(
+        str(target), "", "Codex", 600,
+        kind="env", name="LIQUID_API_KEY", prefix="liquid_", files=[str(target)],
+        fields=[{"name": "LIQUID_API_KEY", "label": "LIQUID_API_KEY", "secret": True}], answered=False,
+    )
+    if expired:
+        core.save({**baton, "expires": core.now() - 1})
+        assert core.load(baton["id"])["status"] == "expired"
+        assert target.read_text() == "LIQUID_API_KEY=old\n"
+        return
+    link, thread = open_serve(monkeypatch, baton["id"])
+    assert post(f"{link}/decline") == 303
+    thread.join(5)
+    assert target.read_text() == "LIQUID_API_KEY=old\n"
+
+
 def test_doctor_names_each_gap_and_passes_when_there_is_none(monkeypatch, capsys, tmp_path):
     (tmp_path / "config.toml").write_text(
         'port = 47600\nslots = 2\nurl = "http://100.1.2.3"\nntfy = "https://ntfy.sh/t"\n', encoding="utf-8"

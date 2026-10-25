@@ -10,7 +10,7 @@ import select
 import socket
 import threading
 
-from agent_baton import core, inject
+from agent_baton import core, env_file, inject
 
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 TYPE_REPLY_S = 45
@@ -95,6 +95,20 @@ class Ask:
 
     def answer(self, values):
         """Called from a page thread with the human's answers."""
+        if self.baton["kind"] == "env":
+            with self.lock:
+                baton = core.load(self.baton["id"])
+                if baton["status"] != "held" or baton.get("answered"):
+                    raise ValueError("request is no longer pending")
+                backup = env_file.store(
+                    self.baton["name"], values[self.baton["name"]], self.baton["files"], self.baton["prefix"]
+                )
+                core.save(
+                    {**core.load(self.baton["id"]), "answered": True,
+                     "backup": str(backup) if backup else ""}
+                )
+                core.resolve(self.baton["id"], "returned")
+                return backup
         with self.lock:
             self.secrets = dict(values)
         baton = core.load(self.baton["id"])

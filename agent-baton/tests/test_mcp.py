@@ -10,9 +10,9 @@ from mcp.client.stdio import StdioServerParameters
 from agent_baton import core, mcp
 
 
-async def call(name, **arguments):
+async def call(tool_name, **arguments):
     async with Client(mcp.server) as client:
-        return await client.call_tool(name, arguments)
+        return await client.call_tool(tool_name, arguments)
 
 
 @pytest.fixture
@@ -94,6 +94,32 @@ def test_question_arguments_stay_data_and_preserve_multiple_selection(monkeypatc
     ))]
 
 
+def test_env_secret_mcp_tool_only_accepts_file_metadata(monkeypatch):
+    captured = []
+
+    async def invoke(session, *args, **kwargs):
+        captured.append((session, args))
+        return mcp.Result(exit_code=0, output="requested")
+
+    monkeypatch.setattr(mcp, "invoke", invoke)
+
+    async def check():
+        result = await call(
+            "env_secret", session="explicit:unique", name="TOKEN", files=[".env", "secrets.sh"],
+            prefix="liquid_", reason="Configure client",
+        )
+        assert not result.is_error
+        ignored = await call(
+            "env_secret", session="explicit:unique", name="TOKEN", files=[".env"], value="secret",
+        )
+        assert "secret" not in json.dumps(ignored.model_dump())
+
+    asyncio.run(check())
+    assert captured == [("explicit:unique", (
+        "env", "TOKEN", "--reason=Configure client", "--file=.env", "--file=secrets.sh", "--prefix=liquid_",
+    )), ("explicit:unique", ("env", "TOKEN", "--reason=", "--file=.env"))]
+
+
 def test_stdio_entrypoint_advertises_the_native_tools_and_keeps_protocol_output_clean(state):
     async def check():
         params = StdioServerParameters(
@@ -103,7 +129,8 @@ def test_stdio_entrypoint_advertises_the_native_tools_and_keeps_protocol_output_
             tools = await client.list_tools()
             names = {tool.name for tool in tools.tools}
             assert names == {
-                "ask", "question", "status", "wait", "focus", "type_answer", "forget", "withdraw",
+                "ask", "env_secret", "question", "status", "wait", "focus", "type_answer", "forget",
+                "withdraw",
             }
             result = await client.call_tool("status", {"session": "codex:session-a"})
             assert result.structured_content == {"exit_code": 0, "output": "no baton\n"}

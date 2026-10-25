@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from agent_baton import ask as asking
-from agent_baton import core, doctor, guard, inject, question, serve
+from agent_baton import core, doctor, env_file, guard, inject, question, serve
 
 STILL_HELD = 75  # EX_TEMPFAIL: not an error, ask again
 OUTPUT_TAIL = 4000  # bytes of each stream handed back to the agent, to keep its context small
@@ -127,6 +127,7 @@ def reached(baton):
             "run": "ask them to run the command themselves",
             "login": f"then they run `agent-baton back {baton['id']}` in the originating session context",
             "ask": "ask them to enter the secret directly in the target app",
+            "env": "ask them to store the secret themselves in the listed files",
             "question": "keep the original harness question pending; silence is not an answer",
         }[baton["kind"]]
         print(f"No channel reached the human: tell them in chat; {fix}.")
@@ -166,6 +167,9 @@ def wait(args):
             if text:
                 print(f"--- std{stream} ---\n{text}")
         return 0 if baton["exit"] == 0 else 1
+    if baton["kind"] == "env" and baton.get("answered") and baton["status"] == "returned":
+        print(f"stored {baton['name']} in {', '.join(baton['files'])}; backups: {baton['backup'] or 'none'}")
+        return 0
     if baton["kind"] == "ask" and baton.get("answered") and baton["status"] != "cancelled":
         why = "forgotten" if baton["status"] == "returned" else "timed out"
         print(GONE.format(site=baton["site"], why=why))
@@ -209,6 +213,34 @@ def ask_form(args):
     channels = ", ".join(baton["notified"]) or "nobody"
     print(f"asked the human for {', '.join(names)} [{baton['id']}], to type into {shown!r}")
     print(f"notified: {channels}. You never see the answer. Run: agent-baton wait {baton['id']}")
+    return 0
+
+
+def env_secret(args):
+    files = env_file.targets(args.file)
+    if not env_file.NAME.fullmatch(args.name):
+        sys.exit("variable name must match [A-Z][A-Z0-9_]*")
+    if args.prefix and not env_file.VALUE.fullmatch(args.prefix):
+        sys.exit("prefix must contain only letters, numbers, underscore, dot or hyphen")
+    cfg = core.config()
+    label = args.name
+    ttl = args.ttl or cfg["ttl"]
+    baton = core.create(
+        ", ".join(str(path) for path in files),
+        args.reason[:300],
+        harness(),
+        ttl,
+        kind="env",
+        name=args.name,
+        prefix=args.prefix,
+        files=[str(path) for path in files],
+        fields=[{"name": args.name, "label": label, "secret": True}],
+        answered=False,
+    )
+    baton = reached(launch(baton))
+    print(f"requested {args.name} for {', '.join(baton['files'])} [{baton['id']}]")
+    print(f"notified: {', '.join(baton['notified']) or 'nobody'}. The value stays out of agent output.")
+    print(f"Run: agent-baton wait {baton['id']}")
     return 0
 
 
@@ -363,6 +395,15 @@ def build_parser():
         "fields", nargs="+", help="name[:secret]=Label, e.g. email='Account email' password:secret=Password"
     )
     p.set_defaults(run=ask_form)
+    p = sub.add_parser("env", help="agent: have the human store a secret in environment files")
+    p.add_argument("name", help="uppercase environment variable name")
+    p.add_argument(
+        "--file", required=True, action="append", type=Path, help="target file; repeat for multiple files"
+    )
+    p.add_argument("--prefix", default="", help="required beginning of the secret value")
+    p.add_argument("--reason", default="", help="context the human sees")
+    p.add_argument("--ttl", type=int, default=0, help="seconds before expiry (default from config)")
+    p.set_defaults(run=env_secret)
     p = sub.add_parser(
         "type", help="agent: type a held secret into the approved window (click its field first)"
     )

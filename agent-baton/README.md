@@ -27,7 +27,7 @@ conversations share a server. CLI and MCP select the same requests.
 | Native tool | Purpose |
 | --- | --- |
 | `question` | Free text, single choice or select-many; ordinary answers only |
-| `ask` | Human enters secrets; accepts field definitions, never values |
+| `ask`, `env_secret` | Human enters secrets; `env_secret` writes to environment files without returning the value |
 | `status`, `wait` | Session state or answers; secret readiness without values |
 | `focus`, `type_answer` | Activate approved window, then type a held field by name |
 | `forget`, `withdraw` | Erase held answers or withdraw an obsolete question |
@@ -49,6 +49,11 @@ MCP adds no HTTP listener or global conversation state.
   Use `focus --id <id>` before selecting the field: extension actions can target background tabs,
   while desktop typing needs the intended tab selected. Windows typing preserves field focus and
   refuses a background window, missing payload, or rejected keyboard input.
+- `env LIQUID_API_KEY --prefix liquid_ --file ~/.config/shell/secrets.local.sh --file .env --reason "Configure the API client"`
+  asks the human for a masked value and stores it directly in those files. Shell files use `export`, other files use
+  plain `NAME=value`; matching entries are replaced. Existing files are backed up with restore paths under
+  `$XDG_STATE_HOME/backups/env-secrets/`, and targets end with mode `0600`. Symlinked and group/world-writable
+  targets are refused. `wait <id>` reports only the name, paths and backup location.
 - `run -- <command>` lets the human approve the exact command and type a password on a page (sudo, ssh, gpg).
 - `pass <site>` is for steps only a human can do (CAPTCHA, passkey): browser and screen tools stay blocked
   until they hand it back.
@@ -160,7 +165,7 @@ synthetic keystrokes, invented answers or permission auto-approval as a timeout.
 
 Ordinary answers are shared with the model and saved locally in files with mode
 `0600`. Resolved state is removed on a later launch after about a day. Never enter
-credentials here: use `ask`/`run`, whose secret answers stay in daemon memory.
+credentials into ordinary questions or forms; use `ask`, `env`, or `run`, whose secret answers stay in daemon memory until typed or stored.
 
 ## Phone alerts and remote handoff
 

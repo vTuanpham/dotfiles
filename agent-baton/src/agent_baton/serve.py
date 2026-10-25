@@ -86,7 +86,7 @@ setInterval(async () => {{
 ASK_FORM = """\
 <h1>{by} needs {what}</h1>
 {reason}
-<p>What you enter is typed into the window titled <code>{window}</code> on your PC. The agent never sees it.</p>
+{details}
 <form method=post action="/{token}/answer">{inputs}<button class="btn go">Send</button></form>
 <form method=post action="/{token}/decline"><button class=btn>Decline</button></form>
 <p><small>Expires in {left}.</small></p>"""
@@ -97,6 +97,8 @@ ASK_DONE = """\
 <h1>Received</h1>
 <p>The agent can type {names} for the next {left}. They are deleted when it finishes or this expires.</p>
 <form method=post action="/{token}/forget"><button class=btn>Forget now</button></form>"""
+ENV_DONE = """\
+<h1>Saved</h1><p>{name} was stored in the listed files. You can close this tab.</p>"""
 LOGIN_ANSWERS = {"back": "Handed back. The agent carries on.", "cancel": "Cancelled. The agent was told."}
 QUESTION = """\
 <h1>{by} has a question</h1>
@@ -236,6 +238,8 @@ def reason_block(baton):
 def ask_page(baton, token):
     if baton.get("answered"):
         names = ", ".join(html.escape(f["label"]) for f in baton["fields"])
+        if baton["kind"] == "env":
+            return ENV_DONE.format(name=names)
         return ASK_DONE.format(names=names, left=core.left(baton), token=token)
     inputs = "".join(
         ASK_INPUT.format(
@@ -246,14 +250,20 @@ def ask_page(baton, token):
         )
         for f in baton["fields"]
     )
+    if baton["kind"] == "env":
+        details = "<p>Store the masked value in:</p><ul>" + "".join(
+            f"<li><code>{html.escape(path)}</code></li>" for path in baton["files"]
+        ) + "</ul>"
+    else:
+        details = f"<p>What you enter is typed into the window titled <code>{html.escape(baton['window'])}</code> on your PC. The agent never sees it.</p>"
     return ASK_FORM.format(
         by=html.escape(baton["by"]),
         what=html.escape(" and ".join(f["label"] for f in baton["fields"])),
         reason=reason_block(baton),
-        window=html.escape(baton["window"]),
         inputs=inputs,
         token=token,
         left=core.left(baton),
+        details=details,
     )
 
 
@@ -303,7 +313,7 @@ def make_handler(baton_id, token, hosts, command, asker):
                 return self.missing()
             if baton["kind"] == "login":
                 return self.login_get(rest, baton)
-            if baton["kind"] == "ask":
+            if baton["kind"] in ("ask", "env"):
                 return self.missing() if rest else self.send(200, render(ask_page(baton, token)))
             if baton["kind"] == "question":
                 return self.missing() if rest else self.send(200, render(question_page(baton, token)))
@@ -351,7 +361,7 @@ def make_handler(baton_id, token, hosts, command, asker):
 
         def do_POST(self):
             rest, baton = self.route()
-            if rest is None or baton["kind"] not in ("run", "ask", "question") or len(rest) != 1:
+            if rest is None or baton["kind"] not in ("run", "ask", "env", "question") or len(rest) != 1:
                 return self.missing()
             try:
                 size = int(self.headers.get("Content-Length") or 0)
@@ -386,12 +396,15 @@ def make_handler(baton_id, token, hosts, command, asker):
                     else "Question closed."
                 )
                 return self.send(200, render(f"<h1>{text}</h1><p>You can close this tab.</p>"))
-            if baton["kind"] == "ask":
+            if baton["kind"] in ("ask", "env"):
                 if action == "answer" and not baton.get("answered"):
                     values = {f["name"]: form.get(f["name"], [""])[0] for f in baton["fields"]}
                     if not all(values.values()):
                         return self.send(400, b"every field is required", "text/plain")
-                    asker.answer(values)
+                    try:
+                        asker.answer(values)
+                    except (OSError, ValueError):
+                        return self.send(400, b"value rejected or files could not be stored", "text/plain")
                     notify.dismiss(baton)  # answered: take the toast off the screen
                 elif action == "decline":
                     core.resolve(baton_id, "cancelled")
@@ -421,7 +434,7 @@ def serve(baton_id):
     token = secrets.token_urlsafe(32)
     baton = core.load(baton_id)
     command = Command(baton) if baton["kind"] == "run" else None
-    asker = asking.Ask(baton, cfg) if baton["kind"] == "ask" else None
+    asker = asking.Ask(baton, cfg) if baton["kind"] in ("ask", "env") else None
     if asker:
         asker.start()
     hosts = set()  # filled once the port is known; the handler reads it per request

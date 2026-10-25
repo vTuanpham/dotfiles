@@ -20,6 +20,7 @@ For several ordinary questions or a disposable UI, `form <json-file>` composes b
 ## When to reach for it
 - An ordinary harness question remains unanswered: the root/coordinator can use `question` with the same wording, choices and single/multiple selection mode, following the shared reminder policy. Free text and yes/no questions work too. Use the harness's native question tool first, preferring its nonblocking variant (chat if unavailable); workers report questions to the root. `wait <id>` returns the answer as JSON. `withdraw <id>` closes an obsolete reminder if the human answers in chat first; cancellation or expiry is never consent. Harness permission dialogs still apply.
 - A page or app asks for an email, password, 2FA or one-time code, or an API key: `ask` the human, then `type` the answer into the field.
+- A human-supplied API key must go into shell secrets or a project `.env`: use `agent-baton env NAME --file PATH... --prefix PREFIX --reason ...`. The masked form writes directly to the files; wait reports only names, paths and backup location. Never pass a value in chat or a command.
 - A command asks for a password (`sudo`, ssh passphrase, gpg, git credentials): `run -- <command>`. The human approves the exact command and types the password on a page.
 - Only a human can do the step (CAPTCHA, passkey, QR, device prompt): `pass`, which blocks your browser and screen tools until they hand it back.
 
@@ -31,4 +32,6 @@ A blocked agent cannot run the reminder timer. Use the harness's supported remot
 3. Window titles change between steps (Google: "Sign in", then "Welcome"), and the human approves only the titles you list, so pass `--window` for every title you expect.
 4. Verify that the masked field filled and that submission succeeded before `forget <id>` clears the answer. Never read its value back. Answers expire after about ten minutes. If a baton is cancelled or expires, stop and ask the user; do not retry on your own.
 
-The CLI documents itself. Run `agent-baton --help` for the exact commands, flags and rules before first use; read it when you need it, not earlier. Never put a secret in chat, a file or a command line.
+For environment files, use `env` instead of `ask` + `type`; wait for completion, then use only the reported name, paths and backup location.
+
+The CLI documents itself. Run `agent-baton --help` for the exact commands, flags and rules before first use; read it when you need it, not earlier. Never put a secret in chat or a command line; use `env` only for human-requested environment-file storage.

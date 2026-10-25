@@ -12,6 +12,7 @@ Pick the command
   question  ordinary text or multiple-choice question; wait returns the answer as JSON.
   form   one-off ordinary form from a JSON file; wait returns answers keyed by question id.
   ask    any login or secret you must enter in a browser or app (the usual case).
+  env    have the human store a secret in one or more environment files.
   run    a command that needs a password: sudo, ssh passphrase, gpg, git credential prompt.
   pass   only when the human must do the sign-in themselves on the PC (CAPTCHA, passkey, QR).
          Browser and screen tools are blocked until they hand it back.
@@ -87,13 +88,23 @@ Logins with ask + type
   6. `agent-baton forget <id>` after confirming submission succeeded. Answers also expire on their own
      (default 10 minutes).
 
+Store a human-supplied environment secret
+  agent-baton env LIQUID_API_KEY --prefix liquid_ --file ~/.config/shell/secrets.local.sh --file .env --reason "Configure the API client"
+  The human gets a masked field with the variable name, target files and reason. The value is stored
+  by the daemon and never returned to the agent. Existing entries are replaced; `.sh` files get
+  `export`, other files get plain `NAME=value`. Existing targets are backed up under
+  `$XDG_STATE_HOME/backups/env-secrets/` (or `~/.local/state/backups/env-secrets/`); the backup's
+  `origin.json` records restore paths. Targets and backups are mode 0600; symlinks and group/world
+  writable targets are refused. Prefix and value must contain only letters, numbers, `_`, `.`, `-`.
+  `wait <id>` reports the paths and backup location, never the value. Cancellation or expiry writes nothing.
+
 Commands that need a password
   agent-baton run --reason "<why>" -- sudo apt-get install -y foo
   The human reviews the exact command, presses Run and types any password on the page. Then
   `agent-baton wait <id>` returns the exit code, stdout and stderr (the prompt text stays private).
 
 Rules
-  - Never put a secret in chat, a file, an environment variable or a command line.
+  - Never put a secret in agent-visible chat or a command line. Use `env` only when the human asked to store it in environment files.
   - `back` and `cancel` belong to the human; the guard denies them to you. Agents may withdraw only ordinary questions.
   - cancelled or expired means stop and ask the user; do not retry on your own.
   - While a `pass` baton is out, browser, screen and cua-driver tools are denied. That is expected.
