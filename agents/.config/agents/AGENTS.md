@@ -18,6 +18,10 @@ heredoc scripts; shell is for reading, searching, and running commands.
 - Complete authorized work and proportional checks. Reuse existing authority;
   ask only when the outcome or required authority changes. Reviews/explanations
   alone do not authorize edits.
+- Installing or updating a tool, binary, runtime, or dependency the task needs
+  is pre-authorized when its benefit clearly outweighs its risk. Prefer
+  user-local, pinned, reversible installs; report what changed. System-wide
+  security settings stay out of scope.
 - Preserve the objective across corrections and side questions. Finish the
   request or report the exact blocker.
 - Infer intent from context, not literal wording alone. Keep narrow requests
@@ -150,7 +154,10 @@ machine-local trust and approvals), and to run its public-facing check. Stage ex
 - `uv` owns Python environments, interpreters, dependencies, locks, and tool
   execution (`uv run`). Do not mix ad-hoc `pip`, virtualenvs, or lock owners;
   document a genuinely imposed exception.
-- Normal baseline: Ruff format/lint, one strict type checker, pytest+coverage,
+- Type checker: `ty` (latest release; pin exactly while pre-1.0). Replace an
+  existing mypy/pyright setup with it at the same scope, fixing what it finds;
+  enable opt-in rules that catch real bugs, not deliberate boundary checks.
+- Normal baseline: Ruff format/lint, the type checker, pytest+coverage,
   Vulture/equivalent dead-code ratchet, pip-audit, and pre-commit fast checks.
   Measure before using xdist; cap workers to host resources. Put slow coverage,
   audit, packaging, and platform checks in CI.
