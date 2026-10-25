@@ -85,9 +85,36 @@ def test_a_silent_job_still_using_cpu_is_not_stalled(monkeypatch, tmp_path, caps
     clock, cpu = itertools.count(1000, 100), itertools.count(0, 50)
     monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
-    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: next(cpu))
+    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (next(cpu), {1}))
+    monkeypatch.setattr(watcher, "socket_bytes", lambda pids: {})
     assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=0.2) is False
     assert "stalled?" not in capsys.readouterr().out
+
+
+def test_a_silent_job_streaming_over_the_network_is_not_stalled(monkeypatch, tmp_path, capsys):
+    root, job = setup_job(tmp_path)
+    os.utime(job / "live.jsonl", (0, 0))
+    monkeypatch.setattr(watcher, "JOBS", root)
+    monkeypatch.setattr(watcher, "running", lambda state: True)
+    clock, received = itertools.count(1000, 100), itertools.count(0, 1 << 20)
+    monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
+    monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
+    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (7.0, {1}))
+    monkeypatch.setattr(watcher, "socket_bytes", lambda pids: {"a b": next(received)})
+    assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=0.2) is False
+    assert "stalled?" not in capsys.readouterr().out
+
+
+def test_socket_bytes_sums_only_the_jobs_sockets(monkeypatch):
+    out = (
+        'ESTAB 0 0 10.0.0.2:5000 1.2.3.4:443 users:(("codex",pid=40,fd=9))\n'
+        "\t cubic wscale:7,7 bytes_sent:900 bytes_acked:800 bytes_received:5000 segs_out:9\n"
+        'ESTAB 0 0 10.0.0.2:5001 1.2.3.4:443 users:(("other",pid=99,fd=3))\n'
+        "\t cubic bytes_acked:7 bytes_received:7\n"
+    )
+    done = watcher.subprocess.CompletedProcess([], 0, out, "")
+    monkeypatch.setattr(watcher.subprocess, "run", lambda *a, **k: done)
+    assert watcher.socket_bytes({40}) == {"10.0.0.2:5000 1.2.3.4:443": 5800}
 
 
 def test_a_silent_job_with_idle_processes_is_stalled(monkeypatch, tmp_path, capsys):
@@ -98,13 +125,15 @@ def test_a_silent_job_with_idle_processes_is_stalled(monkeypatch, tmp_path, caps
     clock = itertools.count(1000, 100)
     monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
-    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: 7.0)  # an app-server waiting on nothing
+    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (7.0, {1}))  # an app-server waiting on nothing
+    monkeypatch.setattr(watcher, "socket_bytes", lambda pids: {"a b": 100})
     assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=10) is True
     assert "while running (stalled?)" in capsys.readouterr().out
 
 
 def test_tree_cpu_reads_this_process():
-    assert watcher.tree_cpu(os.getpid()) >= 0
+    cpu, pids = watcher.tree_cpu(os.getpid())
+    assert cpu >= 0 and os.getpid() in pids
     assert watcher.tree_cpu(None) is None
 
 

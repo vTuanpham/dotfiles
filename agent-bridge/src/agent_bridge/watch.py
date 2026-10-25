@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -19,26 +21,54 @@ def running(state):
 
 
 TICKS = os.sysconf("SC_CLK_TCK")
-BUSY_WINDOW = 60  # seconds per CPU sample
+BUSY_WINDOW = 60  # seconds per activity sample
 BUSY_CPU = 3.0  # CPU seconds per window (5% of a core): real work, well above an idle app-server
+BUSY_BYTES = 16 * 1024  # TCP bytes per window: a live model stream or download, well above keep-alives
+SS_PID = re.compile(r"pid=(\d+)")
+SS_BYTES = re.compile(r"\bbytes_(?:acked|received):(\d+)")
 
 
 def tree_cpu(pid):
-    """CPU seconds used so far by `pid` and its live descendants, or None if `pid` is unreadable."""
+    """CPU seconds used so far by `pid` and its live descendants, with their pids; None if unreadable."""
     if not pid or not Path(f"/proc/{pid}/stat").exists():
         return None
-    total, stack = 0, [pid]
+    total, stack, pids = 0, [pid], set()
     while stack:
         pid = stack.pop()
         try:
             # utime and stime: the 12th and 13th fields after the parenthesised command name
             fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
             total += int(fields[11]) + int(fields[12])
+            pids.add(pid)
             for task in Path(f"/proc/{pid}/task").iterdir():
                 stack.extend(int(child) for child in (task / "children").read_text().split())
         except (OSError, IndexError, ValueError):
             continue  # a process that exited mid-walk
-    return total / TICKS
+    return total / TICKS, pids
+
+
+def socket_bytes(pids):
+    """TCP bytes moved so far per socket owned by `pids`, from `ss` (per-process I/O counters are not
+    always compiled in, and /proc/net counts a whole namespace). {} when `ss` is unavailable."""
+    try:
+        out = subprocess.run(["ss", "-tinpH"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    sockets, owner = {}, None
+    for line in out.splitlines():
+        if not line[:1].isspace():  # a socket row: state, queues, local and peer address, users
+            row = line.split()
+            owner = " ".join(row[3:5]) if pids & {int(p) for p in SS_PID.findall(line)} else None
+        elif owner:  # its tcp_info line
+            sockets[owner] = sum(int(n) for n in SS_BYTES.findall(line))
+    return sockets
+
+
+def busy(before, after):
+    """Whether a job's processes did real work between two (time, cpu, sockets) samples."""
+    scale = (after[0] - before[0]) / BUSY_WINDOW
+    moved = sum(max(0, n - before[2].get(key, 0)) for key, n in after[2].items())
+    return after[1] - before[1] >= BUSY_CPU * scale or moved >= BUSY_BYTES * scale
 
 
 def job_dirs(owners):
@@ -91,14 +121,14 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
             if running(state):
                 alive = True
                 first_seen.setdefault(job, now)
-                # a long command logs nothing while it runs; CPU used by the job's processes counts as work
-                cpu = tree_cpu(state.get("runnerPid"))
-                if cpu is not None:
-                    since, used = samples.setdefault(job, (now, cpu))
-                    if now - since >= BUSY_WINDOW:
-                        if cpu - used >= BUSY_CPU * (now - since) / BUSY_WINDOW:
+                # a long command or download logs nothing; CPU or TCP traffic of the job's processes is work
+                if job not in samples or now - samples[job][0] >= BUSY_WINDOW:
+                    tree = tree_cpu(state.get("runnerPid"))
+                    if tree is not None:
+                        sample = (now, tree[0], socket_bytes(tree[1]))
+                        if job in samples and busy(samples[job], sample):
                             busy_at[job] = now
-                        samples[job] = (now, cpu)
+                        samples[job] = sample
                 quiet = min(
                     int(now - first_seen[job]),
                     int(now - f.stat().st_mtime) if f.exists() else 0,
