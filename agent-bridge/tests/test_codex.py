@@ -141,9 +141,11 @@ def test_event_mapping_and_inbox(monkeypatch, tmp_path):
     codex.run(job, state, path, "prompt")
     logged = [json.loads(line) for line in (job / "live.jsonl").read_text().splitlines()]
     kinds = [event["kind"] for event in logged]
-    assert kinds[:6] == ["message", "message", "peer_sent", "command_start", "command_end", "question"]
+    assert kinds[:7] == ["turn_started", "message", "message", "peer_sent",
+                         "command_start", "command_end", "question"]
     assert "question_answered" in kinds
-    assert logged[0]["level"] == "urgent"
+    assert logged[0]["kind"] == "turn_started" and logged[0]["at"]
+    assert logged[1]["level"] == "urgent"
     assert "turn_completed" in kinds and "approval_declined" in kinds
     approval = next(event for event in logged if event["kind"] == "approval_declined")
     assert approval["command"] == "rm" and approval["turnId"] == "turn-1"

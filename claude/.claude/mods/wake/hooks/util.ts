@@ -1,3 +1,5 @@
+import type { WakeChip } from '../types'
+
 // Catppuccin Mocha, as in the status line.
 export const COLOR = {
   mauve: '#cba6f7',
@@ -57,6 +59,16 @@ export function span(ms: number): string {
   if (s < 60) return `${s}s`
   if (s < 3600) return `${Math.floor(s / 60)}m`
   return `${Math.floor(s / 3600)}h${pad(Math.floor((s % 3600) / 60))}m`
+}
+
+/** Separate the turn clock from event freshness, including chips saved before these fields existed. */
+export function crewTiming(job: WakeChip, now: number, columns = Infinity): string {
+  if (!job.running || job.waitingForRoot) return 'done'
+  if (!job.lastEventAt) return 'starting'
+  const quiet = now - job.lastEventAt
+  if (job.isStale) return columns < 24 ? 'stalled' : `stalled ${span(quiet)}`
+  const turn = job.startedAt ? now - job.startedAt : 0
+  return span(quiet) + (columns >= 60 && turn >= 60_000 && turn >= quiet * 2 ? ` · turn ${span(turn)}` : '')
 }
 
 /** Lines in a block of text; "" is none, a trailing newline adds no line. */

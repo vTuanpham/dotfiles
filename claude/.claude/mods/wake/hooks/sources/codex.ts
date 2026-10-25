@@ -14,8 +14,11 @@ export type CodexJob = {
   effort: string
   cwd: string
   running: boolean // runnerPid points to a live agent-bridge process
-  isStale: boolean // live runner has an active turn but has been silent 30+ min
+  isStale: boolean // live runner silent for bridge's default 15 min; root_wait is exempt
   lastEventAt: number
+  startedAt?: number
+  awaitingRoot: boolean // latest completion has not been acknowledged by bridge
+  waitingForRoot: boolean // runner is alive but the completed turn is idle
   lastMessage?: string // <= 400 chars
   finishedAt?: number
   urgent: { at: number; text: string }[] // urgent events new since the cursor (turn_completed excluded), text <= 300
@@ -33,8 +36,8 @@ export function ownersIn(command: string): string[] {
   const found = new Set<string>()
   const clean = (s: string) => s.replace(/^['"]|['"]$/g, '')
   for (const m of command.matchAll(/agent-bridge\/jobs\/([^/\s'"]+)\//g)) found.add(m[1]!)
-  const valueOptions = new Set(['--backend', '--cwd', '--sandbox', '--model', '--effort', '--writable-root', '--config', '--account', '--allow', '--deny', '--prompt-file', '--stall-min', '-c'])
-  for (const m of command.matchAll(/agent-bridge\s+(start|resume|steer|interrupt|stop|compact|archive|watch)\b([^;|&]*)/g)) {
+  const valueOptions = new Set(['--backend', '--cwd', '--sandbox', '--model', '--effort', '--writable-root', '--config', '--account', '--allow', '--deny', '--prompt-file', '--stall-min', '--timeout', '-c'])
+  for (const m of command.matchAll(/agent-bridge\s+(start|resume|steer|interrupt|stop|compact|archive|watch|result|ack)\b([^;|&]*)/g)) {
     const args = (m[2] ?? '').trim().split(/\s+/).filter(Boolean).map(clean)
     const positional = []
     for (let i = 0; i < args.length; i++) {
@@ -43,10 +46,10 @@ export function ownersIn(command: string): string[] {
         if (valueOptions.has(arg)) i++
       } else positional.push(arg)
     }
-    const jobs = m[1] === 'watch' ? positional : positional.slice(0, 1)
+    const jobs = m[1] === 'watch' || m[1] === 'ack' ? positional : positional.slice(0, 1)
     for (const job of jobs) {
       const parts = job.split('/')
-      const owner = m[1] === 'watch' ? parts[0]! : parts.length === 2 ? parts[0]! : ''
+      const owner = m[1] === 'watch' || m[1] === 'ack' ? parts[0]! : parts.length === 2 ? parts[0]! : ''
       if (owner && !owner.startsWith('.') && !owner.startsWith('$') && !owner.startsWith('<') && !owner.startsWith('~')) found.add(owner)
     }
   }
@@ -57,14 +60,31 @@ export function ownersIn(command: string): string[] {
 export const ownedBy = (job: { owner: string }, owners: readonly string[]) =>
   owners.some(o => job.owner === o || job.owner.startsWith(o + '/'))
 
-const STALE_MS = 30 * 60_000
+const STALE_MS = 15 * 60_000
 const TAIL_BYTES = 64 * 1024
 const DEFAULT_RECENT_MS = 6 * 3600_000
 const MESSAGE_CHARS = 400
 const URGENT_CHARS = 300
 
-type Ev = { at: number; kind: string; level?: string; text?: string }
-type Meta = { lastMessage?: string; finishedAt?: number }
+type Acknowledgement = { log: string; through: number; completed: number; seen: number }
+
+async function readAcknowledgements($: EngineInterface, path: string): Promise<Record<string, Acknowledgement>> {
+  try {
+    const data = JSON.parse(await $.fs.read(path)) as { version?: unknown; jobs?: unknown }
+    if (data?.version !== 1 || !data.jobs || typeof data.jobs !== 'object' || Array.isArray(data.jobs)) return {}
+    const jobs = data.jobs as Record<string, Acknowledgement>
+    if (Object.values(jobs).some(c =>
+      !c || typeof c !== 'object' || Object.keys(c).sort().join(',') !== 'completed,log,seen,through' ||
+      typeof c.log !== 'string' || [c.through, c.completed, c.seen].some(n => !Number.isSafeInteger(n) || n < 0),
+    )) return {}
+    return jobs
+  } catch {
+    return {} // missing or invalid acknowledgements leave completions visible
+  }
+}
+
+type Ev = { at: number; kind: string; level?: string; text?: string; end: number; quietSeconds?: number }
+type Meta = { lastMessage?: string; finishedAt?: number; completedEnd?: number; startedAt?: number; lastKind?: string; silentSince?: number; identity?: string }
 
 // What the last events said, per live.jsonl. Re-derivable from a 64 KB tail, so a reload only costs one read.
 const metaOf = new Map<string, Meta>()
@@ -89,9 +109,10 @@ function clip(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s
 }
 
-function parseEvents(text: string): Ev[] {
+function parseEvents(text: string, offset = 0): Ev[] {
   const out: Ev[] = []
-  for (const line of text.split('\n')) {
+  for (const line of text.slice(0, text.lastIndexOf('\n') + 1).split('\n').slice(0, -1)) {
+    offset += utf8Len(line) + 1
     if (!line.startsWith('{')) continue
     try {
       const v = JSON.parse(line) as Record<string, unknown>
@@ -100,6 +121,8 @@ function parseEvents(text: string): Ev[] {
       out.push({
         at: Number.isNaN(at) ? 0 : at,
         kind: v.kind,
+        end: offset,
+        quietSeconds: typeof v.quietSeconds === 'number' && Number.isFinite(v.quietSeconds) && v.quietSeconds >= 0 ? v.quietSeconds : undefined,
         level: typeof v.level === 'string' ? v.level : undefined,
         text: typeof v.text === 'string' ? v.text : undefined,
       })
@@ -112,8 +135,14 @@ function parseEvents(text: string): Ev[] {
 
 function absorb(meta: Meta, events: Ev[]): void {
   for (const e of events) {
+    meta.lastKind = e.kind
+    meta.silentSince = e.kind === 'stalled' && e.quietSeconds !== undefined ? e.at - e.quietSeconds * 1000 : undefined
+    if (e.kind === 'turn_started') meta.startedAt = e.at || undefined
     if (e.kind === 'message' && e.text) meta.lastMessage = clip(e.text, MESSAGE_CHARS)
-    if (e.kind === 'turn_completed') meta.finishedAt = e.at
+    if (e.kind === 'turn_completed') {
+      meta.finishedAt = e.at
+      meta.completedEnd = e.end
+    }
   }
 }
 
@@ -139,31 +168,40 @@ export async function scanCodex(
   const root = paths.jobs
   const now = await $.clock.now()
 
-  // List recent logs plus every state file; live runners may have no recent log yet.
+  // Include old logs: a finished job stays visible until its completion is acknowledged.
   const found = await $.process
-    .run(['find', root, '-maxdepth', '3', '(', '-name', 'live.jsonl', '-mmin', `-${Math.ceil(recentMs / 60_000)}`, '-o', '-name', 'state.json', ')', '-printf', '%T@ %s %p\\n'])
+    .run(['find', root, '-maxdepth', '3', '(', '-name', 'live.jsonl', '-o', '-name', 'state.json', ')', '-printf', '%T@ %s %D:%i %p\\n'])
     .catch(() => undefined)
   const jobs: CodexJob[] = []
-  const candidates = new Map<string, { lastEventAt: number; size: number }>()
+  const candidates = new Map<string, { lastEventAt: number; size: number; identity: string }>()
+  const acknowledgements = new Map<string, Record<string, Acknowledgement>>()
 
   for (const line of found?.stdout.split('\n') ?? []) {
-    const m = /^(\d+)(?:\.\d+)? (\d+) (.+)\/(live\.jsonl|state\.json)$/.exec(line)
+    const m = /^(\d+)(?:\.\d+)? (\d+) (\d+:\d+) (.+)\/(live\.jsonl|state\.json)$/.exec(line)
     if (!m) continue
     const mtime = Number(m[1]) * 1000
     const size = Number(m[2])
-    const dir = m[3] ?? ''
-    const previous = candidates.get(dir) ?? { lastEventAt: 0, size: 0 }
-    candidates.set(dir, m[4] === 'live.jsonl' ? { lastEventAt: mtime, size } : previous)
+    const dir = m[4] ?? ''
+    const previous = candidates.get(dir) ?? { lastEventAt: mtime, size: 0, identity: '' }
+    candidates.set(dir, m[5] === 'live.jsonl' ? { lastEventAt: mtime, size, identity: m[3]! } : previous)
   }
 
-  for (const [dir, { lastEventAt, size }] of candidates) {
+  for (const [dir, { lastEventAt: mtime, size, identity }] of candidates) {
     const path = `${dir}/live.jsonl`
     const parts = dir.slice(root.length + 1).split('/')
-    const prev = cursor[path]
+    const owner = parts.slice(0, -1).join('/')
+    const name = parts.at(-1) ?? ''
+    if (!acknowledgements.has(owner)) {
+      acknowledgements.set(owner, await readAcknowledgements($, `${root}/${owner}/ack.json`))
+    }
+    const ack = acknowledgements.get(owner)?.[name]
+    const acknowledged = ack?.log === identity && Math.max(ack.through, ack.completed, ack.seen) <= size ? Math.max(ack.through, ack.completed) : 0
+    const cached = metaOf.get(path)
+    const prev = cached?.identity && cached.identity !== identity ? undefined : cursor[path]
     next[path] = prev ?? size
 
     let fresh: Ev[] = []
-    let meta = metaOf.get(path)
+    let meta = prev === undefined ? undefined : cached
     let tailed = false
 
     if (size === 0) {
@@ -174,7 +212,7 @@ export async function scanCodex(
       if (t) {
         const body = size > TAIL_BYTES ? t.text.slice(t.text.indexOf('\n') + 1) : t.text
         meta = {}
-        absorb(meta, parseEvents(body))
+        absorb(meta, parseEvents(body, size - utf8Len(body)))
         next[path] = Math.max(0, size - utf8Len(t.text.slice(t.text.lastIndexOf('\n') + 1)))
         tailed = true
       }
@@ -183,7 +221,8 @@ export async function scanCodex(
       const t = await tail($, path, from)
       if (t) {
         const cut = t.text.lastIndexOf('\n') + 1 // keep a half-written line for the next scan
-        fresh = parseEvents(t.text.slice(0, cut))
+        if (size < prev) meta = {}
+        fresh = parseEvents(t.text.slice(0, cut), from)
         // ponytail: a single line over 4 MiB cannot be read; skip past it rather than stall
         next[path] = cut === 0 && t.isTruncated ? size : from + utf8Len(t.text.slice(0, cut))
       } else {
@@ -194,17 +233,23 @@ export async function scanCodex(
     if (size > 0 && !meta && !tailed) {
       const t = await tail($, path)
       meta = {}
-      if (t) absorb(meta, parseEvents(size > TAIL_BYTES ? t.text.slice(t.text.indexOf('\n') + 1) : t.text))
+      if (t) {
+        const body = size > TAIL_BYTES ? t.text.slice(t.text.indexOf('\n') + 1) : t.text
+        absorb(meta, parseEvents(body, size - utf8Len(body)))
+      }
     }
     meta ??= {}
     absorb(meta, fresh)
+    meta.identity = identity
     metaOf.set(path, meta)
 
     const st = await activeTurn($, dir)
     if (st.retired) continue
-    const isActive = st.active
     const running = st.runnerAlive
-    if (!running && now - lastEventAt > recentMs) continue
+    const lastEventAt = meta.silentSince ?? mtime
+    const awaitingRoot = (meta.completedEnd ?? 0) > acknowledged
+    const waitingForRoot = running && !st.active && (awaitingRoot || meta.lastKind === 'root_wait')
+    if (!running && !awaitingRoot && now - lastEventAt > recentMs) continue
 
     jobs.push({
       owner: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
@@ -217,8 +262,11 @@ export async function scanCodex(
       effort: st.effort,
       cwd: st.cwd,
       running,
-      isStale: running && isActive && now - lastEventAt >= STALE_MS,
+      isStale: running && !waitingForRoot && meta.lastKind !== 'root_wait' && now - lastEventAt >= STALE_MS,
       lastEventAt,
+      startedAt: meta.startedAt,
+      awaitingRoot,
+      waitingForRoot,
       lastMessage: meta.lastMessage,
       finishedAt: meta.finishedAt,
       urgent: fresh

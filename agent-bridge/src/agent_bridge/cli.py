@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from . import agy, claude, codex, opencode, reference, refresh, retirement
+from .acknowledgements import acknowledge, event_lines
 from .core import (
     ARCHIVE,
     JOBS,
@@ -99,12 +100,7 @@ def session_bindings():
 
 
 def events(job, offset=0):
-    try:
-        with (Path(job) / "live.jsonl").open() as stream:
-            stream.seek(offset)
-            return [json.loads(line) for line in stream]
-    except (OSError, json.JSONDecodeError):
-        return []
+    return [event for _, event in event_lines(Path(job), offset)]
 
 
 def unanswered_urgent(job):
@@ -248,7 +244,7 @@ def main():
         and len(sys.argv) > 1
         and not any(flag in sys.argv[1:] for flag in ("-h", "--help"))
         and sys.argv[1] in {"start", "resume", "steer", "interrupt", "stop", "compact", "retire",
-                            "restore", "purge", "sessions"}
+                            "restore", "purge", "sessions", "ack"}
     ):
         print("agent-bridge: delegated workers can't drive agent-bridge jobs", file=sys.stderr)
         raise SystemExit(2)
@@ -350,6 +346,8 @@ def main():
     result = sub.add_parser("result", help="print messages from a job's final turn")
     result.add_argument("job", help="job as <owner>/<name>")
     result.add_argument("--all", action="store_true", help="print every message from every turn")
+    ack = sub.add_parser("ack", help="acknowledge urgent events displayed by watch")
+    ack.add_argument("owner", nargs="+", help="owner or <owner>/<name>")
     retire = sub.add_parser("retire", help="archive and hide a stopped job; restorable until purged")
     retire.add_argument("job", help="job as <owner>/<name>")
     retire.add_argument("--keep-days", type=int, default=14,
@@ -364,7 +362,7 @@ def main():
     w.add_argument(
         "--until-event",
         action="store_true",
-        help="return at the first urgent event, or when no runner remains",
+        help="replay unacknowledged events; return with a summary on urgency or no runners",
     )
     w.add_argument(
         "--stall-min",
@@ -463,6 +461,13 @@ def main():
             if not watch(a.owner, a.until_event, a.stall_min, a.timeout):
                 raise SystemExit(124)
             return
+        if a.command == "ack":
+            from .watch import job_dirs
+
+            for job in job_dirs(a.owner):
+                acknowledge(job)
+                print(f"acknowledged displayed events: {job.parent.name}/{job.name}")
+            return
         if a.command == "owners":
             from .watch import job_dirs, running
 
@@ -504,8 +509,14 @@ def main():
             return
         if a.command == "result":
             job = resolve_job(a.job)
+            # Snapshot completions before reading; a concurrently arriving turn stays pending.
+            completion = max((end for end, event in event_lines(job)
+                              if event.get("kind") == "turn_completed"), default=0)
             print(result_text(job, a.all) if (job / "state.json").exists() else
                   retirement.archived_result(ARCHIVE, f"{job.parent.name}/{job.name}"))
+            sys.stdout.flush()
+            if completion and not os.environ.get(WORKER_FLAG):
+                acknowledge(job, completion)
             return
         if a.command in ("models", "quota"):
             if a.backend == "agy":
@@ -734,8 +745,7 @@ def main():
 def follow(job, before, seconds):
     """--watch: after the detached start, stay until an urgent event, so the root backgrounds one command.
 
-    Reading begins at the log size from before the launch: nothing the worker says is missed, and a
-    resumed job's old events are not replayed."""
+    Unacknowledged urgent events are replayed, including those before this launch."""
     owned = [f"{job.parent.name}/{job.name}"]
     if seconds is not None and not watch(owned, True, timeout=seconds, offsets={job: before}):
         raise SystemExit(124)

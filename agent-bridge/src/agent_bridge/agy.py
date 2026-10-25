@@ -209,6 +209,7 @@ def run(job, state, path, prompt, resume=False):
         proc.stdin.flush()
         state["turnsSent"] = state.get("turnsSent", 0) + 1
         state["activeTurnId"] = f"turn-{state['turnsSent']}"
+        log(job, "turn_started", turnId=state["activeTurnId"])
         save(path, state)
 
     try:

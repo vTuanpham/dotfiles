@@ -242,6 +242,7 @@ def run(job, state, path, prompt, resume=False):
                 proc.stdin.write(pending.encode())
                 proc.stdin.close()
                 state["activeTurnId"] = f"turn-{turn + 1}"
+                log(job, "turn_started", turnId=state["activeTurnId"])
                 save(path, state)
                 buf, interrupted = b"", False
                 turn_data = {"denied": [], "errors": [], "finished": False, "session": False}

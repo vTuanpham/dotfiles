@@ -128,12 +128,16 @@ def test_until_event_waits_for_a_runner_starting_after_watch(monkeypatch, tmp_pa
     assert "worker: error | failed" in capsys.readouterr().out
 
 
-def test_old_utf8_events_stay_read_and_new_jobs_are_picked_up(monkeypatch, tmp_path, capsys):
+def test_acknowledged_utf8_events_stay_read_and_new_jobs_are_picked_up(monkeypatch, tmp_path, capsys):
     root, job = setup_job(tmp_path)
     with (job / "live.jsonl").open("a", encoding="utf-8") as stream:
         stream.write('{"kind":"turn_completed","level":"urgent","text":"old → done"}\n')
     monkeypatch.setattr(watcher, "JOBS", root)
     monkeypatch.setattr(watcher, "running", lambda state: True)
+    from agent_bridge.acknowledgements import acknowledge, displayed
+
+    displayed(job, (job / "live.jsonl").stat().st_size)
+    acknowledge(job)
     late = root / "owner" / "late"
 
     def tick(_):
@@ -171,3 +175,30 @@ def test_truncated_log_restarts_from_byte_zero(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(watcher.time, "sleep", truncate)
     watcher.watch(["owner"], until_event=True)
     assert "worker: error | new" in capsys.readouterr().out
+
+
+def test_rearmed_watch_replays_all_unacknowledged_and_summarizes_each(monkeypatch, tmp_path, capsys):
+    root, job = setup_job(tmp_path)
+    other = root / "owner" / "second"
+    other.mkdir()
+    (other / "state.json").write_text("{}")
+    for target, kind in ((job, "turn_completed"), (other, "question")):
+        with (target / "live.jsonl").open("a") as stream:
+            stream.write(json.dumps({"kind": kind, "at": "2026-10-25T00:00:00Z"}) + "\n")
+    monkeypatch.setattr(watcher, "JOBS", root)
+    monkeypatch.setattr(watcher, "running", lambda _: False)
+    for _ in range(2):
+        watcher.watch(["owner"], until_event=True)
+        output = capsys.readouterr().out
+        assert "owner/worker turn_completed 2026-10-25T00:00:00Z [unacknowledged]" in output
+        assert "owner/second question 2026-10-25T00:00:00Z [unacknowledged]" in output
+
+
+def test_launch_offset_cannot_hide_pending_events(monkeypatch, tmp_path, capsys):
+    root, job = setup_job(tmp_path)
+    with (job / "live.jsonl").open("a") as stream:
+        stream.write('{"kind":"steer_queued"}\n')
+    monkeypatch.setattr(watcher, "JOBS", root)
+    monkeypatch.setattr(watcher, "running", lambda _: False)
+    watcher.watch(["owner"], until_event=True, offsets={job: (job / "live.jsonl").stat().st_size})
+    assert "owner/worker steer_queued" in capsys.readouterr().out

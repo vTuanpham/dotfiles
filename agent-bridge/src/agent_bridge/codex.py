@@ -196,6 +196,7 @@ def run(job, state, path, prompt, resume=False, compact=False):
                 if state.get(k):
                     args[k] = state[k]
             turn = rpc.call("turn/start", args).get("turn", {}).get("id")
+            log(job, "turn_started", turnId=turn)
         persist()
 
     try:

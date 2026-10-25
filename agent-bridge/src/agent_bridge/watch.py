@@ -1,9 +1,10 @@
 import json
 import time
-from collections.abc import Mapping
 from pathlib import Path
 
-from .core import JOBS, load_state
+from .acknowledgements import cursor_for, displayed, event_lines, pending, read_owner
+from .acknowledgements import urgent as is_urgent
+from .core import JOBS, load_state, log
 
 
 def running(state):
@@ -43,20 +44,16 @@ def line_for(job, event, title=None):
 
 def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
     """Returns False when `timeout` seconds pass first. A built-in bound, so a root whose harness allows only
-    `agent-bridge ...` commands needs no `timeout` wrapper. `offsets` maps job dirs to read start."""
+    `agent-bridge ...` commands needs no `timeout` wrapper.
+    Legacy launch `offsets` never hide pending events."""
     deadline = time.monotonic() + timeout if timeout else None
-    # Files present at start are read from their end; jobs that appear later from their beginning.
-    offsets = (
-        dict(offsets)
-        if offsets is not None
-        else {
-            j: (j / "live.jsonl").stat().st_size if (j / "live.jsonl").exists() else 0
-            for j in job_dirs(owners)
-        }
-    )
+    # Explicit launch offsets cannot hide older unacknowledged events either.
+    offsets = {j: cursor_for(j, read_owner(j.parent))["through"] for j in job_dirs(owners)}
+    identities = {}
     first, idle_ticks, stalled, first_seen, last_kind = True, 0, set(), {}, {}
     while True:
         alive = urgent = False
+        fired = {}
         now = time.time()
         for job in job_dirs(owners):
             f = job / "live.jsonl"
@@ -88,10 +85,11 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
                     print(status, flush=True)
                 elif last_kind.get(job) == "root_wait":
                     stalled.discard(job)
-                elif quiet > stall_min * 60 and job not in stalled:  # once per silence
+                elif quiet >= stall_min * 60 and job not in stalled:  # once per silence
                     stalled.add(job)
                     print(f"{label}: silent for {quiet // 60}m while running (stalled?)", flush=True)
-                    urgent = True  # A hung model stream looks exactly like this; root must look.
+                    log(job, "stalled", level="urgent", quietSeconds=quiet,
+                        message=f"silent for {quiet // 60}m")
                 elif quiet <= stall_min * 60:
                     stalled.discard(job)
             else:
@@ -100,27 +98,30 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
             if not f.exists():
                 continue
             size = f.stat().st_size
-            if size < offsets[job]:
-                offsets[job] = 0
-            with f.open("rb") as stream:  # byte offsets: live.jsonl holds UTF-8 text
-                stream.seek(offsets[job])
-                data = stream.read()
-            complete = data[: data.rfind(b"\n") + 1]
-            offsets[job] += len(complete)
-            for raw in complete.splitlines():
-                try:
-                    event = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(event, Mapping):
-                    continue
+            cursor = cursor_for(job, read_owner(job.parent))
+            if size < offsets[job] or identities.get(job) != cursor["log"]:
+                offsets[job] = cursor["through"]
+            identities[job] = cursor["log"]
+            for end, event in event_lines(job, offsets[job]):
+                offsets[job] = end
                 if event.get("kind") == "root_wait" and last_kind.get(job) != "root_wait":
                     print(f"status: {label} waiting for root", flush=True)
                 last_kind[job] = event.get("kind")
-                if event.get("level") == "urgent":
+                if (is_urgent(event) and end > cursor["through"]
+                        and not (event.get("kind") == "turn_completed" and end <= cursor["completed"])):
                     print(line_for(job, event, state.get("title")), flush=True)
+                    displayed(job, end)
+                    fired[job, end] = event
                     urgent = True
         if until_event and urgent:
+            outstanding = {(job, end): event for job in job_dirs(owners) for end, event in pending(job)}
+            print("watch: urgent events (unacknowledged until result <job> or ack <owner/job>):", flush=True)
+            for (job, end), event in (fired | outstanding).items():
+                status = "unacknowledged" if (job, end) in outstanding else "acknowledged"
+                print(f"  {job.parent.name}/{job.name} {event.get('kind')} "
+                      f"{event.get('at') or 'time unknown'} [{status}]", flush=True)
+                if status == "unacknowledged":
+                    displayed(job, end)
             return True
         if deadline and time.monotonic() >= deadline:
             print(f"watch: {timeout}s passed with jobs still running", flush=True)

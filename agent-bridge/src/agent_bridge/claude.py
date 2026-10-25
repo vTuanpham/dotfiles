@@ -189,6 +189,7 @@ def run(job, state, path, prompt, resume=False, compact=False):
         message_id += 1
         idle = False
         state["activeTurnId"] = f"turn-{message_id}"
+        log(job, "turn_started", turnId=state["activeTurnId"])
         save(path, state)
 
     stdin_closed = False

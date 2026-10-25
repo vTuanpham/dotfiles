@@ -35,6 +35,20 @@ worker/model/effort labels and an account quota row.
 
 ## When a worker needs you
 
+Every watch replays unacknowledged urgent events before following live work.
+`watch --until-event` exits with every pending job, event kind and timestamp;
+re-arming cannot discard a completion. Printing is not acknowledgement:
+`agent-bridge result <owner>/<job>` acknowledges that job's completions, while
+`agent-bridge ack <owner>` (or `<owner>/<job>`) acknowledges urgent events already
+displayed by watch. Handle questions and errors before acknowledging them. New
+events arriving after display stay pending. Use a unique owner per root; its
+versioned `jobs/<owner>/ack.json` stores per-job byte cursors, with locked atomic
+updates. Missing cursors replay old urgent history; old jobs need no migration.
+See `agent-bridge guide workflow` for the cursor format and watch lifecycle.
+Wake shows names first with compact event ages, marks 15-minute silence as
+`stalled`, and keeps unacknowledged completions visible as `done`. Known turn
+times appear only when useful and space allows.
+
 Workers report questions to their root. The root asks through its native harness,
 then uses [Baton](../agent-baton/README.md#unanswered-questions) for one reminder
 after about three minutes if it remains active. It reads the answer and explicitly

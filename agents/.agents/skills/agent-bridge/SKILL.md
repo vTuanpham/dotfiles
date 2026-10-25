@@ -19,11 +19,13 @@ A CLI that lets a root agent drive workers of the other harnesses (Codex, agy, O
    No event is missed: it reads from before the launch. Reuse the running session instead of
    short polling or repeated restarts. If a blocking wait is necessary, use a timeout of at
    least 180 seconds, subject to harness limits; keep the root responsive.
-3. Handle the event, timeout or interrupted watch, then check job state. Re-arm only if at least one job is running:
-   `agent-bridge watch <owner> --until-event --timeout 1800` in a background terminal. A bare
-   watch tails existing logs from their end; after confirming running work and arming it,
-   check the jobs' results and `live.jsonl` for unhandled urgent events. Do not watch an
-   owner with no running jobs. For a follow-up, `steer <job> "message"` delivers to
+3. Read the watch's job/kind/time summary and handle every event. Printing never acknowledges:
+   `result <job>` acknowledges its completions; `ack <owner>` (or `<owner>/<job>`) acknowledges
+   urgent events already displayed by watch. New arrivals stay pending. Re-arm with
+   `agent-bridge watch <owner> --until-event --timeout 1800` in a background terminal: every
+   watch replays unacknowledged urgent events before following live work, even for stopped jobs.
+   No separate result/log sweep after arming is needed. After handling pending events, watch
+   only while jobs are running. For a follow-up, `steer <job> "message"` delivers to
    a running worker or resumes an idle job detached in the same session. Add
    `--watch` to follow it in the same background command. Use `--queue` to batch
    steers before an explicit `resume`. Retired jobs need `restore` first;

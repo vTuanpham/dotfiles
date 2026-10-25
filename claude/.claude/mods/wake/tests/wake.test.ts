@@ -1,5 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import { crewTiming } from '../hooks/util'
+import type { WakeChip } from '../types'
 
 type Node = string | { type: string; props?: Record<string, unknown>; children?: Node[] }
 
@@ -34,16 +36,75 @@ function engine(on: On) {
 
 type Engine = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[0]
 
-const mount = ($: Engine, component: 'AbovePrompt' | 'Spinner', isWorking = false) =>
+const mount = ($: Engine, component: 'AbovePrompt' | 'Spinner', isWorking = false, columns = 100) =>
   $.ui.mount({
     plugin: 'wake',
     surface: 'terminal',
     component,
     props:
       component === 'AbovePrompt'
-        ? { hasSurvey: false, isWorking, maxRows: 16, bodyColumns: 100, scroll: { offset: 0, bodyRows: 16 } }
+        ? { hasSurvey: false, isWorking, maxRows: 16, bodyColumns: columns, scroll: { offset: 0, bodyRows: 16 } }
         : { word: 'Working', message: null, suffix: '', mode: 'tool-use' },
   } as never)
+
+test('crew timing distinguishes turn age, recent events, stalled jobs and unacknowledged completion', () => {
+  const now = 2_000_000
+  const job: WakeChip = { name: 'job', backend: 'codex', account: '01', model: 'sol', effort: 'high', running: true, isStale: false, since: 1, startedAt: now - 16 * 60_000, lastEventAt: now - 8_000 }
+  expect(crewTiming(job, now)).toBe('8s · turn 16m')
+  expect(crewTiming(job, now, 38)).toBe('8s')
+  expect(crewTiming({ ...job, startedAt: undefined }, now)).toBe('8s')
+  expect(crewTiming({ ...job, startedAt: now - 20_000 }, now)).toBe('8s')
+  expect(crewTiming({ ...job, isStale: true, lastEventAt: now - 15 * 60_000 }, now)).toBe('stalled 15m')
+  expect(crewTiming({ ...job, running: false, awaitingRoot: true }, now)).toBe('done')
+  expect(crewTiming({ ...job, awaitingRoot: true, waitingForRoot: true }, now)).toBe('done')
+  expect(crewTiming({ ...job, startedAt: undefined, lastEventAt: undefined }, now)).toBe('starting')
+})
+
+test('rendered crew puts names first and includes done jobs awaiting root', async ($, on) => {
+  engine(on)
+  const base: WakeChip = { name: 'worker', title: 'Review persisted worker messages', backend: 'codex', account: '01', model: 'gpt-6-sol', effort: 'high', running: true, isStale: false, since: 1, startedAt: 40_000, lastEventAt: 992_000 }
+  let shown = [base]
+  on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: shown, version: 1 } }))
+  for (const [job, timing] of [
+    [base, '8s · turn 16m'],
+    [{ ...base, isStale: true, lastEventAt: 100_000 }, 'stalled 15m'],
+    [{ ...base, running: false, awaitingRoot: true }, 'done'],
+    [{ ...base, awaitingRoot: true, waitingForRoot: true }, 'done'],
+  ] as const) {
+    shown = [job]
+    const bar = await mount($, 'AbovePrompt')
+    const tree = (await bar.drawn()) as Node
+    const text = flat(tree)
+    const row = text.split('\n').find(line => line.includes(base.title!))!
+    expect(row).toContain(timing)
+    expect(row.indexOf(base.title!) < row.indexOf(timing)).toBe(true)
+    expect(text).not.toContain('(worker)')
+    expect(JSON.stringify(tree)).toContain('truncate-end')
+    await bar.unmount()
+  }
+})
+
+test('two crew jobs share the width and identical model details appear once', async ($, on) => {
+  engine(on)
+  const base: WakeChip = { name: 'review', title: 'Review persisted worker messages', backend: 'codex', account: '01', model: 'gpt-6-sol', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 989_000 }
+  const jobs = [base, { ...base, name: 'provider', title: 'Check provider responses', lastEventAt: 977_000 }]
+  on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: jobs, version: 1 } }))
+  for (const width of [60, 100]) {
+    const bar = await mount($, 'AbovePrompt', false, width)
+    const tree = (await bar.drawn()) as Node
+    const text = flat(tree)
+    expect(text.indexOf(base.title!) < text.indexOf('11s')).toBe(true)
+    expect(text.indexOf('Check provider') < text.indexOf('23s')).toBe(true)
+    expect(text).not.toContain('turn ?')
+    expect(text).not.toContain('(review)')
+    expect(text).not.toContain('(provider)')
+    expect(text.split('codex·01').length - 1).toBe(width === 100 ? 1 : 0)
+    const boxes = (node: Node): Node[] => typeof node === 'string' ? [] : [node, ...(node.children ?? []).flatMap(boxes)]
+    const slots = boxes(tree).filter(node => typeof node !== 'string' && node.type === 'Box' && node.props?.width === (width === 100 ? 38 : 28))
+    expect(slots).toHaveLength(2)
+    await bar.unmount()
+  }
+})
 
 test('the plan rides in the spinner; the dock says what is happening now', async ($, on) => {
   engine(on)

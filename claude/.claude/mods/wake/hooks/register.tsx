@@ -11,7 +11,7 @@ import { KIND_COLOR } from './landscapes/kit'
 import { EFFECT_FRAMES, SCENE_ROWS, type SceneEffect, eventName, sceneCells, sceneFrame } from './scene'
 import { PRESETS, nextRain, skyOf } from './sources/weather'
 import { lookAround, namePlace, pinPreset } from './surroundings'
-import { COLOR, readable, clock, commandHead, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
+import { COLOR, readable, clock, commandHead, crewTiming, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
 
 // Wake lives in the flow of the chat: a living diorama above the prompt (the session as a
 // town in the real weather where you are, Mochi on the street), a line of words and the
@@ -280,9 +280,9 @@ async function codexTick($: EngineInterface) {
   const now = await $.clock.now()
   await update($, chips, () =>
     scan.jobs
-      .filter(job => job.running || (job.finishedAt ?? 0) > now - 30 * 60_000)
+      .filter(job => job.running || job.awaitingRoot || (job.finishedAt ?? 0) > now - 30 * 60_000)
       .slice(0, 6)
-      .map(job => ({ name: job.name, title: titleOf(job), backend: job.backend, account: job.account, model: job.model, effort: job.effort, running: job.running, isStale: job.isStale, since: job.finishedAt ?? job.lastEventAt, maker: makerOf(job.model) })),
+      .map(job => ({ name: job.name, title: titleOf(job), backend: job.backend, account: job.account, model: job.model, effort: job.effort, running: job.running, isStale: job.isStale, since: job.finishedAt ?? job.lastEventAt, startedAt: job.startedAt, lastEventAt: job.lastEventAt, awaitingRoot: job.awaitingRoot, waitingForRoot: job.waitingForRoot, maker: makerOf(job.model) })),
   )
   const away = await isAway($, ASK_AWAY_MS)
   for (const job of scan.jobs) {
@@ -619,7 +619,7 @@ export const register: Register = on => {
     const w = here?.weather
     const sky = w ? skyOf(w.code, w.isDay) : undefined
     const rain = w ? nextRain(w.hours) : undefined
-    const running = jobs.filter(job => job.running)
+    const running = jobs.filter(job => job.running || job.awaitingRoot)
     const weather = here ? (
       <Text>
         {sky && w ? <Text color={ink.yellow}>{String.fromCodePoint(sky.icon)} </Text> : <Text color={ink.subtle}>{G.pin} </Text>}
@@ -647,42 +647,53 @@ export const register: Register = on => {
 
     // what needs the person, under the words; first the crew at work: subagents and bridge jobs
     const rows: RenderElement[] = []
+    const bridgeLabels = running.map(job => {
+      const backend = job.backend ?? 'codex'
+      const label = jobLabel(backend, job.model, job.effort)
+      return `${backend}${job.account ? `·${job.account}` : ''} ${label.model} ${label.effort}`.trim()
+    })
+    const sharedLabel = bridgeLabels.length > 1 && bridgeLabels.every(label => label === bridgeLabels[0]) ? bridgeLabels[0]! : ''
+    const crewCount = crewAgents.length + running.length
+    const sharedWidth = sharedLabel && width >= crewCount * 36 + sharedLabel.length + 3 ? sharedLabel.length + 3 : 0
+    const crewShare = Math.max(1, Math.floor((width - Math.max(0, crewCount - 1) * 3 - sharedWidth) / Math.max(1, crewCount)))
     const crew: RenderElement[] = [
       ...crewAgents.map(agent => (
-        <Text>
+        <Box width={crewShare} flexShrink={0} overflow="hidden"><Text wrap="truncate-end">
           <Text color={ink.pink}>{diamond(frame)} </Text>
           <Text color={ink.text}>{agent.name ?? agent.description}</Text>
           <Text color={ink.pink}> {pips(agent.model ? modelTier('claude', agent.model) : parentTier)}</Text>
           <Text color={ink.pink}> claude</Text>
           <Text color={ink.subtle}>·{agent.type} · {span(now - agent.since)}</Text>
-        </Text>
+        </Text></Box>
       )),
-      ...running.map(job => {
+      ...running.map((job, index) => {
         const backend = job.backend ?? 'codex'
         const [color, glyph] = backend === 'agy' ? [ink.blue, twinkle] : backend === 'claude' ? [ink.pink, diamond] : backend === 'opencode' ? [ink.green, balloon] : [ink.teal, orbit]
-        const label = jobLabel(backend, job.model, job.effort)
-        // same shape for every CLI: <glyph> name cli·account model effort · age; colour and glyph tell them apart
+        const finished = !job.running || job.waitingForRoot
+        const statusColor = job.isStale ? ink.peach : finished ? ink.yellow : color
+        const title = job.title || job.name
+        const timing = crewTiming(job, now, crewShare)
+        const metadata = !sharedLabel && crewShare >= title.length + timing.length + bridgeLabels[index]!.length + 5 ? bridgeLabels[index] : ''
         return (
-          <Text>
-            <Text color={job.isStale ? ink.peach : color}>{job.isStale ? G.stale : glyph(frame)} </Text>
-            <Text color={ink.text}>{job.title ?? job.name}</Text>
-            {job.title && job.title !== job.name ? <Text color={ink.subtle}> ({job.name})</Text> : ''}
-            <Text color={color}> {backend}{job.account ? `·${job.account}` : ''}</Text>
-            <Text color={ink.subtle}> {label.model} <Text color={job.isStale ? ink.peach : color}>{pips(modelTier(backend, job.model))}</Text> {label.effort} · {span(now - job.since)}</Text>
-          </Text>
+          <Box width={crewShare} flexShrink={0} overflow="hidden">
+            <Box flexShrink={0}><Text color={statusColor}>{job.isStale ? G.stale : finished ? G.done : glyph(frame)} </Text></Box>
+            <Box flexGrow={1} flexShrink={1} minWidth={1}><Text color={ink.text} wrap="truncate-end">{title}</Text></Box>
+            <Box flexShrink={0}><Text color={job.isStale || finished ? statusColor : ink.subtle}> {timing}{metadata ? ` ${metadata}` : ''}</Text></Box>
+          </Box>
         )
       }),
     ]
     if (crew.length > 0) {
       rows.push(
-        <Text wrap="truncate-end">
+        <Box width={width} overflow="hidden">
           {crew.map((part, i) => (
-            <Text>
+            <Box flexShrink={0}>
               {i > 0 ? <Text color={ink.surface}> │ </Text> : ''}
               {part}
-            </Text>
+            </Box>
           ))}
-        </Text>,
+          {sharedWidth ? <Text color={ink.subtle}> │ {sharedLabel}</Text> : ''}
+        </Box>,
       )
     }
     if (running.length > 0 && accounts.length > 0) {
