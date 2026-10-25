@@ -2,6 +2,8 @@ import itertools
 import json
 import os
 
+import pytest
+
 from agent_bridge import watch as watcher
 
 
@@ -77,32 +79,33 @@ def test_new_stall_wakes_an_until_event_watch(monkeypatch, tmp_path, capsys):
     assert "silent for 3m while running (stalled?)" in capsys.readouterr().out
 
 
-def test_a_silent_job_still_using_cpu_is_not_stalled(monkeypatch, tmp_path, capsys):
-    root, job = setup_job(tmp_path)
+def silent_busy_watch(monkeypatch, tmp_path, ticks, cpu, sockets):
+    """Watch a job whose log stays silent for `ticks` 30-second ticks; return what the watch printed."""
+    (tmp_path / str(ticks)).mkdir()
+    root, job = setup_job(tmp_path / str(ticks))
     os.utime(job / "live.jsonl", (0, 0))
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda state: True)
-    clock, cpu = itertools.count(1000, 100), itertools.count(0, 50)
+    alive = iter([True] * ticks)
+    monkeypatch.setattr(watcher, "running", lambda state: next(alive, False))
+    clock = itertools.count(1000, 30)
     monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
-    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (next(cpu), {1}))
-    monkeypatch.setattr(watcher, "socket_bytes", lambda pids: {})
-    assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=0.2) is False
-    assert "stalled?" not in capsys.readouterr().out
+    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (cpu(), {1}))
+    monkeypatch.setattr(watcher, "socket_bytes", lambda pids: sockets())
+    watcher.watch(["owner"], until_event=True, stall_min=1)
 
 
-def test_a_silent_job_streaming_over_the_network_is_not_stalled(monkeypatch, tmp_path, capsys):
-    root, job = setup_job(tmp_path)
-    os.utime(job / "live.jsonl", (0, 0))
-    monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda state: True)
-    clock, received = itertools.count(1000, 100), itertools.count(0, 1 << 20)
-    monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
-    monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
-    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (7.0, {1}))
-    monkeypatch.setattr(watcher, "socket_bytes", lambda pids: {"a b": next(received)})
-    assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=0.2) is False
-    assert "stalled?" not in capsys.readouterr().out
+@pytest.mark.parametrize("kind", ["cpu", "network"])
+def test_a_busy_silent_job_is_reported_later_and_as_busy(monkeypatch, tmp_path, capsys, kind):
+    used, moved = itertools.count(0, 50), itertools.count(0, 1 << 20)
+    cpu = (lambda: next(used)) if kind == "cpu" else (lambda: 7.0)
+    sockets = (lambda: {}) if kind == "cpu" else (lambda: {"a b": next(moved)})
+    silent_busy_watch(monkeypatch, tmp_path, 6, cpu, sockets)  # 150 s: past 1x, short of 3x --stall-min
+    assert "silent" not in capsys.readouterr().out
+    silent_busy_watch(monkeypatch, tmp_path, 9, cpu, sockets)  # 240 s: a native call can spin forever
+    assert "silent for 3m while running (processes busy: a long command, or a spinning one?)" in (
+        capsys.readouterr().out
+    )
 
 
 def test_socket_bytes_sums_only_the_jobs_sockets(monkeypatch):

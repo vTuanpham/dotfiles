@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 import subprocess
@@ -24,6 +25,7 @@ TICKS = os.sysconf("SC_CLK_TCK")
 BUSY_WINDOW = 60  # seconds per activity sample
 BUSY_CPU = 3.0  # CPU seconds per window (5% of a core): real work, well above an idle app-server
 BUSY_BYTES = 16 * 1024  # TCP bytes per window: a live model stream or download, well above keep-alives
+BUSY_STALL_FACTOR = 3  # a busy silent job is reported after 3x --stall-min
 SS_PID = re.compile(r"pid=(\d+)")
 SS_BYTES = re.compile(r"\bbytes_(?:acked|received):(\d+)")
 
@@ -132,8 +134,10 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
                 quiet = min(
                     int(now - first_seen[job]),
                     int(now - f.stat().st_mtime) if f.exists() else 0,
-                    int(now - busy_at.get(job, first_seen[job])),
                 )
+                # busy work earns a longer silence, not an endless one: a native call can spin forever
+                working = now - busy_at.get(job, -math.inf) <= 2 * BUSY_WINDOW
+                limit = stall_min * 60 * (BUSY_STALL_FACTOR if working else 1)
                 if first:
                     data = f.read_bytes() if f.exists() else b""
                     messages = data.count(b'"kind":"message"')
@@ -149,11 +153,12 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
                     print(status, flush=True)
                 elif last_kind.get(job) == "root_wait":
                     stalled.discard(job)
-                elif quiet >= stall_min * 60 and job not in stalled:  # once per silence
+                elif quiet >= limit and job not in stalled:  # once per silence
                     stalled.add(job)
-                    print(f"{label}: silent for {quiet // 60}m while running (stalled?)", flush=True)
-                    log(job, "stalled", level="urgent", quietSeconds=quiet,
-                        message=f"silent for {quiet // 60}m")
+                    why = "processes busy: a long command, or a spinning one?" if working else "stalled?"
+                    print(f"{label}: silent for {quiet // 60}m while running ({why})", flush=True)
+                    log(job, "stalled", level="urgent", quietSeconds=quiet, busy=working,
+                        message=f"silent for {quiet // 60}m" + (", processes busy" if working else ""))
                 elif quiet <= stall_min * 60:
                     stalled.discard(job)
             else:
