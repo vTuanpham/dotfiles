@@ -362,6 +362,7 @@ def run(job, state, path, prompt, resume=False, compact=False):
                 if turn:
                     rpc.call("turn/interrupt", {"threadId": thread, "turnId": turn})
                 if marker == "stop":
+                    log(job, "stopped")
                     return
             if not compact:
                 poll_steers(job, send, known, state)

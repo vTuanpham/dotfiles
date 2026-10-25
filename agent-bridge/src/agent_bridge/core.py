@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -77,6 +78,14 @@ def lock_runner(job):
         os.close(fd)
         raise RuntimeError("job already has a runner")
     return fd
+
+
+@contextmanager
+def steer_lock(job):
+    # Enqueue and the runner's final queue check must share one handoff boundary.
+    with (Path(job) / "steer.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def load_state(job):

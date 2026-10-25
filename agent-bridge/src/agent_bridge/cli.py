@@ -20,6 +20,7 @@ from .core import (
     runner_finished,
     save,
     stamp,
+    steer_lock,
     tree_size,
 )
 from .watch import watch
@@ -97,9 +98,11 @@ def session_bindings():
     return {"version": 1, "sessions": result}
 
 
-def events(job):
+def events(job, offset=0):
     try:
-        return [json.loads(line) for line in (Path(job) / "live.jsonl").read_text().splitlines()]
+        with (Path(job) / "live.jsonl").open() as stream:
+            stream.seek(offset)
+            return [json.loads(line) for line in stream]
     except (OSError, json.JSONDecodeError):
         return []
 
@@ -186,16 +189,40 @@ def result_text(job, all_messages=False):
     return "\n\n".join(text for text in messages if text)
 
 
-def run_with_linger(job, state, state_path, backend, prompt, resume, extra):
-    backend.run(job, state, state_path, prompt, resume=resume, **extra)
-    if backend is agy:
-        agy.fallback(job, state, state_path)
+def run_with_linger(job, state, state_path, backend, prompt, resume, extra, runner_fd=None):
     try:
-        if not extra.get("compact"):
-            linger(job, state, state_path, backend)
+        while True:
+            live_path = job / "live.jsonl"
+            before = live_path.stat().st_size if live_path.exists() else 0
+            backend.run(job, state, state_path, prompt, resume=resume, **extra)
+            if any(e.get("kind") == "root_steer" for e in events(job, before)):
+                state["autoAnswers"] = 0
+                save(state_path, state)
+            if backend is agy:
+                agy.fallback(job, state, state_path)
+            if not extra.get("compact"):
+                linger(job, state, state_path, backend)
+            with steer_lock(job):
+                stopped = any(e.get("kind") == "stopped" for e in events(job, before))
+                if (runner_fd is not None and not extra.get("compact") and not stopped
+                        and list((job / "steer").glob("[0-9]*.md"))):
+                    state = load_state(job)
+                    state["autoAnswers"] = 0
+                    save(state_path, state)
+                    prompt, resume = "", True
+                    continue
+                runner_finished(load_state(job), state_path)
+                if runner_fd is not None:
+                    os.close(runner_fd)
+                    runner_fd = None
+                return
     finally:
-        state = load_state(job)
-        runner_finished(state, state_path)
+        if runner_fd is not None:
+            with steer_lock(job):
+                try:
+                    runner_finished(load_state(job), state_path)
+                finally:
+                    os.close(runner_fd)
 
 
 def read_prompt(prompt_file):
@@ -230,7 +257,7 @@ def main():
         description="Run delegated jobs; jobs are named <owner>/<name>.",
         epilog=(
             "Workflow: start ... --watch in a background terminal; keep working.\n"
-            "Steer only while running; resume when idle (delivers queued steers).\n"
+            "Steer delivers to running jobs and resumes idle jobs; --queue only queues.\n"
             "Read result, verify the work, then retire when its context is no longer needed.\n\n"
             "Details: <command> --help for flags; start --help for backend notes.\n"
             "Guides: guide workflow (routing, watch, briefs, review, Keeping the reference current);\n"
@@ -301,10 +328,13 @@ def main():
     r.add_argument("--prompt-file", help="read follow-up from PATH or '-' for stdin")
     r.add_argument("--detach", action="store_true", help="run in the background and return the job path")
     r.add_argument("--watch", **WATCH)
-    st = sub.add_parser("steer", help="queue a message for a running or idle job")
+    st = sub.add_parser("steer", help="send a message; resume idle jobs automatically")
     st.add_argument("job", help="job as <owner>/<name>")
     st.add_argument("text", nargs="?", help="steer text (use either this or --prompt-file)")
     st.add_argument("--prompt-file", help="read steer from PATH or '-' for stdin")
+    delivery = st.add_mutually_exclusive_group()
+    delivery.add_argument("--queue", action="store_true", help="queue only; do not start an idle job")
+    delivery.add_argument("--watch", **WATCH)
     for name in ("interrupt", "stop", "compact"):
         descriptions = {
             "interrupt": "request that the current turn end without stopping the job",
@@ -501,36 +531,51 @@ def main():
         if a.command == "steer":
             if (a.text is None) == (a.prompt_file is None):
                 raise RuntimeError("steer takes exactly one of <text> or --prompt-file")
-            record_root(job)
-            state = load_state(job) if state_path.exists() else {}
-            if state:
-                state["autoAnswers"] = 0
-                save(state_path, state)
-            path = make_steer(job, a.text if a.text is not None else read_prompt(a.prompt_file))
-            log(job, "root_steer", level="info", file=path.name)
-            print(path)
+            text = a.text if a.text is not None else read_prompt(a.prompt_file)
+            if not text.strip():
+                raise RuntimeError("empty steer")
+            before = (job / "live.jsonl").stat().st_size if (job / "live.jsonl").exists() else 0
             from .watch import running
 
-            if not state.get("activeTurnId") or not running(state):
-                print(f"job has no active turn: queued, not delivered; "
-                      f"deliver with agent-bridge resume {a.job}")
-            return
+            with steer_lock(job):
+                state = load_state(job)
+                if state.get("retiredAt"):
+                    raise RuntimeError(f"job is retired; run agent-bridge restore {a.job} first")
+                record_root(job)
+                path = make_steer(job, text)
+                log(job, "root_steer", level="info", file=path.name)
+                if not a.queue:
+                    try:
+                        runner_fd = lock_runner(job)
+                    except RuntimeError:
+                        pass  # The live runner owns delivery, including its final queue check.
+                    if runner_fd is not None and running(load_state(job)):
+                        os.close(runner_fd)
+                        runner_fd = None
+            if a.queue:
+                print(f"queued: {path}; deliver with agent-bridge resume {a.job}")
+                return
+            if runner_fd is None:
+                print(path, flush=True)
+                return follow(job, before, a.watch)
+            a.detach, a.prompt_file = True, None
         if a.command in ("interrupt", "stop"):
             record_root(job)
             (job / a.command).touch()
             return
         if a.command == "compact" and load_state(job)["backend"] not in ("codex", "claude"):
             raise RuntimeError("compact is supported only by codex and claude")
-        if a.command in ROOT_COMMANDS:
+        if a.command in ROOT_COMMANDS and a.command != "steer":
             record_root(job)
-        runner_fd = lock_runner(job)
+        if runner_fd is None:
+            runner_fd = lock_runner(job)
         if state_path.exists() and load_state(job).get("retiredAt"):
             raise RuntimeError(f"job is retired; run agent-bridge restore {a.job} first")
-        resume = a.command in ("resume", "compact")
+        resume = a.command in ("resume", "compact", "steer")
         if resume:
             state = load_state(job)
             state.pop("runnerPid", None)
-            if a.command == "resume":
+            if a.command in ("resume", "steer"):
                 state["autoAnswers"] = 0
             if a.command == "compact" and state.get("activeTurnId"):
                 raise RuntimeError("job has an active turn; stop it before compacting")
@@ -602,8 +647,11 @@ def main():
             count = len(list((job / "steer").glob("[0-9]*.md")))
             print(f"resume: delivering {count} queued steer(s)", flush=True)
         watching = getattr(a, "watch", None)
+        launch_message = (f"delivered by resuming the idle job; watch: agent-bridge watch {a.job}"
+                          if a.command == "steer" else str(job))
         if getattr(a, "detach", False) or watching:
-            before = (job / "live.jsonl").stat().st_size if (job / "live.jsonl").exists() else 0
+            if a.command != "steer":
+                before = (job / "live.jsonl").stat().st_size if (job / "live.jsonl").exists() else 0
             pid = os.fork()
             if pid:
                 os.close(runner_fd)
@@ -616,7 +664,7 @@ def main():
                     except (OSError, json.JSONDecodeError):
                         runner_pid = None
                     if runner_pid == pid and Path(f"/proc/{runner_pid}").exists():
-                        print(job)
+                        print(launch_message, flush=True)
                         return follow(job, before, watching)
                     try:
                         exited, status = os.waitpid(pid, os.WNOHANG)
@@ -624,7 +672,7 @@ def main():
                         exited = 0
                     if exited:
                         if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0:
-                            print(job)
+                            print(launch_message, flush=True)
                             return follow(job, before, watching)
                         raise RuntimeError(f"detached runner exited before startup (status {status})")
                     time.sleep(0.1)
@@ -647,7 +695,8 @@ def main():
             live_path = job / "live.jsonl"
             live_offset = live_path.stat().st_size if live_path.exists() else 0
             try:
-                run_with_linger(job, state, state_path, backend, prompt, resume, extra)
+                fd, runner_fd = runner_fd, None
+                run_with_linger(job, state, state_path, backend, prompt, resume, extra, fd)
             except Exception as exc:
                 print(f"agent-bridge: {exc}", file=sys.stderr, flush=True)
                 logged = False
@@ -673,11 +722,8 @@ def main():
                 os._exit(1)
             os._exit(0)
         print(job)
-        try:
-            run_with_linger(job, state, state_path, backend, prompt, resume, extra)
-        finally:
-            os.close(runner_fd)
-            runner_fd = None
+        fd, runner_fd = runner_fd, None
+        run_with_linger(job, state, state_path, backend, prompt, resume, extra, fd)
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         if runner_fd is not None:
             os.close(runner_fd)

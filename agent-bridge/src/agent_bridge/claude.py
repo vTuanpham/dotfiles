@@ -253,6 +253,7 @@ def run(job, state, path, prompt, resume=False, compact=False):
                 log(job, "interrupt_sent", request_id=request_id)
             if (Path(job) / "stop").exists():
                 (Path(job) / "stop").unlink()
+                log(job, "stopped")
                 os.killpg(proc.pid, signal.SIGTERM)
                 return
             if not compact and not stdin_closed:

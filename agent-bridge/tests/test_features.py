@@ -145,7 +145,7 @@ def test_help_is_compact_command_map(monkeypatch, capsys):
                     "compact", "guide", "sessions",
                     "owners", "peers", "interrupt", "stop", "models", "quota", "stale", "refresh"):
         assert f"    {command} " in output
-    assert "start ... --watch" in output and "resume when idle" in output
+    assert "start ... --watch" in output and "resumes idle jobs" in output
     assert "guide workflow" in output and "guide plans" in output
 
 
@@ -172,21 +172,18 @@ def test_guessed_commands_fail_with_hints(monkeypatch, capsys, argv, hint):
     assert hint in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("active, running", [(False, False), (False, True), (True, False), (True, True)])
-def test_steer_idle_warning_and_resume_queue_count(monkeypatch, tmp_path, capsys, active, running):
+def test_queue_only_and_resume_queue_count(monkeypatch, tmp_path, capsys):
     job = tmp_path / "owner/job"
     job.mkdir(parents=True)
-    state = {"backend": "codex", "activeTurnId": "turn" if active else None}
+    state = {"backend": "codex", "activeTurnId": None}
     (job / "state.json").write_text(json.dumps(state))
     monkeypatch.delenv("AGENT_BRIDGE_WORKER", raising=False)
     monkeypatch.setattr(cli, "resolve_job", lambda _: job)
-    monkeypatch.setattr("agent_bridge.watch.running", lambda _: running)
-    monkeypatch.setattr(sys, "argv", ["agent-bridge", "steer", "owner/job", "follow up"])
+    monkeypatch.setattr(cli.os, "fork", lambda: pytest.fail("--queue must not start a runner"))
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", "steer", "owner/job", "follow up", "--queue"])
     cli.main()
     output = capsys.readouterr().out
-    assert ("queued, not delivered" in output) == (not active or not running)
-    if not active or not running:
-        assert "agent-bridge resume owner/job" in output
+    assert "queued:" in output and "agent-bridge resume owner/job" in output
     assert (job / "steer/001.md").read_text().strip() == "follow up"
     (job / "steer/002.md").write_text("another follow up")
     (job / "steer/sent").mkdir()

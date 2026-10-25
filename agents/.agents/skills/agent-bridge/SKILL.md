@@ -23,9 +23,11 @@ A CLI that lets a root agent drive workers of the other harnesses (Codex, agy, O
    `agent-bridge watch <owner> --until-event --timeout 1800` in a background terminal. A bare
    watch tails existing logs from their end; after confirming running work and arming it,
    check the jobs' results and `live.jsonl` for unhandled urgent events. Do not watch an
-   owner with no running jobs. For a follow-up, use `steer` only while the target is
-   running; if its turn has finished, use `resume` on the same job to start a turn.
-   Steering an idle job only queues text; watching it does not make it run.
+   owner with no running jobs. For a follow-up, `steer <job> "message"` delivers to
+   a running worker or resumes an idle job detached in the same session. Add
+   `--watch` to follow it in the same background command. Use `--queue` to batch
+   steers before an explicit `resume`. Retired jobs need `restore` first;
+   watching alone never starts work.
 4. Treat a worker's "checks passed" as a claim: verify the diff and rerun the checks before you merge.
 5. Keep the job available for related follow-ups, verification and review after a result arrives. Retire only when its work is resolved; a completed turn or saved report is not enough. `agent-bridge retire <owner>/<name>` archives its report and hides it, keeping its session for 14 days by default (`--keep-days N`). Use `restore <owner>/<name>` before `resume` to continue the same session. `purge` deletes only retired jobs past their purge date; `retire --purge` deletes immediately and cannot be undone. Retiring is your job, not the user's; details in `guide workflow`.
 

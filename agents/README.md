@@ -15,6 +15,8 @@ Application-managed rotating backups stay in the application's own location.
 - `.agents/skills/agent-bridge/SKILL.md` and `.agents/skills/agent-baton/SKILL.md`: short briefings that say
   what each tool is and when to reach for it. The full workflow prints from `agent-bridge guide workflow` and
   `agent-baton --help`, so an agent reads it only when it decides to.
+  Bridge's `steer` resumes idle jobs automatically; `--queue` leaves them queued
+  for an explicit `resume`, and `--watch` follows delivery in the same command.
 
 How each harness reaches them: Codex `~/.codex/AGENTS.md`, OpenCode `~/.config/opencode/AGENTS.md` and
 Antigravity `~/.gemini/AGENTS.md` are in-repo symlinks to the shared file (none of them imports files).

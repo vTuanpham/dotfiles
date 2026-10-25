@@ -14,6 +14,12 @@ Jobs persist under `~/.local/state/agent-bridge`, so another root can resume or 
 workers can message each other with `TO <peer>:`. Plain worker messages, including ones addressed `TO root:`,
 go to the coordinator as info.
 
+`agent-bridge steer <owner>/<name> "follow-up"` delivers to a running worker, or
+resumes an idle job detached in its original session. Add `--watch` to follow the
+new work in the same background command. Use `--queue` to batch messages without
+starting an idle job, then `resume` to deliver them in order. Retired jobs require
+`restore` first. Watching alone never starts work.
+
 `agent-bridge sessions` exports a versioned JSON inventory of native worker IDs
 across all owners and backends, excluding retired jobs, for tools such as [Agent Inbox](../agent-inbox/README.md).
 It contains job identity and recorded launcher metadata, never prompts, credentials
