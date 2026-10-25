@@ -149,9 +149,6 @@ class _SessionRuntime:
         self.thread = Thread(target=self._thread_main, name="agent-inbox-acp", daemon=True)
         self.loop = None
         self.queue = Queue()
-        self._wake_read, self._wake_write = os.pipe()
-        os.set_blocking(self._wake_read, False)
-        os.set_blocking(self._wake_write, False)
         self._wake_event = None
         self.connection = None
         self.observer = None
@@ -172,7 +169,9 @@ class _SessionRuntime:
         except concurrent.futures.TimeoutError as error:
             with self._state_lock:
                 self._closing = True
-            if self.loop is not None:
+            # Python's TimeoutError is concurrent.futures.TimeoutError, so this also catches the
+            # actor's own attach timeout; only a still-starting actor needs the shutdown request.
+            if self.loop is not None and not self.ready.done():
                 result = concurrent.futures.Future()
                 self.queue.put(_Request("shutdown", (), result))
                 self._signal()
@@ -262,32 +261,15 @@ class _SessionRuntime:
         return True
 
     def _signal(self):
+        # Wake the actor from any thread. The queue is re-checked after each clear, so a wake
+        # that lands before the event exists, or after the loop closed, loses no request.
+        loop, event = self.loop, self._wake_event
+        if loop is None or event is None:
+            return
         try:
-            os.write(self._wake_write, b"\0")
-        except (BlockingIOError, OSError):
-            pass
-
-    def _on_wake(self):
-        while True:
-            try:
-                if not os.read(self._wake_read, 4096):
-                    break
-            except BlockingIOError:
-                break
-            except OSError:
-                break
-        if self._wake_event is not None:
-            self._wake_event.set()
-
-    def _close_wakeup(self):
-        for name in ("_wake_read", "_wake_write"):
-            descriptor = getattr(self, name, None)
-            if descriptor is not None:
-                try:
-                    os.close(descriptor)
-                except OSError:
-                    pass
-                setattr(self, name, None)
+            loop.call_soon_threadsafe(event.set)
+        except RuntimeError:
+            pass  # loop closed: _serve's finally already failed every pending request
 
     def _thread_main(self):
         try:
@@ -296,8 +278,6 @@ class _SessionRuntime:
             if not self.ready.done():
                 self.ready.set_exception(error)
             self._fail_pending(error)
-        finally:
-            self._close_wakeup()
 
     async def _serve(self):
         from acp import spawn_agent_process
@@ -305,7 +285,6 @@ class _SessionRuntime:
 
         self.loop = asyncio.get_running_loop()
         self._wake_event = asyncio.Event()
-        self.loop.add_reader(self._wake_read, self._on_wake)
         command, cwd = settings(self.target)
         observer = _Observer(self.history)
         client_session = self.target.session_id if self.role == "root" else None
@@ -347,7 +326,6 @@ class _SessionRuntime:
             )
             with self._state_lock:
                 self._closing = True
-            self.loop.remove_reader(self._wake_read)
             self.connection = None
 
     async def _attach(self, connection, observer, parameters, implementation):
