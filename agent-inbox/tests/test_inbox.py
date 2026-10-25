@@ -18,6 +18,7 @@ from agent_inbox.context import SessionContext
 from agent_inbox.forms import FormField, Forms, QuestionForm
 from agent_inbox.media import raster
 from agent_inbox.models import (
+    Answer,
     DeliveryRejected,
     Message,
     Outgoing,
@@ -28,7 +29,7 @@ from agent_inbox.models import (
     decode_json,
     https_url,
 )
-from agent_inbox.presentation import render_snapshot
+from agent_inbox.presentation import render_forms, render_snapshot
 from agent_inbox.server import App, Server
 from agent_inbox.store import Store
 
@@ -656,3 +657,42 @@ def test_markdown_is_readable_and_does_not_execute_embedded_html():
     assert "<code>command</code>" in rendered
     assert "<script" not in rendered and "<img" not in rendered
     assert 'href="javascript:' not in rendered
+
+
+def test_chat_links_keep_ports_queries_and_punctuation_without_linking_code():
+    url = "https://preview.example.test:18000/demo?a=1&b=2#result"
+    message = Message("links", "assistant", f"Try ({url}).\n\n"
+                      "http://127.0.0.1:8766/ and https://例え.jp/\n\n"
+                      f"`{url}`\n\n```text\n{url}\n```\n\n"
+                      "[Named page](https://example.test:8443/)\n\n"
+                      "javascript:alert(1) file:///etc/passwd config.toml user@example.test")
+    html = render_snapshot(Snapshot("idle", True, [message]))["messages"][0]["html"]
+    assert f'href="{url.replace("&", "&amp;")}"' in html
+    assert 'href="http://127.0.0.1:8766/"' in html
+    assert html.count("<a ") == 4
+    assert html.count('target="_blank" rel="noopener noreferrer"') == 4
+    assert "</a>)." in html
+    assert "<code>https://preview.example.test:18000/" in html
+    assert '<pre><code class="language-text">https://preview.example.test:18000/' in html
+
+
+def test_question_and_answer_links_share_safe_presentation_without_changing_values():
+    url = "https://example.test:18000/"
+    forms = Forms([QuestionForm("f", f"Open {url}?", [
+        FormField("confirm", f"Check {url}", "string", choices=[Choice("yes", f"Yes: {url}")],
+                  description=f'<img src=x onerror=alert(1)> [bad](javascript:alert(1)) {url}'),
+    ])])
+    form = render_forms(forms)["forms"][0]
+    field = form["fields"][0]
+    for html in (form["title_html"], field["label_html"], field["description_html"],
+                 field["choices"][0]["label_html"]):
+        assert f'href="{url}"' in html
+        assert 'target="_blank" rel="noopener noreferrer"' in html
+        assert "<img" not in html and 'href="javascript:' not in html
+    assert field["choices"][0]["value"] == "yes"
+    assert forms.forms[0].fields[0].description == field["description"]
+    message = Message("reply", "user", "unused", answers=[Answer(f"Open {url}?", f"Yes {url}")])
+    html = render_snapshot(Snapshot("idle", True, [message]))["messages"][0]["html"]
+    assert html.count(f'href="{url}"') == 2
+    assert 'class="answer-question"' in html and 'class="answer-choice"' in html
+    assert "unused" not in html

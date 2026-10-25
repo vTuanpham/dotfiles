@@ -4,16 +4,24 @@
 const FIELD_KINDS = ['string','number','integer','boolean','multiselect'];
 const isScalar = value => typeof value==='string' || typeof value==='boolean' || isNumber(value);
 const isStringList = value => Array.isArray(value) && value.every(isText);
+const hasHtml = (value,key) => value[key+'_html']===undefined || isText(value[key+'_html']);
+/* HTML comes only from the server's shared, HTML-disabled Markdown renderer; older responses stay plain text. */
+function formText(tag,value,key,attrs={}) {
+  const node=el(tag,{...attrs,text:value[key]});
+  if(typeof value[key+'_html']==='string') node.innerHTML=value[key+'_html'];
+  return node;
+}
 function decodeField(field) {
   return field && typeof field==='object' && isText(field.key) && isText(field.label) && FIELD_KINDS.includes(field.kind) &&
-    typeof field.required==='boolean' && list(field.choices,c=>isText(c.value) && isText(c.label)) && typeof field.custom==='boolean' &&
+    hasHtml(field,'label') && hasHtml(field,'description') &&
+    typeof field.required==='boolean' && list(field.choices,c=>isText(c.value) && isText(c.label) && hasHtml(c,'label')) && typeof field.custom==='boolean' &&
     (field.default===null || field.default===undefined || isScalar(field.default) || isStringList(field.default)) &&
     list(field.when,w=>isText(w.key) && ['eq','neq'].includes(w.op) && isScalar(w.value)) &&
     (field.constraints===null || field.constraints===undefined || typeof field.constraints==='object') && isText(field.description);
 }
 function decodeForms(raw) {
   const ok=raw && typeof raw==='object' && isText(raw.unavailable) &&
-    list(raw.forms,form=>isText(form.id) && isText(form.title) && isText(form.unavailable) && Array.isArray(form.fields) && form.fields.every(decodeField));
+    list(raw.forms,form=>isText(form.id) && isText(form.title) && hasHtml(form,'title') && isText(form.unavailable) && Array.isArray(form.fields) && form.fields.every(decodeField));
   if(!ok) throw new Error('Questions were not in a recognized format.');
   return raw;
 }
@@ -153,7 +161,7 @@ class FormsPanel {
     const node=el('form',{class:'msg question',novalidate:true,'aria-label':form.title,data:{formId:form.id},
       onsubmit:event=>{ event.preventDefault(); this.submit(rootId,state,false); }},
       el('span',{class:'slot'}),
-      el('div',{class:'q-card'},el('h3',{text:form.title}),note,fieldset,status,form.fields.length ? actions : null));
+      el('div',{class:'q-card'},formText('h3',form,'title'),note,fieldset,status,form.fields.length ? actions : null));
     state.sync=()=>{
       const {active}=readAnswers(form,state.raw), pending=state.pending;
       for(const [key,part] of fields) {
@@ -177,8 +185,8 @@ class FormsPanel {
     // DOM ids and radio group names are generated; raw field keys and form ids may contain spaces or anything else.
     const name='q'+(this.sequence=(this.sequence || 0)+1), labelId=name+'-label', hintId=name+'-hint';
     const error=el('p',{class:'q-error',role:'alert'});
-    const hint=field.description ? el('p',{class:'q-hint',id:hintId,text:field.description}) : null;
-    const head=el('div',{class:'q-label',id:labelId},el('span',{text:field.label}),field.required ? null : el('small',{text:'optional'}));
+    const hint=field.description ? formText('p',field,'description',{class:'q-hint',id:hintId}) : null;
+    const head=el('div',{class:'q-label',id:labelId},formText('span',field,'label'),field.required ? null : el('small',{text:'optional'}));
     const control=this.control(state,field,name,{'aria-labelledby':labelId,'aria-describedby':hint ? hintId : null},touch);
     const node=el('div',{class:'q-field',data:{key:field.key,kind:field.kind}},
       head,hint,control.node,error);
@@ -196,7 +204,7 @@ class FormsPanel {
     if(field.kind==='string' && field.choices.length) {
       const radios=field.choices.map(choice=>({choice,input:el('input',{type:'radio',name,value:choice.value,checked:raw[key]===choice.value && !state.other[key],
         onchange:()=>{ state.other[key]=false; raw[key]=choice.value; touch(key); }})}));
-      const rows=radios.map(({choice,input})=>el('label',{class:'q-opt'},input,el('span',{text:choice.label})));
+      const rows=radios.map(({choice,input})=>el('label',{class:'q-opt'},input,formText('span',choice,'label')));
       let customRadio=null, customText=null;
       if(field.custom) {
         customRadio=el('input',{type:'radio',name,value:'',checked:!!state.other[key] && !!raw[key],
@@ -231,7 +239,7 @@ class FormsPanel {
     const raw=state.raw, key=field.key, selected=()=>Array.isArray(raw[key]) ? raw[key] : [];
     const boxes=new Map(field.choices.map(choice=>[choice.value,el('input',{type:'checkbox',name,value:choice.value,checked:selected().includes(choice.value),
       onchange:()=>{ const now=selected().filter(v=>v!==choice.value); if(boxes.get(choice.value).checked) now.push(choice.value); raw[key]=now; touch(key); }})]));
-    const rows=field.choices.map(choice=>el('label',{class:'q-opt'},boxes.get(choice.value),el('span',{text:choice.label})));
+    const rows=field.choices.map(choice=>el('label',{class:'q-opt'},boxes.get(choice.value),formText('span',choice,'label')));
     const tokens=el('div',{class:'q-tokens'});
     let draft=null;
     const addCustom=()=>{

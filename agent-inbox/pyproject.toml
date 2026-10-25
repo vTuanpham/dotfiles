@@ -3,7 +3,7 @@ name = "agent-inbox"
 version = "0.1.0"
 description = "A private phone inbox for existing root agent sessions"
 requires-python = ">=3.11,<3.15"
-dependencies = ["websockets==15.0.1", "markdown-it-py==4.0.0", "pillow==13.0.0",
+dependencies = ["websockets==15.0.1", "markdown-it-py==4.0.0", "linkify-it-py==2.2.0", "pillow==13.0.0",
                 "claude-agent-sdk==0.2.173", "mcp==2.3.0", "agent-client-protocol==0.12.1"]
 
 [build-system]

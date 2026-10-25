@@ -320,6 +320,14 @@ test('structured question replies show human answers instead of the transport en
   assert.deepEqual(ui.bodyOf(bubble).children.map(p=>p.textContent), ['Which cleanup?','Inbox only']);
 });
 
+test('structured replies use shared server-rendered links when available', async () => {
+  const html='<p class="answer-choice"><a href="https://example.test:18000/" target="_blank" rel="noopener noreferrer">Open preview</a></p>';
+  const ui=await boot({view:()=>({status:'idle',can_send:true,older_cursor:null,
+    messages:[{id:'answer',role:'user',text:'transport',html,answers:[{question:'Open?',answer:'Yes'}]}]})});
+  assert.equal(ui.bodyOf(ui.messages()[0]).innerHTML,html);
+  assert.equal(hasClass(ui.bodyOf(ui.messages()[0]),'markdown'),true);
+});
+
 test('image imports stay bound to their root and image-only messages can be sent', async () => {
   const ui=await boot();
   const data='data:image/png;base64,fixture';
@@ -655,6 +663,23 @@ const formUi = ui => {
     button:text => find(card(),node=>node.text===text),
     submit:() => card().listeners.submit({preventDefault() {}})};
 };
+
+test('native questions render shared links without changing choice values and reject malformed HTML fields', async () => {
+  const link='<a href="https://example.test:18000/" target="_blank" rel="noopener noreferrer">Preview</a>';
+  const form={id:'linked',title:'Open preview?',title_html:link,unavailable:'',fields:[
+    field('scope','string',{label_html:link,description:'Check the preview',description_html:link,
+      choices:[{value:'yes',label:'Open',label_html:link}]}),
+  ]};
+  const ui=await boot({forms:()=>({forms:[form],unavailable:''})});
+  assert.equal(findAll(formUi(ui).card(),node=>node.innerHTML===link).length,4);
+  assert.equal(formUi(ui).radios()[0].value,'yes');
+  for(const invalid of [
+    {...form,title_html:42},
+    {...form,fields:[{...form.fields[0],label_html:{}}]},
+    {...form,fields:[{...form.fields[0],description_html:null}]},
+    {...form,fields:[{...form.fields[0],choices:[{value:'yes',label:'Open',label_html:false}]}]},
+  ]) assert.throws(()=>ui.run('decodeForms')({forms:[invalid],unavailable:''}),/recognized format/);
+});
 
 test('a pending question renders in the chat, keeps typed answers across polls and root switches, and sends typed values', async () => {
   let answered=false;

@@ -14,7 +14,7 @@ from .context import context
 from .forms import forms
 from .media import MediaCache, decode_images
 from .models import DeliveryRejected, Outgoing, PairingError, decode_json, fields, text
-from .presentation import render_snapshot
+from .presentation import render_forms, render_snapshot
 
 ASSETS = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
           "/controls.js": ("controls.js", "text/javascript"), "/mark.svg": ("mark.svg", "image/svg+xml"),
@@ -235,7 +235,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid command catalog query")
             target = self.server.app.catalog.target(query["id"][0])
             read = {"/api/commands": catalog, "/api/context": context, "/api/forms": forms}[parsed.path]
-            value = asdict(read(adapter(target), target))
+            result = read(adapter(target), target)
+            value = render_forms(result) if parsed.path == "/api/forms" else asdict(result)
             if parsed.path == "/api/context":
                 origin = next((row.get("origin") for row in self.server.app.catalog.listing()["roots"]
                                if row["id"] == target.id), None)

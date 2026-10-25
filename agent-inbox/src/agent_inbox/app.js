@@ -99,10 +99,10 @@ function messageNode(item, first, animate) {
   const node=el('article',{class:'msg '+item.role+(item.phase==='commentary'?' progress':'')+(item.answers?' answer':'')+(animate?' enter':''),
     data:{messageId:item.id,version:JSON.stringify([item,first,selected.harness])}});
   const body=el('div',{class:'body'});
-  if(item.answers) {
+  if(typeof item.html==='string') { body.className+=' markdown'; body.innerHTML=item.html; }
+  else if(item.answers) {
     for(const reply of item.answers) body.append(el('p',{class:'answer-question',text:reply.question}),el('p',{class:'answer-choice',text:reply.answer}));
-  } else if(typeof item.html==='string') { body.className+=' markdown'; body.innerHTML=item.html; }
-  else body.textContent=item.text;
+  } else body.textContent=item.text;
   for(const [index,url] of (item.images || []).entries()) {
     body.append(el('img',{class:'chat-image',src:url,alt:'Conversation image '+(index+1),loading:'lazy'}));
   }
