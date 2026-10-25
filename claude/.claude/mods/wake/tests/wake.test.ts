@@ -5,6 +5,8 @@ import type { WakeChip } from '../types'
 
 type Node = string | { type: string; props?: Record<string, unknown>; children?: Node[] }
 
+const boxes = (node: Node): Exclude<Node, string>[] => typeof node === 'string' ? [] : [node, ...(node.children ?? []).flatMap(boxes)]
+
 /** Every Text's words and Button's label, in order, one Box row per line. */
 function flat(node: Node): string {
   const text = (n: Node): string =>
@@ -84,6 +86,21 @@ test('rendered crew puts names first and includes done jobs awaiting root', asyn
   }
 })
 
+test('one crew job at 180 columns keeps its status and model next to the title', async ($, on) => {
+  engine(on)
+  const title = 'Photo ranking feature scan'
+  const job: WakeChip = { name: 'ranking', title, backend: 'codex', account: '01', model: 'gpt-6-luna', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 985_000 }
+  on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: [job], version: 1 } }))
+  const bar = await mount($, 'AbovePrompt', false, 180)
+  const tree = (await bar.drawn()) as Node
+  const slot = boxes(tree).find(node => node.type === 'Box' && node.props?.width === 180 && node.children?.length === 3 && flat(node).includes(title))!
+  expect(flat(slot).replace(/\s+/g, ' ')).toContain(`${title} 15s codex·01 luna high`)
+  const titleBox = slot.children![1] as Exclude<Node, string>
+  expect(titleBox.props).toMatchObject({ flexGrow: 0, flexShrink: 1, minWidth: 1 })
+  expect(flat(tree).split('codex·01').length - 1).toBe(1)
+  await bar.unmount()
+})
+
 test('two crew jobs share the width and identical model details appear once', async ($, on) => {
   engine(on)
   const base: WakeChip = { name: 'review', title: 'Review persisted worker messages', backend: 'codex', account: '01', model: 'gpt-6-sol', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 989_000 }
@@ -99,7 +116,6 @@ test('two crew jobs share the width and identical model details appear once', as
     expect(text).not.toContain('(review)')
     expect(text).not.toContain('(provider)')
     expect(text.split('codex·01').length - 1).toBe(width === 100 ? 1 : 0)
-    const boxes = (node: Node): Node[] => typeof node === 'string' ? [] : [node, ...(node.children ?? []).flatMap(boxes)]
     const slots = boxes(tree).filter(node => typeof node !== 'string' && node.type === 'Box' && node.props?.width === (width === 100 ? 38 : 28))
     expect(slots).toHaveLength(2)
     await bar.unmount()

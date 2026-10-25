@@ -677,7 +677,7 @@ export const register: Register = on => {
         return (
           <Box width={crewShare} flexShrink={0} overflow="hidden">
             <Box flexShrink={0}><Text color={statusColor}>{job.isStale ? G.stale : finished ? G.done : glyph(frame)} </Text></Box>
-            <Box flexGrow={1} flexShrink={1} minWidth={1}><Text color={ink.text} wrap="truncate-end">{title}</Text></Box>
+            <Box flexGrow={0} flexShrink={1} minWidth={1}><Text color={ink.text} wrap="truncate-end">{title}</Text></Box>
             <Box flexShrink={0}><Text color={job.isStale || finished ? statusColor : ink.subtle}> {timing}{metadata ? ` ${metadata}` : ''}</Text></Box>
           </Box>
         )
