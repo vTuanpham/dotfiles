@@ -93,8 +93,9 @@ test('one crew job at 180 columns keeps its status and model next to the title',
   on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: [job], version: 1 } }))
   const bar = await mount($, 'AbovePrompt', false, 180)
   const tree = (await bar.drawn()) as Node
-  const slot = boxes(tree).find(node => node.type === 'Box' && node.props?.width === 180 && node.children?.length === 3 && flat(node).includes(title))!
+  const slot = boxes(tree).find(node => node.type === 'Box' && typeof node.props?.width === 'number' && node.children?.length === 3 && flat(node).includes(title))!
   expect(flat(slot).replace(/\s+/g, ' ')).toContain(`${title} 15s codex·01 luna high`)
+  expect(slot.props!.width).toBe(flat(slot).length - 2) // sized to its words (flat adds a space between its 3 parts)
   const titleBox = slot.children![1] as Exclude<Node, string>
   expect(titleBox.props).toMatchObject({ flexGrow: 0, flexShrink: 1, minWidth: 1 })
   expect(flat(tree).split('codex·01').length - 1).toBe(1)
@@ -116,8 +117,11 @@ test('two crew jobs share the width and identical model details appear once', as
     expect(text).not.toContain('(review)')
     expect(text).not.toContain('(provider)')
     expect(text.split('codex·01').length - 1).toBe(width === 100 ? 1 : 0)
-    const slots = boxes(tree).filter(node => typeof node !== 'string' && node.type === 'Box' && node.props?.width === (width === 100 ? 38 : 28))
+    const slots = boxes(tree).filter(node => node.type === 'Box' && typeof node.props?.width === 'number' && node.props.width < width && node.children?.length === 3)
     expect(slots).toHaveLength(2)
+    // each slot is as wide as its words, or as its share when those do not fit
+    for (const slot of slots) expect(slot.props!.width as number).toBeLessThanOrEqual(Math.max(flat(slot).length, 1))
+    expect(slots.reduce((sum, slot) => sum + (slot.props!.width as number), 0)).toBeLessThanOrEqual(width - 3)
     await bar.unmount()
   }
 })

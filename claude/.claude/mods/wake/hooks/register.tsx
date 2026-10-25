@@ -11,7 +11,7 @@ import { KIND_COLOR } from './landscapes/kit'
 import { EFFECT_FRAMES, SCENE_ROWS, type SceneEffect, eventName, sceneCells, sceneFrame } from './scene'
 import { PRESETS, nextRain, skyOf } from './sources/weather'
 import { lookAround, namePlace, pinPreset } from './surroundings'
-import { COLOR, readable, clock, commandHead, crewTiming, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
+import { COLOR, readable, clock, commandHead, crewTiming, fitSlots, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
 
 // Wake lives in the flow of the chat: a living diorama above the prompt (the session as a
 // town in the real weather where you are, Mochi on the street), a line of words and the
@@ -655,10 +655,24 @@ export const register: Register = on => {
     const sharedLabel = bridgeLabels.length > 1 && bridgeLabels.every(label => label === bridgeLabels[0]) ? bridgeLabels[0]! : ''
     const crewCount = crewAgents.length + running.length
     const sharedWidth = sharedLabel && width >= crewCount * 36 + sharedLabel.length + 3 ? sharedLabel.length + 3 : 0
-    const crewShare = Math.max(1, Math.floor((width - Math.max(0, crewCount - 1) * 3 - sharedWidth) / Math.max(1, crewCount)))
+    // each slot takes the width its words need; what short slots leave over goes to the long ones
+    const agentText = (agent: WakeAgent) => `${agent.name ?? agent.description} ${pips(agent.model ? modelTier('claude', agent.model) : parentTier)} claude·${agent.type} · ${span(now - agent.since)}`
+    // a job's details at a given slot width: narrow slots drop the turn clock, then the model
+    const details = (job: WakeChip, index: number, columns: number) => {
+      const timing = crewTiming(job, now, columns)
+      const label = sharedLabel ? '' : bridgeLabels[index]!
+      const metadata = label && columns >= (job.title || job.name).length + timing.length + label.length + 4 ? label : ''
+      return { timing, metadata, length: 2 + (job.title || job.name).length + 1 + timing.length + (metadata ? metadata.length + 1 : 0) }
+    }
+    const crewRoom = width - Math.max(0, crewCount - 1) * 3 - sharedWidth
+    const agentNeeds = crewAgents.map(agent => 2 + agentText(agent).length)
+    const first = fitSlots([...agentNeeds, ...running.map((job, index) => details(job, index, Infinity).length)], crewRoom)
+    // decide each job's details at its first fit, then fit again to what those details need
+    const shown = running.map((job, index) => details(job, index, first[crewAgents.length + index]!))
+    const slots = fitSlots([...agentNeeds, ...shown.map(one => one.length)], crewRoom)
     const crew: RenderElement[] = [
-      ...crewAgents.map(agent => (
-        <Box width={crewShare} flexShrink={0} overflow="hidden"><Text wrap="truncate-end">
+      ...crewAgents.map((agent, index) => (
+        <Box width={slots[index]!} flexShrink={0} overflow="hidden"><Text wrap="truncate-end">
           <Text color={ink.pink}>{diamond(frame)} </Text>
           <Text color={ink.text}>{agent.name ?? agent.description}</Text>
           <Text color={ink.pink}> {pips(agent.model ? modelTier('claude', agent.model) : parentTier)}</Text>
@@ -672,10 +686,10 @@ export const register: Register = on => {
         const finished = !job.running || job.waitingForRoot
         const statusColor = job.isStale ? ink.peach : finished ? ink.yellow : color
         const title = job.title || job.name
-        const timing = crewTiming(job, now, crewShare)
-        const metadata = !sharedLabel && crewShare >= title.length + timing.length + bridgeLabels[index]!.length + 5 ? bridgeLabels[index] : ''
+        const slot = slots[crewAgents.length + index]!
+        const { timing, metadata } = shown[index]!
         return (
-          <Box width={crewShare} flexShrink={0} overflow="hidden">
+          <Box width={slot} flexShrink={0} overflow="hidden">
             <Box flexShrink={0}><Text color={statusColor}>{job.isStale ? G.stale : finished ? G.done : glyph(frame)} </Text></Box>
             <Box flexGrow={0} flexShrink={1} minWidth={1}><Text color={ink.text} wrap="truncate-end">{title}</Text></Box>
             <Box flexShrink={0}><Text color={job.isStale || finished ? statusColor : ink.subtle}> {timing}{metadata ? ` ${metadata}` : ''}</Text></Box>

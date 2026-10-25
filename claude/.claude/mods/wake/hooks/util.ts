@@ -61,6 +61,18 @@ export function span(ms: number): string {
   return `${Math.floor(s / 3600)}h${pad(Math.floor((s % 3600) / 60))}m`
 }
 
+/** Widths for side-by-side slots: each gets what it needs, capped at an even share of what is left. */
+export function fitSlots(natural: number[], columns: number): number[] {
+  const out = natural.map(() => 1)
+  let left = Math.max(natural.length, columns)
+  const order = natural.map((_, i) => i).sort((a, b) => natural[a]! - natural[b]!)
+  order.forEach((i, rank) => {
+    out[i] = Math.max(1, Math.min(natural[i]!, Math.floor(left / (order.length - rank))))
+    left -= out[i]!
+  })
+  return out
+}
+
 /** Separate the turn clock from event freshness, including chips saved before these fields existed. */
 export function crewTiming(job: WakeChip, now: number, columns = Infinity): string {
   if (!job.running || job.waitingForRoot) return 'done'
