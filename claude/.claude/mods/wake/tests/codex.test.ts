@@ -213,25 +213,6 @@ test('explicit ack clears done state; malformed and out-of-bounds cursors keep i
   expect((await scanCodex(w.$, {})).jobs[0]!.awaitingRoot).toBe(false)
 })
 
-test('questions and errors stay visible until explicit acknowledgement, including error-only stopped jobs', async () => {
-  const question = ev({ kind: 'question', level: 'urgent' }) + '\n' + ev({ kind: 'turn_completed' }) + '\n'
-  const error = ev({ kind: 'error' }) + '\n'
-  const w = world({
-    'attention/ask': { content: question, mtime: NOW - 8 * 3600_000 },
-    'attention/fail': { content: error, mtime: NOW - 8 * 3600_000 },
-  })
-  const first = await scanCodex(w.$, {})
-  expect(first.jobs.map(job => [job.name, job.attention])).toEqual([['ask', 'question'], ['fail', 'error']])
-  const bytes = new TextEncoder().encode(question).length
-  w.acks.attention = { version: 1, jobs: { ask: { log: '1:2', through: 0, seen: bytes, completed: bytes } } }
-  expect((await scanCodex(w.$, first.cursor)).jobs.find(job => job.name === 'ask')).toMatchObject({ awaitingRoot: false, attention: 'question' })
-  w.acks.attention = { version: 1, jobs: {
-    ask: { log: '1:2', through: bytes, seen: bytes, completed: bytes },
-    fail: { log: '1:2', through: error.length, seen: error.length, completed: 0 },
-  } }
-  expect((await scanCodex(w.$, first.cursor)).jobs).toEqual([])
-})
-
 test('turn start stays separate from activity; 15 minute silence stalls but root_wait does not', async () => {
   const startedAt = new Date(NOW - 16 * 60_000).toISOString()
   const content = ev({ kind: 'turn_started', at: startedAt }) + '\n' + ev({ kind: 'command_end' }) + '\n'

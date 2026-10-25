@@ -45,9 +45,9 @@ events arriving after display stay pending. Use a unique owner per root; its
 versioned `jobs/<owner>/ack.json` stores per-job byte cursors, with locked atomic
 updates. Missing cursors replay old urgent history; old jobs need no migration.
 See `agent-bridge guide workflow` for the cursor format and watch lifecycle.
-Wake packs short job names, status glyphs, freshness bars and model badges into
-crew chips. `◷16m` marks silence past 15 minutes; `✓` keeps unacknowledged
-completions visible, while `?` and `!` mark pending questions and errors.
+Wake shows names first with compact event ages, marks 15-minute silence as
+`stalled`, and keeps unacknowledged completions visible as `done`. Known turn
+times appear only when useful and space allows.
 
 Workers report questions to their root. The root asks through its native harness,
 then uses [Baton](../agent-baton/README.md#unanswered-questions) for one reminder

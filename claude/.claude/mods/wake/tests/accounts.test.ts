@@ -34,7 +34,7 @@ test('agy /usage cache keeps both windows per bucket', () => {
     ],
   }))
   expect(q).toMatchObject({ cli: 'agy', account: 'a1', parts: [{ label: 'Gh', pct: 42 }, { label: 'Gw', pct: 99 }, { label: 'Cw', pct: 100 }, { label: 'Aw', pct: 98 }] })
-  expect(quotaGroups([q!])[0]!.text).toBe('Gh▄Gw█Cw█Aw█')
+  expect(quotaGroups([q!])[0]!.text).toBe('G h42 w99 · C w100 · A w98')
   expect(parseAgyQuota('not json')).toBeUndefined()
 })
 
@@ -48,13 +48,7 @@ test('every job reads cli-agnostic: short model family + effort', () => {
 
 test('consecutive accounts with the same numbers fold into one group', () => {
   const g = quotaGroups(parseCodexAuth(LIST + '  04 dan@example.com    Free      -                  0                  100% (12:58 on 18 Nov)  -                      Now\n'))
-  expect(g.map(x => [x.accounts.join(' '), x.text])).toEqual([['01', 'w▄'], ['02', '!'], ['03* 04', 'm█']])
-})
-
-test('quota bars distinguish empty, low, full and unknown values without relying on color', () => {
-  const groups = quotaGroups([0, 1, 100, NaN, -1, 101].map((pct, i) => ({ cli: 'codex', account: String(i), active: false, plan: 'Pro', parts: [{ label: 'w', pct }] })))
-  expect(groups.map(group => group.text)).toEqual(['w·', 'w▁', 'w█', 'w?'])
-  expect(groups.at(-1)!.accounts).toEqual(['3', '4', '5'])
+  expect(g.map(x => [x.accounts.join(' '), x.text])).toEqual([['01', 'w39'], ['02', 'expired'], ['03* 04', 'm100']])
 })
 
 test('modelTier reads the family, not the version or the effort', () => {
