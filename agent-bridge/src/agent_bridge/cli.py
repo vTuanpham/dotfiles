@@ -369,11 +369,15 @@ def main():
                        "suites, long-lived servers/headless browsers, or >1 GiB/several cores for >1 minute. "
                        "Do not wrap runners, git, edits, reads, lint, type checks or targeted tests. "
                        "Wrap the whole foreground job; do not nest heavy calls. "
-                       "Settings: AGENT_BRIDGE_HEAVY_SLOTS (1), HEAVY_MIN_AVAILABLE_MIB "
+                       "Declare --mem SIZE (default 1G); use --exclusive only for timing measurements. "
+                       "Settings: AGENT_BRIDGE_HEAVY_SLOTS (optional hard cap), HEAVY_MIN_AVAILABLE_MIB "
                        "(max of 1024 and 20% effective RAM), HEAVY_MAX_LOAD (80% of CPU count); "
                        "all names use the AGENT_BRIDGE_ prefix.")
     h.add_argument("--memory-max-mib",
                    help="standalone scope RAM cap; inherited worker caps stay in place; warns if unavailable")
+    h.add_argument("--mem", metavar="SIZE", help="expected peak memory, such as 1G or 2500M (default: 1G)")
+    h.add_argument("--exclusive", action="store_true",
+                   help="timing measurements only: exclude all other heavy jobs; never use for test suites")
     h.add_argument("argv", nargs=argparse.REMAINDER, help="-- <command> [arguments...]")
     peers = sub.add_parser("peers", help="list sibling jobs under this job's owner")
     peers.add_argument("job", nargs="?", help="job used to select the owner; defaults to AGENT_BRIDGE_JOB")
@@ -478,7 +482,8 @@ def main():
     runner_fd = None
     try:
         if a.command == "heavy":
-            heavy.run(a.argv[1:] if a.argv[:1] == ["--"] else a.argv, a.memory_max_mib)
+            heavy.run(a.argv[1:] if a.argv[:1] == ["--"] else a.argv, a.memory_max_mib,
+                      mem=a.mem, exclusive=a.exclusive)
             return
         if a.command == "guide":
             names = {"workflow": ("overview",), "plans": ("models",), "heavy": ("heavy",)}

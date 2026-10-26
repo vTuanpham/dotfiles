@@ -44,11 +44,16 @@ def test_tighter_host_slice_and_job_headroom(budgets):
     sample = resources.pressure()
     assert sample.capacity == 2500 * resources.MIB
     assert sample.headroom == 2000 * resources.MIB
+    assert sample.shared_capacity == 7 * 1024 * resources.MIB
+    assert sample.shared_headroom == 3168 * resources.MIB
+    assert resources.limits(sample).available == 1024 * resources.MIB
     assert sample.slice.oom_kill == 14
     write_group(job.parent, maximum=7 * 1024 * resources.MIB, current=7000 * resources.MIB)
     assert resources.pressure().headroom == 168 * resources.MIB
+    assert resources.pressure().shared_headroom == 168 * resources.MIB
     (proc / "meminfo").write_text("MemTotal: 10000000 kB\nMemAvailable: 1000 kB\n")
     assert resources.pressure().headroom == 1000 * 1024
+    assert resources.pressure().shared_headroom == 1000 * 1024
 
 
 @pytest.mark.parametrize("kind", ["memory", "cpu", "throttled"])

@@ -86,14 +86,18 @@ Develop: `uv run pytest` and `uv run ruff check .` in this directory.
 
 ## Heavy commands
 
-`agent-bridge heavy -- <command>` queues heavy foreground work across all owners
+`agent-bridge heavy --mem SIZE -- <command>` queues heavy foreground work across all owners
 and harnesses of the same host user. Workers receive this rule automatically.
 Heavy means inference/benchmarks, dataset download/extraction, full suites,
 long-lived servers/headless browsers, or more than about 1 GiB/several cores for
 over a minute. Runners, git, edits, reads, lint, type checks and targeted tests
 run directly. Waiting for a slot is normal; periodic holder status needs no ping.
-The default is one slot, with host memory/load and inherited job/slice cgroup
-headroom gates. `owners` and `watch` show pressure, queue counts and slice OOM
+Jobs run concurrently when their total declared needs fit current host/slice
+headroom minus the safety floor, with a 1 GiB fallback need when omitted.
+FIFO permits fitting backfill for at most five minutes of head waiting.
+Use `--exclusive` only for timing measurements, never for test suites;
+`AGENT_BRIDGE_HEAVY_SLOTS` is an optional hard cap, unset by default.
+`owners` and `watch` show pressure, declared needs, queue counts and slice OOM
 kills. Existing cgroup membership and caps stay in place; slice settings are
 never changed. Optional standalone caps use systemd when available and warn
 before falling back. See `agent-bridge guide heavy` for defaults, research,

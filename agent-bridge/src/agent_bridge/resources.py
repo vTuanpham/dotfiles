@@ -86,6 +86,19 @@ class Pressure:
     def slice(self):
         return next((g for g in self.groups if g.path.name == "codex.slice"), None)
 
+    @property
+    def shared_groups(self):
+        return tuple(g for g in self.groups if not self.slice or self.slice.path.is_relative_to(g.path))
+
+    @property
+    def shared_capacity(self):
+        return min([self.total, *[g.maximum for g in self.shared_groups if g.maximum is not None]])
+
+    @property
+    def shared_headroom(self):
+        return min([self.available, *[max(0, g.maximum - g.current) for g in self.shared_groups
+                                     if g.maximum is not None]])
+
 
 def pressure(previous=None):
     memory = {}
@@ -136,43 +149,57 @@ def pressure(previous=None):
 
 @dataclass(frozen=True)
 class Limits:
-    slots: int
+    slots: int | None
     available: int
     load: float
 
 
 def limits(host):
-    slots = int(os.environ.get("AGENT_BRIDGE_HEAVY_SLOTS", "1"))
-    available = int(os.environ.get("AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB",
-                                   str(max(1024, math.ceil(host.capacity / MIB / 5))))) * MIB
-    load = float(os.environ.get("AGENT_BRIDGE_HEAVY_MAX_LOAD", str((os.cpu_count() or 1) * 0.8)))
-    if slots < 1 or available < 0 or not math.isfinite(load) or load <= 0:
+    try:
+        slot_value = os.environ.get("AGENT_BRIDGE_HEAVY_SLOTS")
+        slots = int(slot_value) if slot_value is not None else None
+        available = int(os.environ.get("AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB",
+                                       str(max(1024, math.ceil(host.capacity / MIB / 5))))) * MIB
+        load = float(os.environ.get("AGENT_BRIDGE_HEAVY_MAX_LOAD", str((os.cpu_count() or 1) * 0.8)))
+    except ValueError:
+        raise ValueError("invalid AGENT_BRIDGE_HEAVY_SLOTS, AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB "
+                         "or AGENT_BRIDGE_HEAVY_MAX_LOAD; expected numeric limits") from None
+    if (slots is not None and slots < 1) or available < 0 or not math.isfinite(load) or load <= 0:
         raise ValueError("heavy limits need positive slots/load and nonnegative available memory")
     return Limits(slots, available, load)
 
 
-def wait_reason(host, policy):
+def wait_reason(host, policy, shared=False):
     reasons = []
-    if host.headroom < policy.available:
-        reasons.append(f"available memory headroom {host.headroom / MIB:.0f} MiB < "
+    headroom = host.shared_headroom if shared else host.headroom
+    if headroom < policy.available:
+        reasons.append(f"available memory headroom {headroom / MIB:.0f} MiB < "
                        f"{policy.available / MIB:.0f} MiB (host and inherited cgroups)")
     if host.load >= policy.load:
         reasons.append(f"load1 {host.load:.2f} >= {policy.load:g}")
-    for group in host.groups:
+    for group in host.shared_groups if shared else host.groups:
         if group.throttled or group.cpu_fraction is not None and group.cpu_fraction >= 0.8:
             reasons.append(f"{group.path.name} CPU busy/throttled")
     return "; ".join(reasons)
 
 
+def memory_size(value):
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([KMGT]?)", value)
+    if not match:
+        raise ValueError("memory size must be positive bytes or K/M/G/T, such as 1G or 2500M")
+    numerator, denominator = Decimal(match[1]).as_integer_ratio()
+    size, remainder = divmod(numerator * 1024 ** (" KMGT".index(match[2]) if match[2] else 0), denominator)
+    if size <= 0 or remainder:
+        raise ValueError("memory size must be a positive whole number of bytes")
+    return size
+
+
 def validate_caps(memory, cpu):
     """Validate per-job limits against the shared slice/ancestors, never the calling job's scope."""
     host = pressure()
-    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([KMGT]?)", memory)
-    if not match:
-        raise ValueError("memory cap must be a positive size in bytes or K/M/G/T, such as 4G")
-    size = Decimal(match[1]) * 1024 ** (" KMGT".index(match[2]) if match[2] else 0)
+    size = memory_size(memory)
     quota = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)%", cpu)
-    if size <= 0 or size != int(size) or not quota or Decimal(quota[1]) <= 0:
+    if not quota or Decimal(quota[1]) <= 0:
         raise ValueError("memory and CPU caps must be positive; CPU uses a percentage such as 400%")
     ancestors = [g for g in host.groups if host.slice and host.slice.path.is_relative_to(g.path)]
     memory_max = min([host.total, *[g.maximum for g in ancestors if g.maximum is not None]])

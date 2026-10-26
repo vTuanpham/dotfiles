@@ -1,20 +1,22 @@
 # Heavy commands and host pressure
 
-Workers automatically receive this rule: use `agent-bridge heavy -- <command>`
+Workers automatically receive this rule: use `agent-bridge heavy --mem SIZE -- <command>`
 only for model inference/benchmarks, dataset download/extraction, full test
 suites, long-lived local servers/headless browsers, or commands expected to use
 more than about 1 GiB or several cores for more than a minute.
 Do not wrap worker runners, git, edits, reads, lint, type checks or targeted tests.
 Everything else runs directly; the bridge does not automatically wrap commands.
-Wrap a pipeline or compound job with `agent-bridge heavy -- sh -c '...'`.
+Declare the expected peak with `--mem` (for example `1G` or `2500M`). Add
+`--exclusive` only for timing measurements, never for test suites. Fitting jobs
+run concurrently. Wrap a compound job with `agent-bridge heavy --mem 1G -- sh -c '...'`.
 Keep servers in the foreground for their whole lifetime. Do not nest wrappers.
 Already-running workers need a steer with this rule; new jobs receive it automatically.
 Waiting for a slot is normal, never a blocker or progress message to send. Report
 only a holder shown dead while still blocked or a wait exceeding 30 minutes.
 
 ```sh
-agent-bridge heavy -- uv run pytest
-agent-bridge heavy --memory-max-mib 2048 -- ./benchmark
+agent-bridge heavy --mem 1G -- uv run pytest
+agent-bridge heavy --mem 2500M --exclusive -- ./benchmark
 agent-bridge owners
 agent-bridge watch <owner>
 ```
@@ -30,9 +32,9 @@ participant must use the same local filesystem directory. Do not delete it while
 commands are active or waiting.
 
 A short flock protects admission. Every request holds its own flock, inherited
-across exec into the command. Active requests form a counting semaphore; waiting
-requests enter in arrival order. Exit, SIGKILL or an OOM kill releases the lock;
-the next scan discards unlocked request files, without PID-based stale-lock guesses.
+across exec into the command. Each running request reserves its declared need.
+Exit, SIGKILL or an OOM kill releases the lock and reservation; the next scan
+discards unlocked request files without PID-based stale-lock guesses.
 Command stdio, signals and exit status pass through. An application that explicitly
 closes inherited descriptors can drop its lock early; keep such an application
 under a foreground shell that waits for it. Backgrounding or daemonizing outside
@@ -43,49 +45,78 @@ basename (no command arguments), start time, PID and PID namespace. Host PID is
 recorded directly when known; a host-side `owners`/`watch` scan resolves a
 namespaced holder and updates its record. Before that scan, or when host process
 visibility is unavailable, it says `host_pid=unavailable` instead of guessing.
-Wait messages show queue position, holder job/command, elapsed time and
+The matching `.request.need` file (0600) stores declared need, exclusivity,
+queue time and optional job cap. Separate metadata preserves compatibility with
+slot-only waiters already running. Requests without this metadata are treated
+as exclusive with a 1 GiB need and their recorded cap until they finish.
+Wait messages show queue position, every holder's job/command and declared need, elapsed time and
 `alive=yes (kernel lock)`, normally every thirty seconds. Kernel lock checks work
 across separate PID namespaces. Unlocked holder records are dead/stale and removed;
 if admission is still blocked, the waiter reports the dead holder. No holder
 record is trusted as proof of liveness without its lock.
 
-Admission requires both a slot and headroom. The resource reader checks
+Admission requires enough shared memory and headroom. The resource reader checks
 `/proc/meminfo` (`MemAvailable`), `/proc/loadavg` (one-minute load), and the
 cgroup v2 membership in `/proc/self/cgroup`. It reads `memory.current`,
 `memory.max`, `memory.events`, `cpu.max` and `cpu.stat` along the inherited
 hierarchy, including the worker's job scope and `codex.slice`. A root outside
 that slice also reads the standard user-manager `codex.slice` path when present.
-It uses the minimum of host available memory and every finite cgroup's
-`max - current`; reclaimable cgroup cache is deliberately not counted as slack.
+The shared memory budget is the minimum of host `MemAvailable` and
+`memory.max - memory.current` for `codex.slice` and its finite ancestors, minus
+the safety floor. The caller's smaller job scope does not reduce this shared
+budget; that scope still enforces its cap on the command. Without a shared
+slice, inherited cgroups and host readings determine the budget. Reclaimable
+cgroup cache is deliberately not counted as slack.
 Missing controllers are labelled unavailable; malformed or unreadable discovered
 budgets stop admission. With no cgroup v2 membership, admission uses host readings.
 
+Admit a request only when the sum of **all running declared needs plus its need**
+fits that current budget. Running declarations remain fully reserved even though
+some resident memory is already reflected in `MemAvailable`/`memory.current`;
+this deliberately conservative accounting leaves room for growth. Status shows
+both `heavy_reserved` and `heavy_budget` so the wait is explainable. A need larger
+than shared capacity minus the floor is rejected rather than waiting forever.
+
+Omitting `--mem` reserves **1 GiB**. It matches the heavy-work threshold and
+avoids charging every unannotated test suite for an entire worker scope. It is a
+fallback estimate, not a measured peak: declare larger needs for model/data work.
+Memory sizes use positive bytes or K/M/G/T binary units, including exact fractions
+such as `1.5G`. This declaration neither allocates memory nor changes cgroup caps.
+
+The oldest fitting request normally goes first. If the head does not fit, the
+first smaller request that fits may backfill. After the head has waited **five
+minutes**, no more jobs may backfill until it can start. Already-running jobs
+continue; the five-minute bound limits new overtaking, not their runtime.
+An exclusive request is also a FIFO barrier: jobs behind it cannot backfill past
+it. It starts only with no other heavy jobs running and excludes all heavy
+admissions until it exits. It does not stop ordinary unwrapped commands.
+
 The first cgroup CPU sample takes one second. Admission then waits while a
-limited ancestor uses at least 80% of its quota over the sampling interval, or
+limited shared ancestor uses at least 80% of its quota over the sampling interval, or
 its throttled-period count increases. Host load remains a separate gate: host
 load cannot reliably be attributed to a slice. No cgroups, limits or slice
 drop-ins are modified by admission.
 
 | Environment setting | Default | Purpose |
 | --- | --- | --- |
-| `AGENT_BRIDGE_HEAVY_SLOTS` | `1` | Serialize heavy jobs and reduce benchmark contention. |
-| `AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB` | Larger of 1024 MiB and 20% of the smallest host/inherited memory capacity | Reserve memory before admitting more work. `0` disables the reserve. |
+| `AGENT_BRIDGE_HEAVY_SLOTS` | Unset: no job-count cap | Optional positive hard cap in addition to memory admission. |
+| `AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB` | Existing floor: larger of 1024 MiB and 20% of the smallest host/inherited memory capacity | Reserve memory before admitting more work. `0` disables the reserve. |
 | `AGENT_BRIDGE_HEAVY_MAX_LOAD` | 80% of logical CPU count | Leave host scheduling headroom; positive finite values only. |
 
 Set these in the root environment before launching workers so they inherit a
-consistent policy. Slot changes are rejected while requests with a different
-slot count remain live; drain the queue first. Queue position, occupied slots
-and the wait reason go to stderr on change (at most every five seconds), with
+consistent policy. If live requests have different explicit caps, the tightest
+cap applies; unset requests do not impose a count limit. Queue position,
+memory needs/budget, holders and the wait reason go to stderr on change (at most every five seconds), with
 a reminder every thirty seconds. Cancellation while waiting releases the request.
 
 These reserve and CPU thresholds are conservative starting policies, not a
 measured guarantee for arbitrary workloads. A single command can still exceed
 its budget after admission. Confirm them with representative peak working sets,
 queue times, slice OOM counters and repeated benchmark timings on the real host
-before increasing slots. More slots also allow already-admitted jobs to grow
-between samples; admission does not reserve each job's future working set.
-The default remains one slot for benchmark isolation. Set more slots explicitly
-for a measured workload; a memory estimate alone cannot prevent CPU contention.
+before relying on declared estimates or increasing concurrency. A process can
+grow beyond its declaration; kernel cgroup caps remain the final defense.
+Use `--exclusive` for benchmark timing isolation. A memory estimate alone cannot
+prevent CPU contention; test suites must not request exclusivity.
 Light commands must run directly rather than joining this queue.
 
 ## Existing limits and optional caps
@@ -106,7 +137,8 @@ versions with argument expansion, expansion is disabled to preserve literal
 arguments. No new cap is enabled by default: a safe working set cannot be guessed
 for both model servers and test suites.
 
-`owners` prints host and effective headroom, active/waiting heavy counts, and
+`owners` prints host and shared headroom, reserved needs/budget, each running
+job's declared need and exclusivity, active/waiting heavy counts, and
 inherited limits. `watch` prints them at startup and once a minute, samples every
 ten seconds, and warns once per watch invocation about pressure. It also warns
 on the slice's initial nonzero `oom_kill` total and each subsequent increase;
