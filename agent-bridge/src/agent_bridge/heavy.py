@@ -249,6 +249,10 @@ def run(command, memory_max=None):
                     write_request(fd, request)
                     break
             message = f"queue position {position}/{len(waiting)}; {active}/{policy.slots} slots busy"
+            if position > 1 and active < policy.slots and not reason:
+                # A free slot goes to the oldest request, which claims it on its next 1 s poll.
+                ahead = dict(rows)[waiting[0]].get("job") or "standalone"
+                message += f"; free slot is going to the earlier request ({ahead})"
             if reason:
                 message += f"; {reason}"
             for _, holder in rows:

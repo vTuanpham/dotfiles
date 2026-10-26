@@ -1,3 +1,4 @@
+import fcntl
 import json
 import os
 import select
@@ -91,6 +92,24 @@ def test_process_slot_exclusion_and_release(host, tmp_path, crash):
                 if process.poll() is None:
                     process.kill()
                 process.communicate(timeout=5)
+
+
+def test_free_slot_waiting_on_an_earlier_request_says_so(host, tmp_path):
+    folder = heavy.prepare()
+    earlier = heavy.locked_file(folder / f"{0:020d}-earlier.request")
+    fcntl.flock(earlier, fcntl.LOCK_EX)  # alive but not yet admitted: it claims on its next poll
+    heavy.write_request(earlier, {"running": False, "slots": 1})
+    later = launch(tmp_path / "later", tmp_path / "release")
+    try:
+        assert select.select([later.stderr], [], [], 10)[0]
+        waiting = later.stderr.readline()
+        assert b"queue position 2/2; 0/1 slots busy" in waiting
+        assert b"free slot is going to the earlier request (standalone)" in waiting
+        assert not (tmp_path / "later").exists()
+    finally:
+        later.kill()
+        later.communicate(timeout=5)
+        os.close(earlier)
 
 
 def test_two_slots_and_conflicting_slot_configuration(host, tmp_path):
