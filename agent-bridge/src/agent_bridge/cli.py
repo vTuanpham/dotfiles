@@ -312,7 +312,7 @@ def main():
     s.add_argument("--model", help="backend model ID")
     s.add_argument("--effort", help="backend reasoning effort or variant")
     s.add_argument("--memory", help="per-job scope cap, such as 4G; default CODEX_JOB_MEMORY_MAX or 2500M")
-    s.add_argument("--cpu", help="per-job scope cap, such as 400%; defaults to CODEX_JOB_CPU_QUOTA or 300%")
+    s.add_argument("--cpu", help="per-job scope cap, such as 400%%; defaults to CODEX_JOB_CPU_QUOTA or 300%%")
     s.add_argument(
         "--writable-root", action="append", help="extra writable directory; workspace-write only, repeatable"
     )
@@ -339,7 +339,7 @@ def main():
     r.add_argument("--model", help="switch model starting on the next turn")
     r.add_argument("--effort", help="switch effort or variant starting on the next turn")
     r.add_argument("--memory", help="memory cap for the next runner launch, such as 4G")
-    r.add_argument("--cpu", help="CPU cap for the next runner launch, such as 400%")
+    r.add_argument("--cpu", help="CPU cap for the next runner launch, such as 400%%")
     r.add_argument("--account", help="switch agy account")
     r.add_argument("--prompt-file", help="read follow-up from PATH or '-' for stdin")
     r.add_argument("--detach", action="store_true", help="run in the background and return the job path")

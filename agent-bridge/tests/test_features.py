@@ -149,6 +149,15 @@ def test_help_is_compact_command_map(monkeypatch, capsys):
     assert "guide workflow" in output and "guide plans" in output
 
 
+@pytest.mark.parametrize("command", ["start", "resume", "steer", "watch", "heavy", "owners", "retire"])
+def test_every_subcommand_help_renders(monkeypatch, capsys, command):
+    # argparse formats help with %, so a bare "400%" crashes --help.
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", command, "--help"])
+    with pytest.raises(SystemExit) as done:
+        cli.main()
+    assert done.value.code == 0 and "usage:" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("topic, names", [(None, ("overview", "models")),
                                         ("workflow", ("overview",)), ("plans", ("models",))])
 def test_long_guidance_remains_reachable(monkeypatch, capsys, topic, names):
