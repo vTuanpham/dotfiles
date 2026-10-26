@@ -7,7 +7,7 @@ Claude Code configuration under `~/.claude`. Each part has its own kind:
 | Part | Kind | Restore |
 | --- | --- | --- |
 | `settings.json`, status lines (`statusline-starship.sh` runs `statusline.py`; `subagent_statusline.py` draws the subagent rows) | Snapshot: holds this machine's paths | `install.sh --apply snapshots` copies what is missing on a new machine |
-| `CLAUDE.md` (`~/.claude/CLAUDE.md` links here; it imports the shared `~/.config/agents/AGENTS.md`) and the Bridge/Baton skills | Live link | `install.sh --apply links` |
+| `CLAUDE.md` (`~/.claude/CLAUDE.md` links here; it imports the shared `~/.config/agents/AGENTS.md`), Bridge/Baton and the [pstack skills](../agents/README.md#engineering-skills) | Live link | `install.sh --apply links` |
 | Hook and plugin entries | Merged into the live `settings.json` | `install.sh --apply hooks` |
 | [Wake mod](#wake-mod-live) | Live link; reloads as its files change | `install.sh --apply links` |
 

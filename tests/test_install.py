@@ -38,6 +38,14 @@ class InstallTests(unittest.TestCase):
                 link = Path(tmp) / name
                 self.assertTrue(link.is_symlink(), name)
                 self.assertTrue(str(link.resolve()).startswith(str(root)), name)
+            for skill in ("correct", "benchmark-checklist", "create-verification-skill",
+                          "maintain-verification-skill", "how", "why", "blast-radius", "arena", "unslop"):
+                source = root / "agents/.agents/skills" / skill
+                self.assertTrue((source / "SKILL.md").is_file(), skill)
+                for directory in (".agents/skills", ".claude/skills", ".gemini/config/skills"):
+                    link = Path(tmp) / directory / skill
+                    self.assertTrue(link.is_symlink(), str(link))
+                    self.assertEqual(link.resolve(), source)
             self.assertNotIn("  + ", second.stdout)
 
     def test_a_different_file_is_a_conflict_and_is_left_alone_but_an_identical_copy_becomes_a_link(self):

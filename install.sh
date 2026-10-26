@@ -103,6 +103,12 @@ LINKS=(
   "systemd/.config/systemd/user/agent-bridge-reference.timer .config/systemd/user/agent-bridge-reference.timer"
   "systemd/.config/environment.d/999-local-bin.conf .config/environment.d/999-local-bin.conf"
 )
+PSTACK_SKILLS=(correct benchmark-checklist create-verification-skill maintain-verification-skill how why blast-radius arena unslop)
+for skill in "${PSTACK_SKILLS[@]}"; do
+  for directory in .agents/skills .claude/skills .gemini/config/skills; do
+    LINKS+=("agents/.agents/skills/$skill $directory/$skill")
+  done
+done
 
 link() { # link <path in the repo> <link under $HOME>
   local src="$REPO/$1" dest="$HOME/$2"

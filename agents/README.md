@@ -23,3 +23,25 @@ Antigravity `~/.gemini/AGENTS.md` are in-repo symlinks to the shared file (none 
 Claude's `CLAUDE.md` imports it with `@~/.config/agents/AGENTS.md`. Codex finds the skills in
 `~/.agents/skills`, Claude in `~/.claude/skills`, Antigravity in `~/.gemini/config/skills`, through links in
 their packages.
+
+## Engineering skills
+
+Nine [pstack](https://github.com/backnotprop/pstack) skills are vendored unchanged
+at commit [`fad8d01588a1`](https://github.com/backnotprop/pstack/tree/fad8d01588a1b1ae803f87c8a1e0de79e28cffec),
+with their references and [MIT license](PSTACK-LICENSE). The installer links each
+directory into `~/.agents/skills`, `~/.claude/skills` and
+`~/.gemini/config/skills`. Codex and OpenCode discover the shared `.agents` path.
+
+| Use | Skills |
+| --- | --- |
+| Prevent repeated mistakes | `correct` |
+| Check performance measurements | `benchmark-checklist` |
+| Create and maintain project verification recipes | `create-verification-skill`, `maintain-verification-skill` |
+| Explain behavior and design rationale | `how`, `why` |
+| Investigate change risks | `blast-radius` |
+| Compare alternatives and edit prose | `arena`, `unslop` |
+
+Use these on demand, under the shared scope, permission and delegation rules.
+The full `poteto-mode` plugin is not installed. To update, review a new upstream
+revision and replace these nine directories together, retaining the license and
+updating the pinned commit here.

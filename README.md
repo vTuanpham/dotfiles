@@ -130,7 +130,7 @@ does the linking). Every package README opens with its kind.
 | --- | --- | --- |
 | [shell](shell/README.md) | Live | Bash/Zsh startup, environment, aliases, CUDA and private credential include |
 | [starship](starship/README.md) | Live | Shared prompt |
-| [agents](agents/README.md) | Live | Shared instructions and bridge/baton skills |
+| [agents](agents/README.md) | Live | Shared instructions, Bridge/Baton and nine pstack engineering skills |
 | [git](git/README.md), [npm](npm/README.md) | Snapshot | Git preferences, global ignore and npm prefix |
 | [nvim](nvim/README.md) | Snapshot | LazyVim config, plugin lock and Ghost/WSL image support |
 | [ranger](ranger/README.md) | Snapshot | Inline previews, Windows media opener and file icons |
