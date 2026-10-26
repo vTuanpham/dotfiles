@@ -92,8 +92,9 @@ Heavy means inference/benchmarks, dataset download/extraction, full suites,
 long-lived servers/headless browsers, or more than about 1 GiB/several cores for
 over a minute. Runners, git, edits, reads, lint, type checks and targeted tests
 run directly. Waiting for a slot is normal; periodic holder status needs no ping.
-Jobs run concurrently when their total declared needs fit current host/slice
-headroom minus the safety floor, with a 1 GiB fallback need when omitted.
+Jobs run concurrently when their total declared needs fit host/slice capacity
+minus the safety floor and each new need fits live free memory minus that floor,
+with a 1 GiB fallback need when omitted.
 FIFO permits fitting backfill for at most five minutes of head waiting.
 Use `--exclusive` only for timing measurements, never for test suites;
 `AGENT_BRIDGE_HEAVY_SLOTS` is an optional hard cap, unset by default.
@@ -102,6 +103,14 @@ kills. Existing cgroup membership and caps stay in place; slice settings are
 never changed. Optional standalone caps use systemd when available and warn
 before falling back. See `agent-bridge guide heavy` for defaults, research,
 configuration and limits.
+
+Root-only queue controls: `heavy list` shows request ids, jobs, needs and liveness;
+`heavy cancel <id|owner/job>` cancels one unambiguous request without stopping its
+worker runner. Queued commands exit **125**; running commands receive SIGTERM,
+then SIGKILL after five seconds if needed. `heavy pause --reason "reviewing load"`
+blocks new admissions while running work continues; `heavy resume` reopens the
+queue. Pauses appear in `owners`/`watch`, persist until resumed and do not count
+toward the 30-minute wait report threshold. Workers cannot use these controls.
 
 Choose job caps with `start ... --memory 4G --cpu 400%`, or `resume <job>` with
 those flags for its next launch. Caps above effective slice/host budgets are

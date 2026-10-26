@@ -48,7 +48,8 @@ MESSAGING_RULE = (
     "Declare expected peak memory with --mem (for example 1G or 2500M); use --exclusive only for timing "
     "measurements, never for test suites. Fitting heavy jobs run concurrently. "
     "Waiting for a heavy slot is normal and is never a blocker to report. Do not send queue progress "
-    "messages; report only a holder shown dead or a wait exceeding 30 minutes."
+    "messages; report only a holder shown dead or a wait exceeding 30 minutes excluding root pauses. "
+    "A root pause is normal; wait for resume. Queue cancellation exits 125; follow the root's steer."
 )
 REDELIVERED = "(redelivered after a runner restart; skip it if you already handled it)"
 

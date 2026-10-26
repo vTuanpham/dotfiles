@@ -19,6 +19,7 @@ from .resources import MIB, Pressure, limits, memory_size, pressure, wait_reason
 PROC = Path("/proc")
 DEFAULT_NEED = 1024 * MIB
 BACKFILL_SECONDS = 300
+CANCELLED_EXIT = 125
 
 
 def directory():
@@ -50,6 +51,74 @@ def write_request(fd, row):
 
 def reservation_path(path):
     return path.with_suffix(".request.need")
+
+
+def control_path(path):
+    return path.with_suffix(".request.control")
+
+
+def read_state(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return None
+    try:
+        if os.fstat(fd).st_size > 4096:
+            raise ValueError("oversized heavy control state")
+        data = json.loads(os.read(fd, 4096))
+        if data is None:
+            raise ValueError("invalid heavy control state")
+        return data
+    finally:
+        os.close(fd)
+
+
+def write_state(path, data):
+    temporary = path.parent / f".state-{uuid.uuid4().hex}"
+    fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    try:
+        write_request(fd, data)
+        os.replace(temporary, path)
+    finally:
+        os.close(fd)
+        temporary.unlink(missing_ok=True)
+
+
+def control(path):
+    data = read_state(control_path(path))
+    if data is not None and (
+            type(data) is not dict or set(data) != {"group", "cancelled", "pause_ns"}
+            or type(data["group"]) is not bool or type(data["cancelled"]) is not bool
+            or type(data["pause_ns"]) is not int or data["pause_ns"] < 0):
+        raise ValueError("invalid heavy request control state")
+    return data
+
+
+def pause_state(folder):
+    data = read_state(folder / "pause.json")
+    if data is None:
+        return {"reason": None, "since_ns": None, "total_ns": 0}
+    if (type(data) is not dict or set(data) != {"reason", "since_ns", "total_ns"}
+            or type(data["total_ns"]) is not int or data["total_ns"] < 0
+            or (data["reason"] is None) != (data["since_ns"] is None)
+            or data["reason"] is not None and (
+                type(data["reason"]) is not str or len(data["reason"]) > 200
+                or not data["reason"] or any(ord(c) < 32 or ord(c) == 127 for c in data["reason"])
+                or type(data["since_ns"]) is not int or data["since_ns"] < 0)):
+        raise ValueError("invalid heavy pause state")
+    return data
+
+
+def pause_clock(paused, now_ns):
+    return paused["total_ns"] + (max(0, now_ns - paused["since_ns"])
+                                 if paused["since_ns"] is not None else 0)
+
+
+def waited_ns(row, paused, now_ns):
+    elapsed = max(0, now_ns - row["queued_ns"])
+    if row.get("control") is not None:
+        elapsed -= max(0, pause_clock(paused, now_ns) - row["control"]["pause_ns"])
+    return max(0, elapsed)
 
 
 def reservation(path, row):
@@ -142,9 +211,12 @@ def gate(folder):
 def entries(folder, own=None, dead=None):
     """Under gate: dead requests have no kernel lock, even after SIGKILL or PID reuse."""
     result = []
-    for metadata in folder.glob("*.request.need"):
-        if not metadata.with_suffix("").exists():
-            metadata.unlink()
+    for temporary in folder.glob(".state-*"):
+        temporary.unlink()
+    for suffix in ("need", "control"):
+        for metadata in folder.glob(f"*.request.{suffix}"):
+            if not metadata.with_suffix("").exists():
+                metadata.unlink()
     for path in sorted(folder.glob("*.request")):
         fd = locked_file(path)
         try:
@@ -163,6 +235,7 @@ def entries(folder, own=None, dead=None):
                             pass
                     path.unlink()
                     reservation_path(path).unlink(missing_ok=True)
+                    control_path(path).unlink(missing_ok=True)
                     continue
             if os.fstat(fd).st_size > 4096:
                 raise ValueError("oversized heavy queue entry")
@@ -184,11 +257,12 @@ def entries(folder, own=None, dead=None):
                                                or type(row["started_ns"]) is not int
                                                or row["started_ns"] < 0)):
                     raise ValueError("invalid heavy holder metadata")
-                if row["running"] and row["host_pid"] is None:
+                if row["host_pid"] is None:
                     row["host_pid"] = resolve_host_pid(row)
                     if row["host_pid"] is not None:
                         write_request(fd, row)
             row.update(reservation(path, row))
+            row["control"] = control(path)
             result.append((path, row))
         finally:
             os.close(fd)
@@ -208,10 +282,12 @@ def status(previous=None):
     try:
         waiting = active = 0
         rows = []
+        paused = {"reason": None}
         if directory().exists():
             folder = prepare()
             with gate(folder):
                 rows = entries(folder)
+                paused = pause_state(folder)
                 active = sum(row["running"] for _, row in rows)
                 waiting = len(rows) - active
                 queued_jobs = frozenset(row["job"] for _, row in rows
@@ -225,6 +301,8 @@ def status(previous=None):
                    f"headroom={host.shared_headroom / MIB:.0f}MiB "
                    f"heavy_running={active} heavy_queued={waiting} "
                    f"heavy_reserved={reserved / MIB:.0f}MiB heavy_budget={budget / MIB:.0f}MiB")
+        if paused["reason"] is not None:
+            summary += f" heavy_paused=yes (paused by root: {paused['reason']})"
         for _, row in rows:
             if row["running"]:
                 summary += (f" | heavy={row.get('job') or 'standalone'} need={row['need'] / MIB:g}MiB"
@@ -326,7 +404,8 @@ def run(command, memory_max=None, mem=None, exclusive=False):
                                             "queued_ns": time.monotonic_ns(), "cap": policy.slots})
             finally:
                 os.close(metadata_fd)
-        queued_at = time.monotonic()
+            write_state(control_path(path), {"group": False, "cancelled": False,
+                        "pause_ns": pause_clock(pause_state(folder), time.monotonic_ns())})
         last, reported = None, 0
         if host.groups:
             time.sleep(1)  # first CPU sample needs an interval, not a lifetime-average guess
@@ -335,6 +414,14 @@ def run(command, memory_max=None, mem=None, exclusive=False):
             with gate(folder):
                 dead = []
                 rows = entries(folder, path, dead)
+                own = dict(rows)[path]
+                if own["control"]["cancelled"]:
+                    print(f"heavy: cancelled by root while queued; exit={CANCELLED_EXIT}",
+                          file=sys.stderr, flush=True)
+                    raise SystemExit(CANCELLED_EXIT)
+                rows = [(p, row) for p, row in rows
+                        if row["running"] or not (row.get("control") or {}).get("cancelled")]
+                paused = pause_state(folder)
                 waiting = [p for p, row in rows if not row["running"]]
                 position = waiting.index(path) + 1
                 active = sum(row["running"] for _, row in rows)
@@ -343,7 +430,15 @@ def run(command, memory_max=None, mem=None, exclusive=False):
                 free = max(0, host.shared_headroom - policy.available)
                 selected, reserved, cap, queue_reason = choose(
                     rows, budget, policy.slots, time.monotonic_ns(), free)
+                if paused["reason"] is not None:
+                    queue_reason = f"paused by root: {paused['reason']}"
+                    selected = None
                 if selected == path and not reason:
+                    # Isolate only this admitted command and its children, never its worker runner.
+                    if os.getpgrp() != os.getpid():
+                        os.setpgid(0, 0)
+                    own["control"]["group"] = True
+                    write_state(control_path(path), own["control"])
                     request.update(running=True, started_at=stamp(), started_ns=time.monotonic_ns())
                     write_request(fd, request)
                     break
@@ -368,13 +463,13 @@ def run(command, memory_max=None, mem=None, exclusive=False):
             now = time.monotonic()
             if dead:
                 print("heavy: holder alive=no; cleared dead holder record", file=sys.stderr, flush=True)
-            if now - queued_at >= 1800:
+            if paused["reason"] is None and waited_ns(own, paused, time.monotonic_ns()) >= 1800 * 10**9:
                 message += "; wait exceeds 30 minutes; report this to the coordinator"
             state = (position, len(waiting), active, reason, queue_reason,
                      tuple(p.name for p, row in rows if row["running"]))
             if (state != last and now - reported >= 5) or last is None or now - reported >= 30:
                 print(f"heavy: waiting, {message}; normal queue wait: do not report unless the holder "
-                      "is dead or the wait exceeds 30m", file=sys.stderr, flush=True)
+                      "is dead or the wait exceeds 30m excluding root pauses", file=sys.stderr, flush=True)
                 last, reported = state, now
             time.sleep(1)
         print(f"heavy: admitted; need={need / MIB:g}MiB exclusive={'yes' if exclusive else 'no'} "
@@ -389,3 +484,4 @@ def run(command, memory_max=None, mem=None, exclusive=False):
         with gate(folder):
             path.unlink(missing_ok=True)
             reservation_path(path).unlink(missing_ok=True)
+            control_path(path).unlink(missing_ok=True)

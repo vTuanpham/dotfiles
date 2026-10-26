@@ -12,7 +12,8 @@ run concurrently. Wrap a compound job with `agent-bridge heavy --mem 1G -- sh -c
 Keep servers in the foreground for their whole lifetime. Do not nest wrappers.
 Already-running workers need a steer with this rule; new jobs receive it automatically.
 Waiting for a slot is normal, never a blocker or progress message to send. Report
-only a holder shown dead while still blocked or a wait exceeding 30 minutes.
+only a holder shown dead while still blocked or a wait exceeding 30 minutes,
+excluding time paused by root. A root pause is normal; wait for resume.
 
 ```sh
 agent-bridge heavy --mem 1G -- uv run pytest
@@ -20,6 +21,54 @@ agent-bridge heavy --mem 2500M --exclusive -- ./benchmark
 agent-bridge owners
 agent-bridge watch <owner>
 ```
+
+## Root queue controls
+
+```sh
+agent-bridge heavy list
+agent-bridge heavy cancel <id>
+agent-bridge heavy cancel <owner>/<job>
+agent-bridge heavy pause --reason "reviewing host load"
+agent-bridge heavy resume
+```
+
+These controls are refused inside a worker (`AGENT_BRIDGE_WORKER`); workers may
+still run commands through `heavy --mem SIZE -- ...`. `list` shows each live
+request's id, owning job, executable basename (never arguments), declared need,
+exclusivity, running/queued/cancelling state, wait/elapsed time and kernel-lock
+liveness. Dead unlocked records and their control metadata are removed on scan.
+An id identifies one request, not the worker job. `cancel` also accepts an exact
+`owner/job`, but refuses if that job has multiple requests; use a listed id.
+
+Cancelling a queued request prevents admission; on its next poll (normally one
+second) the waiting command prints `cancelled by root while queued; exit=125`
+on stderr and exits **125**. That code is reserved for queue cancellation; normal
+command exit codes still pass through and could themselves be 125. Cancelling a
+running request sends **SIGTERM**, then **SIGKILL after five seconds** if still
+alive. New commands have their own process group, so foreground children are
+stopped too and the worker runner continues. Running commands retain their
+normal signal exit status. A process that escapes its process group by
+daemonizing is unsupported; keep servers in the foreground.
+
+Cancellation verifies process identity against the inherited request descriptor
+and checks process start times before escalation; it never signals a worker
+runner's process group. Run controls from the host root harness so `/proc`
+can see holder processes. Requests already waiting before queue controls were
+installed cannot acknowledge cancellation with code 125 and are explicitly
+refused; let those waiters finish or stop their job. Legacy running commands
+can be signalled individually; only newly admitted commands have group isolation.
+
+`pause` admits no new heavy commands; running commands and ordinary unwrapped
+work continue. The default reason is `maintenance`; reasons are at most 200
+characters without control characters. Waiters print `paused by root: <reason>`
+and `owners`/`watch` show the pause. Pause time is excluded from the 30-minute
+wait report threshold, including waits spanning multiple pauses. Repeating pause
+can update its reason without resetting its clock. Pause persists across a root
+or waiter crash until explicit `heavy resume`; a dead process is not an implicit
+resume. Private control files use atomic replacement, and orphaned per-request
+files are cleaned using the kernel lock rather than PID guesses. Pre-update
+waiters cannot observe newly installed pause logic; pause refuses while any are
+present, so they must drain first.
 
 ## Admission
 
@@ -61,20 +110,21 @@ cgroup v2 membership in `/proc/self/cgroup`. It reads `memory.current`,
 `memory.max`, `memory.events`, `cpu.max` and `cpu.stat` along the inherited
 hierarchy, including the worker's job scope and `codex.slice`. A root outside
 that slice also reads the standard user-manager `codex.slice` path when present.
-The shared memory budget is the minimum of host `MemAvailable` and
+Live shared headroom is the minimum of host `MemAvailable` and
 `memory.max - memory.current` for `codex.slice` and its finite ancestors, minus
 the safety floor. The caller's smaller job scope does not reduce this shared
-budget; that scope still enforces its cap on the command. Without a shared
-slice, inherited cgroups and host readings determine the budget. Reclaimable
+headroom; that scope still enforces its cap on the command. Without a shared
+slice, inherited cgroups and host readings determine the headroom. Reclaimable
 cgroup cache is deliberately not counted as slack.
 Missing controllers are labelled unavailable; malformed or unreadable discovered
 budgets stop admission. With no cgroup v2 membership, admission uses host readings.
 
 Admit a request only when the sum of **all running declared needs plus its need**
-fits that current budget. Running declarations remain fully reserved even though
-some resident memory is already reflected in `MemAvailable`/`memory.current`;
-this deliberately conservative accounting leaves room for growth. Status shows
-both `heavy_reserved` and `heavy_budget` so the wait is explainable. A need larger
+fits shared capacity (the tightest host total/ancestor limit) minus the safety
+floor, and **its new need alone** fits live shared headroom after that floor.
+Running memory is already reflected in `MemAvailable`/`memory.current` and is not
+subtracted again from live free memory. Status shows `heavy_reserved` and the
+capacity-based `heavy_budget`; wait messages also show live `free`. A need larger
 than shared capacity minus the floor is rejected rather than waiting forever.
 
 Omitting `--mem` reserves **1 GiB**. It matches the heavy-work threshold and

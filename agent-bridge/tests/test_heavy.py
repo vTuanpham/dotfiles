@@ -21,6 +21,8 @@ def host(monkeypatch, tmp_path):
     monkeypatch.setenv("AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB", "0")
     monkeypatch.setenv("AGENT_BRIDGE_HEAVY_MAX_LOAD", "1000000")
     monkeypatch.delenv("AGENT_BRIDGE_HEAVY_ACTIVE", raising=False)
+    # In-process exec mocks must not move pytest itself into another process group.
+    monkeypatch.setattr(heavy.os, "setpgid", lambda *_: None)
     proc = tmp_path / "proc"
     proc.mkdir()
     monkeypatch.setattr(resources, "PROC", proc)
@@ -42,7 +44,7 @@ def started(path):
     pytest.fail(f"process did not create {path.name}")
 
 
-def launch(marker, release, mem=None, exclusive=False, **settings):
+def launch(marker, release, mem=None, exclusive=False, command=None, **settings):
     code = ("import pathlib,sys,time; pathlib.Path(sys.argv[1]).touch(); "
             "\nwhile not pathlib.Path(sys.argv[2]).exists(): time.sleep(0.01)")
     env = {**os.environ, "PYTHONPATH": str(Path(heavy.__file__).parents[1]), **settings}
@@ -50,7 +52,7 @@ def launch(marker, release, mem=None, exclusive=False, **settings):
              "resources.PROC=Path(sys.argv.pop(1)); cli.main()")
     flags = (["--mem", mem] if mem else []) + (["--exclusive"] if exclusive else [])
     return subprocess.Popen([sys.executable, "-c", entry, str(resources.PROC), "heavy", *flags, "--",
-                             sys.executable, "-c", code, str(marker), str(release)],
+                             *(command or [sys.executable, "-c", code, str(marker), str(release)])],
                             env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 

@@ -5,7 +5,19 @@ import sys
 import time
 from pathlib import Path
 
-from . import agy, claude, codex, heavy, opencode, reference, refresh, resources, retirement, retries
+from . import (
+    agy,
+    claude,
+    codex,
+    heavy,
+    heavy_control,
+    opencode,
+    reference,
+    refresh,
+    resources,
+    retirement,
+    retries,
+)
 from .acknowledgements import acknowledge, event_lines, urgent
 from .core import (
     ARCHIVE,
@@ -370,6 +382,7 @@ def main():
                        "Do not wrap runners, git, edits, reads, lint, type checks or targeted tests. "
                        "Wrap the whole foreground job; do not nest heavy calls. "
                        "Declare --mem SIZE (default 1G); use --exclusive only for timing measurements. "
+                       "Root controls: heavy list, cancel <id|owner/job>, pause [--reason TEXT], resume. "
                        "Settings: AGENT_BRIDGE_HEAVY_SLOTS (optional hard cap), HEAVY_MIN_AVAILABLE_MIB "
                        "(max of 1024 and 20% effective RAM), HEAVY_MAX_LOAD (80% of CPU count); "
                        "all names use the AGENT_BRIDGE_ prefix.")
@@ -482,6 +495,11 @@ def main():
     runner_fd = None
     try:
         if a.command == "heavy":
+            if a.argv[:1] and a.argv[0] in {"list", "cancel", "pause", "resume"}:
+                if a.mem is not None or a.exclusive or a.memory_max_mib is not None:
+                    h.error("command flags cannot be combined with heavy queue controls")
+                heavy_control.main(a.argv)
+                return
             heavy.run(a.argv[1:] if a.argv[:1] == ["--"] else a.argv, a.memory_max_mib,
                       mem=a.mem, exclusive=a.exclusive)
             return
