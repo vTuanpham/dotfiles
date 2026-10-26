@@ -8,7 +8,10 @@ cost more, defeating RTK's purpose. Do not use it as the default for unfamiliar
 commands. Reserve it for necessary exact output, such as protocol data or
 instructions that must be read in full. Filtering can elide information; recover
 the needed part with `rtk recall` or a focused read rather than a broad raw dump.
-Check `rtk --help` when unsure which filter fits.
+Check `rtk --help` when unsure which filter fits. `rtk summary` can drop quoting
+(an awk `'NR>=80'` became a `>=80` redirect and left stray `=80` files): run
+commands containing shell operators or comparisons through `rtk proxy`, or use a
+read tool for line ranges.
 Prefer harness tools when they cover task; shell/manual fallback. Edit and
 create files with the harness edit/write/patch tool, never Python, sed, or
 heredoc scripts; shell is for reading, searching, and running commands.
@@ -49,6 +52,9 @@ heredoc scripts; shell is for reading, searching, and running commands.
 - Browser lifecycle (window reuse, visible task groups, preserving tabs and
   task-scoped release): follow `~/dotfiles/chrome/README.md#visible-agent-tabs`.
 - Remote preview links: `portlink --help` (`~/dotfiles/portlink/README.md`).
+- Back up only what is costly to recreate (data, user edits, hand-tuned
+  files); for a trivially reversible change (one setting or command), state
+  the old value instead.
 - Put agent-created recovery backups under `${XDG_STATE_HOME:-$HOME/.local/state}/backups/<scope>/<timestamp>/`,
   outside repositories; scope can be a tool, project, system, or cross-tool change.
   Use owner-only permissions; record original paths and restore details for files,
@@ -76,6 +82,10 @@ heredoc scripts; shell is for reading, searching, and running commands.
 - When a bug may be a recurring pattern, name the failure class before fixing,
   sweep the affected area for siblings, and fix or report them in the same
   round. Include the class in reviewer/fixer briefs.
+- A rule or threshold tested only on fixtures built to exercise it is a
+  hypothesis: report it as one, with the real-data check that would confirm it,
+  rather than shipping it as a fix. When early measurements contradict the
+  plan, stop and report before building further on it.
 - Verify proportional to risk; expand for shared behavior, critical data,
   concurrency, or recovery. Docs-only edits need link, consistency, and diff
   checks. Do not add mirror tests or unrelated tooling.
