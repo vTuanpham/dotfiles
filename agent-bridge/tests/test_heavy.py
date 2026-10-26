@@ -28,8 +28,8 @@ def host(monkeypatch, tmp_path):
     return proc
 
 
-def write_proc(proc, available=4000000, load="0.1"):
-    (proc / "meminfo").write_text(f"MemTotal: 8000000 kB\nMemAvailable: {available} kB\n")
+def write_proc(proc, available=4000000, load="0.1", total=8000000):
+    (proc / "meminfo").write_text(f"MemTotal: {total} kB\nMemAvailable: {available} kB\n")
     (proc / "loadavg").write_text(f"{load} 0.0 0.0 1/100 200\n")
 
 
@@ -367,6 +367,7 @@ def test_memory_fit_runs_two_jobs_without_a_slot_cap(host, monkeypatch, tmp_path
 @pytest.mark.parametrize("crash", [False, True])
 def test_memory_that_does_not_fit_waits_and_exit_releases_need(host, monkeypatch, tmp_path, crash):
     monkeypatch.delenv("AGENT_BRIDGE_HEAVY_SLOTS")
+    write_proc(host, total=4000000)  # fake holders use no memory: capacity must bound 2G + 3G
     first_release, second_release = tmp_path / "release1", tmp_path / "release2"
     first = launch(tmp_path / "first", first_release, mem="2G")
     processes = [first]
@@ -432,6 +433,7 @@ def test_invalid_or_impossible_memory_need_fails_before_queueing(host, mem):
 @pytest.mark.parametrize("aged", [False, True])
 def test_process_backfill_and_starvation_bound(host, monkeypatch, tmp_path, aged):
     monkeypatch.delenv("AGENT_BRIDGE_HEAVY_SLOTS")
+    write_proc(host, total=4000000)  # fake holders use no memory: capacity must bound 2G + 3G
     holder_release, head_release, small_release = [tmp_path / name for name in ("free1", "free2", "free3")]
     holder = launch(tmp_path / "holder", holder_release, mem="2G")
     processes = [holder]

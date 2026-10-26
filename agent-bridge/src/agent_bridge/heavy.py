@@ -73,11 +73,19 @@ def reservation(path, row):
     return data
 
 
-def choose(rows, budget, slots, now_ns):
-    """FIFO among fitting requests; five-minute heads and exclusive requests fence backfill."""
+def choose(rows, budget, slots, now_ns, free=None):
+    """FIFO among fitting requests; five-minute heads and exclusive requests fence backfill.
+
+    `budget` bounds the declared needs of all holders (capacity, not live use); `free` is live
+    headroom, which already reflects what running holders use, so they are not counted twice.
+    """
     running = [row for _, row in rows if row["running"]]
     waiting = [(path, row) for path, row in rows if not row["running"]]
     reserved = sum(row["need"] for row in running)
+
+    def fits(need):
+        return reserved + need <= budget and (free is None or need <= free)
+
     caps = [row["cap"] for _, row in rows if row["cap"] is not None]
     if slots is not None:
         caps.append(slots)
@@ -92,15 +100,15 @@ def choose(rows, budget, slots, now_ns):
     if head["exclusive"]:
         if running:
             return None, reserved, cap, "earlier exclusive request is waiting for all holders"
-        return (head_path if head["need"] <= budget else None), reserved, cap, "exclusive request"
-    if reserved + head["need"] <= budget:
+        return (head_path if fits(head["need"]) else None), reserved, cap, "exclusive request"
+    if fits(head["need"]):
         return head_path, reserved, cap, "FIFO"
     if now_ns - head["queued_ns"] >= BACKFILL_SECONDS * 1000000000:
         return None, reserved, cap, "backfill paused: head has waited 5m"
     for path, row in waiting[1:]:
         if row["exclusive"]:
             break
-        if reserved + row["need"] <= budget:
+        if fits(row["need"]):
             return path, reserved, cap, "backfill: head does not fit"
     return None, reserved, cap, "declared memory needs do not fit"
 
@@ -212,7 +220,7 @@ def status(previous=None):
         policy = limits(host)
         reason = wait_reason(host, policy, shared=True)
         reserved = sum(row["need"] for _, row in rows if row["running"])
-        budget = max(0, host.shared_headroom - policy.available)
+        budget = max(0, host.shared_capacity - policy.available)
         summary = (f"host: available={host.available / MIB:.0f}MiB load1={host.load:.2f} "
                    f"headroom={host.shared_headroom / MIB:.0f}MiB "
                    f"heavy_running={active} heavy_queued={waiting} "
@@ -331,16 +339,18 @@ def run(command, memory_max=None, mem=None, exclusive=False):
                 position = waiting.index(path) + 1
                 active = sum(row["running"] for _, row in rows)
                 reason = wait_reason(host, policy, shared=True)
-                budget = max(0, host.shared_headroom - policy.available)
+                budget = max(0, host.shared_capacity - policy.available)
+                free = max(0, host.shared_headroom - policy.available)
                 selected, reserved, cap, queue_reason = choose(
-                    rows, budget, policy.slots, time.monotonic_ns())
+                    rows, budget, policy.slots, time.monotonic_ns(), free)
                 if selected == path and not reason:
                     request.update(running=True, started_at=stamp(), started_ns=time.monotonic_ns())
                     write_request(fd, request)
                     break
             occupied = f"{active}/{cap} slots busy" if cap is not None else f"{active} running; hard cap=none"
             message = (f"queue position {position}/{len(waiting)}; {occupied}; need={need / MIB:g}MiB "
-                       f"reserved={reserved / MIB:g}MiB budget={budget / MIB:g}MiB; {queue_reason}")
+                       f"reserved={reserved / MIB:g}MiB budget={budget / MIB:g}MiB "
+                       f"free={free / MIB:g}MiB; {queue_reason}")
             if selected is not None and selected != path and not reason:
                 ahead = dict(rows)[selected].get("job") or "standalone"
                 message += f"; free slot is going to the earlier request ({ahead})"

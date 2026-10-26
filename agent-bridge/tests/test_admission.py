@@ -62,6 +62,14 @@ def test_exact_memory_fit_is_admitted():
     assert heavy.choose(rows, 2 * GIB - 1, None, 0)[0] is None
 
 
+def test_running_holders_are_not_counted_twice_against_live_memory():
+    # Live free memory already excludes what the 2 GiB holder uses; capacity bounds declarations.
+    rows = [request("running", 2, running=True), request("later", 2)]
+    assert heavy.choose(rows, 6 * GIB, None, 0, free=3 * GIB)[0] == Path("later")
+    assert heavy.choose(rows, 6 * GIB, None, 0, free=GIB)[0] is None
+    assert heavy.choose(rows, 3 * GIB, None, 0, free=3 * GIB)[0] is None
+
+
 @pytest.mark.parametrize("field,value", [("need", True), ("need", 0), ("need", "1G"),
                                         ("exclusive", 1), ("queued_ns", -1), ("cap", False), ("cap", 0)])
 def test_malformed_reservation_metadata_is_rejected(tmp_path, field, value):
