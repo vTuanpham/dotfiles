@@ -29,6 +29,15 @@ def steer(text="follow up", *flags):
         sys.argv = argv
 
 
+def steer_argv(*args):
+    argv = sys.argv
+    sys.argv = ["agent-bridge", "steer", *args]
+    try:
+        cli.main()
+    finally:
+        sys.argv = argv
+
+
 def deliver(job, state, path, prompt, resume=False):
     core.runner_started(state, path)
     core.log(job, "test_run", prompt=prompt, resume=resume, pid=os.getpid())
@@ -57,6 +66,35 @@ def wait_idle(job):
                         pass
             return
     pytest.fail("runner did not finish")
+
+
+@pytest.mark.parametrize("args,timeout,text", [
+    (("owner/job", "--watch", "after flag"), 1800, "after flag"),
+    (("owner/job", "--watch", "20", "after timeout"), 20, "after timeout"),
+    (("owner/job", "--watch=20", "after equals"), 20, "after equals"),
+    (("owner/job", "before flag", "--watch"), 1800, "before flag"),
+    (("owner/job", "123", "--watch"), 1800, "123"),
+])
+def test_steer_watch_positionals(job, monkeypatch, args, timeout, text):
+    monkeypatch.setattr(cli.codex, "run", deliver)
+    seen = []
+    monkeypatch.setattr(cli, "watch", lambda *args, **kwargs: seen.append(kwargs) or True)
+    steer_argv(*args)
+    wait_idle(job)
+    assert (job / "steer/sent/001.md").read_text() == text + "\n"
+    assert seen[0]["timeout"] == timeout
+
+
+def test_invalid_watch_with_existing_text_errors_helpfully(job, monkeypatch, capsys):
+    with pytest.raises(SystemExit) as error:
+        steer_argv("owner/job", "first message", "--watch", "a long invalid watch value")
+    message = capsys.readouterr().err
+    assert error.value.code == 2
+    assert "put text before --watch" in message
+    assert "use --watch=SECONDS" in message
+    assert "or use --prompt-file" in message
+    assert "a long invalid watch value" not in message
+    assert not (job / "steer").exists()
 
 
 @pytest.mark.parametrize("backend,key", [

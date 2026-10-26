@@ -28,10 +28,23 @@ from .watch import watch
 
 BACKENDS = {"codex": codex, "agy": agy, "claude": claude, "opencode": opencode}
 ROOT_COMMANDS = {"start", "resume", "steer", "interrupt", "stop"}
+
+
+def watch_seconds(value):
+    try:
+        return int(value)
+    except ValueError:
+        short = value[:24] + ("…" if len(value) > 24 else "")
+        raise argparse.ArgumentTypeError(
+            f"invalid --watch value {short!r}; put text before --watch, use --watch=SECONDS, "
+            "or use --prompt-file"
+        ) from None
+
+
 WATCH = {
     "nargs": "?",
     "const": 1800,
-    "type": int,
+    "type": watch_seconds,
     "metavar": "SECONDS",
     "help": (
         "run detached, then stay until the first urgent event, so one background command covers "
@@ -330,7 +343,10 @@ def main():
     st.add_argument("--prompt-file", help="read steer from PATH or '-' for stdin")
     delivery = st.add_mutually_exclusive_group()
     delivery.add_argument("--queue", action="store_true", help="queue only; do not start an idle job")
-    delivery.add_argument("--watch", **WATCH)
+    delivery.add_argument(
+        "--watch", nargs="?", const=1800, metavar="SECONDS",
+        help="run detached, then stay until the first urgent event (default: 1800 seconds)",
+    )
     for name in ("interrupt", "stop", "compact"):
         descriptions = {
             "interrupt": "request that the current turn end without stopping the job",
@@ -410,7 +426,35 @@ def main():
         flags = sys.argv[2:sys.argv.index("--")] if "--" in sys.argv[2:] else sys.argv[2:]
         if sys.argv[1] == "steer" and any(arg.split("=", 1)[0] == "--message" for arg in flags):
             st.error("steer takes the message as a positional argument: agent-bridge steer <job> 'message'")
-    a = p.parse_args()
+    a, extras = p.parse_known_args()
+    if extras:
+        if a.command == "steer" and a.text is None and len(extras) == 1 and not extras[0].startswith("-"):
+            a.text = extras[0]
+        elif a.command == "steer":
+            st.error(
+                "steer accepts one text; put text before --watch, use --watch=SECONDS, or use --prompt-file"
+            )
+        else:
+            p.error(f"unrecognized arguments: {' '.join(extras)}")
+    if a.command == "steer":
+        if isinstance(a.watch, str):
+            watch_value = a.watch
+            try:
+                a.watch = int(watch_value)
+            except ValueError:
+                if a.text is None and a.prompt_file is None:
+                    a.text, a.watch = watch_value, 1800
+                else:
+                    try:
+                        watch_seconds(watch_value)
+                    except argparse.ArgumentTypeError as error:
+                        st.error(str(error))
+            else:
+                if a.text is not None and a.text.isdecimal():
+                    st.error(
+                        "ambiguous numeric steer text with --watch seconds; put text before --watch, "
+                        "use --watch=SECONDS, or use --prompt-file"
+                    )
     runner_fd = None
     try:
         if a.command == "guide":
