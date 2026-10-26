@@ -87,8 +87,10 @@ heredoc scripts; shell is for reading, searching, and running commands.
   round. Include the class in reviewer/fixer briefs.
 - A rule or threshold tested only on fixtures built to exercise it is a
   hypothesis: report it as one, with the real-data check that would confirm it,
-  rather than shipping it as a fix. When early measurements contradict the
-  plan, stop and report before building further on it.
+  rather than shipping it as a fix. Treat early contrary numbers the same way:
+  before abandoning an approach, rule out setup, data, sample-size and tuning
+  causes, and try its strongest reasonable variant; pause building on it until
+  then, and reject it only on adequate evidence.
 - Verify proportional to risk; expand for shared behavior, critical data,
   concurrency, or recovery. Docs-only edits need link, consistency, and diff
   checks. Do not add mirror tests or unrelated tooling.
