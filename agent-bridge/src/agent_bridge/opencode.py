@@ -22,6 +22,7 @@ from .core import (
     save,
     worker_env,
 )
+from .heavy import prepare as heavy_directory
 
 DECLINED = "The user declined this tool call"  # OpenCode's auto-reject; it then aborts the turn
 # The only free-tier models OpenCode documents as zero-retention and never trained on. Any other free model
@@ -128,6 +129,9 @@ def command(state, job, prompt, resume=False):
     args += ["--ro-bind", str(job), str(job), "--bind", str(home), str(home)]
     for path in dict.fromkeys(writable):
         args += ["--bind", path, path]
+    if state["sandbox"] == "workspace-write":
+        shared_heavy = str(heavy_directory())
+        args += ["--bind", shared_heavy, shared_heavy]
     for source, target in cache_mounts:
         args += ["--ro-bind", str(source), str(target)]
     env.update(

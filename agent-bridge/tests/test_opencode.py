@@ -42,7 +42,7 @@ def test_command_confines_both_modes_and_sets_permissions(monkeypatch, tmp_path)
     assert all(str(job) != cmd[index + 1] for index, value in enumerate(cmd) if value == "--bind")
     bind_sources = [cmd[index + 1] for index, value in enumerate(cmd) if value == "--bind"]
     private = job / "home"
-    assert bind_sources == [str(private), str(tmp_path)]
+    assert bind_sources == [str(private), str(tmp_path), str(opencode.heavy_directory())]
     out = job / "out"  # a writable root inside the job dir must be mounted after the read-only job root
     cmd_out, _ = opencode.command({**st, "writableRoots": [str(out)]}, job, "prompt", resume=True)
     assert cmd_out.index(str(out)) > cmd_out.index(str(job))

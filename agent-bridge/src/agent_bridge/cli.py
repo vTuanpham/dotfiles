@@ -5,7 +5,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import agy, claude, codex, opencode, reference, refresh, retirement
+from . import agy, claude, codex, heavy, opencode, reference, refresh, retirement
 from .acknowledgements import acknowledge, event_lines
 from .core import (
     ARCHIVE,
@@ -357,6 +357,15 @@ def main():
             "job", help="job as <owner>/<name>"
         )
     sub.add_parser("owners", help="list owners, running jobs and unanswered urgent events")
+    h = sub.add_parser("heavy", help="wait for a shared heavy slot and host headroom, then run a command",
+                       description="Heavy: benchmarks, model servers, builds, full test suites, browsers, "
+                       "or bulk data work. Wrap the whole foreground job; do not nest heavy calls. "
+                       "Settings: AGENT_BRIDGE_HEAVY_SLOTS (1), HEAVY_MIN_AVAILABLE_MIB "
+                       "(max of 1024 and 20% RAM), HEAVY_MAX_LOAD (80% of CPU count); "
+                       "all names use the AGENT_BRIDGE_ prefix.")
+    h.add_argument("--memory-max-mib",
+                   help="optional systemd user scope RAM cap; warns and falls back if unavailable")
+    h.add_argument("argv", nargs=argparse.REMAINDER, help="-- <command> [arguments...]")
     peers = sub.add_parser("peers", help="list sibling jobs under this job's owner")
     peers.add_argument("job", nargs="?", help="job used to select the owner; defaults to AGENT_BRIDGE_JOB")
     result = sub.add_parser("result", help="print messages from a job's final turn")
@@ -457,6 +466,9 @@ def main():
                     )
     runner_fd = None
     try:
+        if a.command == "heavy":
+            heavy.run(a.argv[1:] if a.argv[:1] == ["--"] else a.argv, a.memory_max_mib)
+            return
         if a.command == "guide":
             names = {"workflow": ("overview",), "plans": ("models",)}
             print(guide(*names.get(a.topic, ("overview", "models"))))
@@ -515,6 +527,10 @@ def main():
         if a.command == "owners":
             from .watch import job_dirs, running
 
+            host = heavy.status()
+            print(host.summary)
+            if host.warning:
+                print(f"WARNING: host overloaded: {host.warning}; pause heavy work", file=sys.stderr)
             for owner in sorted(p for p in JOBS.iterdir() if p.is_dir()) if JOBS.is_dir() else ():
                 jobs = list(job_dirs([owner.name]))
                 root_file = owner / "root.json"

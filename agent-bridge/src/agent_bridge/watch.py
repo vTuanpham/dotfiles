@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from . import heavy
 from .acknowledgements import cursor_for, displayed, event_lines, pending, read_owner
 from .acknowledgements import urgent as is_urgent
 from .core import JOBS, load_state, log
@@ -142,10 +143,29 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
     identities = {}
     first, idle_ticks, stalled, first_seen, last_kind = True, 0, set(), {}, {}
     samples, busy_at = {}, {}  # job -> (time, CPU seconds) at the last sample; job -> last time it was busy
+    host_checked, host_printed, host_warned, host_sample, oom_seen = None, None, False, None, None
     while True:
         alive = urgent = False
         fired = {}
         now = time.time()
+        if host_checked is None or now - host_checked >= 10:
+            host = heavy.status(host_sample)
+            host_sample = host.sample
+            if host_printed is None or now - host_printed >= 60:
+                print(host.summary, flush=True)
+                host_printed = now
+            if host.warning and not host_warned:
+                print(f"WARNING: host overloaded: {host.warning}; pause heavy work | {host.summary}",
+                      flush=True)
+                host_warned = True
+            group = host_sample.slice if host_sample else None
+            if group and group.oom_kill is not None:
+                if group.oom_kill and (oom_seen is None or group.oom_kill > oom_seen):
+                    print(f"WARNING: codex.slice oom_kill={group.oom_kill} "
+                          f"({'total recorded' if oom_seen is None else 'increased'}); pause heavy work",
+                          flush=True)
+                oom_seen = group.oom_kill
+            host_checked = now
         for job in job_dirs(owners):
             f = job / "live.jsonl"
             offsets.setdefault(job, 0)

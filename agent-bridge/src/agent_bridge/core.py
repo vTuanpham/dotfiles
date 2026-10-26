@@ -37,7 +37,10 @@ MESSAGING_RULE = (
     "it with 'TO'. The runner delivers it into that peer's live turn. Use it for "
     "concrete cross-area requests or hand-offs, not chatter; replies arrive as '[from <name>] ...'. "
     "Coordinator steers may arrive mid-turn as user messages; follow them. You are a delegated worker "
-    "and must never start agent-bridge jobs, subagents, or other agents yourself."
+    "and must never start agent-bridge jobs, subagents, or other agents yourself. "
+    "Run heavy commands (benchmarks, model servers, builds, full test suites, headless browsers, "
+    "bulk data work) through agent-bridge heavy -- <command>. Wrap the whole foreground job; "
+    "do not nest heavy calls or background a server outside its slot. Keep normal reads and edits unwrapped."
 )
 REDELIVERED = "(redelivered after a runner restart; skip it if you already handled it)"
 
