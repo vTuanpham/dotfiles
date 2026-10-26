@@ -5,14 +5,15 @@ import sys
 import time
 from pathlib import Path
 
-from . import agy, claude, codex, heavy, opencode, reference, refresh, retirement
-from .acknowledgements import acknowledge, event_lines
+from . import agy, claude, codex, heavy, opencode, reference, refresh, resources, retirement, retries
+from .acknowledgements import acknowledge, event_lines, urgent
 from .core import (
     ARCHIVE,
     JOBS,
     POLL,
     WORKER_FLAG,
     human,
+    job_caps,
     load_state,
     lock_runner,
     log,
@@ -122,12 +123,12 @@ def unanswered_urgent(job):
     start, end = (turns[-2] if len(turns) > 1 else -1), (turns[-1] if turns else len(evs) - 1)
     if list((Path(job) / "steer").glob("[0-9]*.md")):
         return 0
-    urgent = [
+    blocking = [
         i
         for i in range(start + 1, end + 1)
-        if evs[i].get("kind") in ("message", "question") and evs[i].get("level") == "urgent"
+        if evs[i].get("kind") in ("message", "question") and urgent(evs[i])
     ]
-    if urgent and any(event.get("kind") == "stopped" for event in evs[urgent[-1] + 1 :]):
+    if blocking and any(event.get("kind") == "stopped" for event in evs[blocking[-1] + 1 :]):
         return 0
     last_steer = max(
         (
@@ -137,7 +138,7 @@ def unanswered_urgent(job):
         ),
         default=-1,
     )
-    return sum(i > last_steer for i in urgent)
+    return sum(i > last_steer for i in blocking)
 
 
 def linger(job, state, state_path, backend):
@@ -158,7 +159,7 @@ def linger(job, state, state_path, backend):
             state = load_state(job)
             state["autoAnswers"] = 0
             save(state_path, state)
-            backend.run(job, state, state_path, "", resume=True)
+            retries.run(job, state, state_path, backend, "", True, {})
             if not unanswered_urgent(job):
                 return
             deadline = time.monotonic() + wait
@@ -175,7 +176,7 @@ def linger(job, state, state_path, backend):
                 "and continue.",
             )
             log(job, "root_absent", level="urgent", minutes=int(wait // 60), count=state["autoAnswers"])
-            backend.run(job, state, state_path, "", resume=True)
+            retries.run(job, state, state_path, backend, "", True, {})
             if not unanswered_urgent(job):
                 return
             deadline = time.monotonic() + wait
@@ -203,7 +204,8 @@ def run_with_linger(job, state, state_path, backend, prompt, resume, extra, runn
         while True:
             live_path = job / "live.jsonl"
             before = live_path.stat().st_size if live_path.exists() else 0
-            backend.run(job, state, state_path, prompt, resume=resume, **extra)
+            if not retries.run(job, state, state_path, backend, prompt, resume, extra):
+                return
             if any(e.get("kind") == "root_steer" for e in events(job, before)):
                 state["autoAnswers"] = 0
                 save(state_path, state)
@@ -277,7 +279,8 @@ def main():
     )
     sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
     g = sub.add_parser("guide", help="read full workflow or Plans guidance")
-    g.add_argument("topic", nargs="?", choices=("workflow", "plans"), help="omit to read both guides")
+    g.add_argument("topic", nargs="?", choices=("workflow", "plans", "heavy"),
+                   help="omit to read workflow and plans")
     sub.add_parser(
         "sessions", help="export native job identities as JSON (no transcripts)",
         description="Export native job identities across owners as JSON (no transcript data).",
@@ -308,6 +311,8 @@ def main():
     )
     s.add_argument("--model", help="backend model ID")
     s.add_argument("--effort", help="backend reasoning effort or variant")
+    s.add_argument("--memory", help="per-job scope cap, such as 4G; default CODEX_JOB_MEMORY_MAX or 2500M")
+    s.add_argument("--cpu", help="per-job scope cap, such as 400%; defaults to CODEX_JOB_CPU_QUOTA or 300%")
     s.add_argument(
         "--writable-root", action="append", help="extra writable directory; workspace-write only, repeatable"
     )
@@ -329,10 +334,12 @@ def main():
     s.add_argument("--prompt-file", help="read prompt from PATH or '-' for stdin; default is <job>/prompt.md")
     s.add_argument("--detach", action="store_true", help="run in the background and return the job path")
     s.add_argument("--watch", **WATCH)
-    r = sub.add_parser("resume", help="resume an existing job; without a prompt, deliver queued steers")
+    r = sub.add_parser("resume", help="continue the same job/session; queued steers take precedence")
     r.add_argument("job", help="job as <owner>/<name>")
     r.add_argument("--model", help="switch model starting on the next turn")
     r.add_argument("--effort", help="switch effort or variant starting on the next turn")
+    r.add_argument("--memory", help="memory cap for the next runner launch, such as 4G")
+    r.add_argument("--cpu", help="CPU cap for the next runner launch, such as 400%")
     r.add_argument("--account", help="switch agy account")
     r.add_argument("--prompt-file", help="read follow-up from PATH or '-' for stdin")
     r.add_argument("--detach", action="store_true", help="run in the background and return the job path")
@@ -358,13 +365,15 @@ def main():
         )
     sub.add_parser("owners", help="list owners, running jobs and unanswered urgent events")
     h = sub.add_parser("heavy", help="wait for a shared heavy slot and host headroom, then run a command",
-                       description="Heavy: benchmarks, model servers, builds, full test suites, browsers, "
-                       "or bulk data work. Wrap the whole foreground job; do not nest heavy calls. "
+                       description="Heavy: model inference/benchmarks, dataset downloads/extraction, full "
+                       "suites, long-lived servers/headless browsers, or >1 GiB/several cores for >1 minute. "
+                       "Do not wrap runners, git, edits, reads, lint, type checks or targeted tests. "
+                       "Wrap the whole foreground job; do not nest heavy calls. "
                        "Settings: AGENT_BRIDGE_HEAVY_SLOTS (1), HEAVY_MIN_AVAILABLE_MIB "
-                       "(max of 1024 and 20% RAM), HEAVY_MAX_LOAD (80% of CPU count); "
+                       "(max of 1024 and 20% effective RAM), HEAVY_MAX_LOAD (80% of CPU count); "
                        "all names use the AGENT_BRIDGE_ prefix.")
     h.add_argument("--memory-max-mib",
-                   help="optional systemd user scope RAM cap; warns and falls back if unavailable")
+                   help="standalone scope RAM cap; inherited worker caps stay in place; warns if unavailable")
     h.add_argument("argv", nargs=argparse.REMAINDER, help="-- <command> [arguments...]")
     peers = sub.add_parser("peers", help="list sibling jobs under this job's owner")
     peers.add_argument("job", nargs="?", help="job used to select the owner; defaults to AGENT_BRIDGE_JOB")
@@ -387,8 +396,10 @@ def main():
     w.add_argument(
         "--until-event",
         action="store_true",
-        help="replay unacknowledged events; return with a summary on urgency or no runners",
+        help="wake on completion/failure, questions, errors or explicit blocking/URGENT messages",
     )
+    w.add_argument("--include-info", action="store_true",
+                   help="also wake on routine messages, slow/stall notices and other informational events")
     w.add_argument(
         "--stall-min",
         type=int,
@@ -470,7 +481,7 @@ def main():
             heavy.run(a.argv[1:] if a.argv[:1] == ["--"] else a.argv, a.memory_max_mib)
             return
         if a.command == "guide":
-            names = {"workflow": ("overview",), "plans": ("models",)}
+            names = {"workflow": ("overview",), "plans": ("models",), "heavy": ("heavy",)}
             print(guide(*names.get(a.topic, ("overview", "models"))))
             return
         if a.command == "sessions":
@@ -514,7 +525,7 @@ def main():
                     "--title must be 3-48 characters on one line and cannot be just the backend name"
                 )
         if a.command == "watch":
-            if not watch(a.owner, a.until_event, a.stall_min, a.timeout):
+            if not watch(a.owner, a.until_event, a.stall_min, a.timeout, include_info=a.include_info):
                 raise SystemExit(124)
             return
         if a.command == "ack":
@@ -542,7 +553,9 @@ def main():
                     f"{owner.name}: jobs={len(jobs)} running={sum(running(load_state(j)) for j in jobs)} "
                     f"unanswered_urgent={sum(unanswered_urgent(j) for j in jobs)} "
                     f"size={human(sum(tree_size(j) for j in jobs))} "
-                    f"last_root_command={root.get('at', 'unknown')}"
+                    f"last_root_command={root.get('at', 'unknown')} "
+                    "caps=" + ",".join(f"{j.name}[memory={job_caps(load_state(j))['memoryMax']},"
+                                       f"cpu={job_caps(load_state(j))['cpuQuota']}]" for j in jobs)
                 )
             return
         if a.command == "peers":
@@ -704,8 +717,18 @@ def main():
                 state.update(sessionId="")
             (job / "steer").mkdir(exist_ok=True)
             (job / "inbox").mkdir(exist_ok=True)
-        if resume:  # a resume without a prompt only delivers queued steers
+        if a.command in {"start", "resume"}:
+            caps = job_caps(state)
+            if a.memory:
+                caps["memoryMax"] = a.memory
+            if a.cpu:
+                caps["cpuQuota"] = a.cpu
+            resources.validate_caps(caps["memoryMax"], caps["cpuQuota"])
+            state.update(caps)
+        if resume:
             prompt = read_prompt(a.prompt_file) if getattr(a, "prompt_file", None) else ""
+            if a.command == "resume" and not prompt and not list((job / "steer").glob("[0-9]*.md")):
+                prompt = "Continue."
         elif a.prompt_file:
             prompt = read_prompt(a.prompt_file)
             (job / "prompt.md").write_text(prompt + "\n", encoding="utf-8")
@@ -716,7 +739,8 @@ def main():
         extra = {"compact": True} if a.command == "compact" else {}
         if a.command == "resume":
             count = len(list((job / "steer").glob("[0-9]*.md")))
-            print(f"resume: delivering {count} queued steer(s)", flush=True)
+            print(f"resume: delivering {count} queued steer(s)" if count else
+                  "resume: continuing the same native session", flush=True)
         watching = getattr(a, "watch", None)
         launch_message = (f"delivered by resuming the idle job; watch: agent-bridge watch {a.job}"
                           if a.command == "steer" else str(job))

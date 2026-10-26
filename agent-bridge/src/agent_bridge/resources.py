@@ -2,8 +2,10 @@
 
 import math
 import os
+import re
 import time
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 MIB = 1024 * 1024
@@ -160,3 +162,22 @@ def wait_reason(host, policy):
         if group.throttled or group.cpu_fraction is not None and group.cpu_fraction >= 0.8:
             reasons.append(f"{group.path.name} CPU busy/throttled")
     return "; ".join(reasons)
+
+
+def validate_caps(memory, cpu):
+    """Validate per-job limits against the shared slice/ancestors, never the calling job's scope."""
+    host = pressure()
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([KMGT]?)", memory)
+    if not match:
+        raise ValueError("memory cap must be a positive size in bytes or K/M/G/T, such as 4G")
+    size = Decimal(match[1]) * 1024 ** (" KMGT".index(match[2]) if match[2] else 0)
+    quota = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)%", cpu)
+    if size <= 0 or size != int(size) or not quota or Decimal(quota[1]) <= 0:
+        raise ValueError("memory and CPU caps must be positive; CPU uses a percentage such as 400%")
+    ancestors = [g for g in host.groups if host.slice and host.slice.path.is_relative_to(g.path)]
+    memory_max = min([host.total, *[g.maximum for g in ancestors if g.maximum is not None]])
+    cpu_max = min([float(os.cpu_count() or 1), *[g.cpus for g in ancestors if g.cpus is not None]])
+    if size > memory_max:
+        raise ValueError(f"memory cap exceeds effective slice/host limit ({memory_max / MIB:.0f} MiB)")
+    if Decimal(quota[1]) > Decimal(str(cpu_max)) * 100:
+        raise ValueError(f"CPU cap exceeds effective slice/host limit ({cpu_max * 100:g}%)")

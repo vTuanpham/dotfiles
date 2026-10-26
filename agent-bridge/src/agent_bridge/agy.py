@@ -14,6 +14,7 @@ from .core import (
     MESSAGING_RULE,
     POLL,
     capped,
+    command_env,
     confirm_steer,
     link,
     log,
@@ -96,7 +97,7 @@ def account_env(account):
     home = ACCOUNTS / account
     if not (home / TOKEN).is_file():
         raise RuntimeError(f"account {account!r} has no login: run `HOME={home} agy` in a terminal")
-    return {**os.environ, "HOME": str(home)}
+    return command_env(HOME=str(home))
 
 
 def build_home(job, state):
@@ -250,7 +251,7 @@ def run(job, state, path, prompt, resume=False):
     cmd.append("-p=")
     err = (Path(job) / "agy.stderr.log").open("a", encoding="utf-8")
     proc = subprocess.Popen(
-        capped(cmd),
+        capped(cmd, state),
         cwd=state["cwd"],
         env=worker_env(job, HOME=str(Path(job) / "home")),
         stdin=subprocess.PIPE,

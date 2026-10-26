@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 
 from . import watch
-from .core import append, human, load_state, lock_runner, save, stamp, tree_size
+from .core import append, command_env, human, load_state, lock_runner, save, stamp, tree_size
 
 
 def purge_due(state, now=None):
@@ -27,10 +27,12 @@ def _purge(job):
     freed = tree_size(job)
     wt = job / "out/wt"
     if not (job / "out").is_symlink() and not wt.is_symlink() and (wt / ".git").exists():
-        status = subprocess.run(["git", "-C", str(wt), "status", "--porcelain"], capture_output=True)
+        status = subprocess.run(["git", "-C", str(wt), "status", "--porcelain"],
+                                env=command_env(), capture_output=True)
         if status.returncode or status.stdout:
             raise RuntimeError("worktree is dirty or unreadable; refusing to purge")
-        removed = subprocess.run(["git", "-C", str(wt), "worktree", "remove", str(wt)], capture_output=True)
+        removed = subprocess.run(["git", "-C", str(wt), "worktree", "remove", str(wt)],
+                                 env=command_env(), capture_output=True)
         if removed.returncode:
             raise RuntimeError("could not remove clean worktree; refusing to purge")
     shutil.rmtree(job)

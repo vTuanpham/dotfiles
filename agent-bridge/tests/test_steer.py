@@ -68,6 +68,24 @@ def wait_idle(job):
     pytest.fail("runner did not finish")
 
 
+@pytest.mark.parametrize("queued", [False, True])
+def test_resume_continues_same_thread_or_delivers_queued_steer(job, monkeypatch, queued):
+    if queued:
+        core.make_steer(job, "queued instruction")
+    monkeypatch.setattr(cli.codex, "run", deliver)
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", "resume", "owner/job",
+                                     "--model", "replacement", "--effort", "high"])
+    cli.main()
+    events = cli.events(job)
+    launch = next(event for event in events if event["kind"] == "test_run")
+    assert launch["prompt"] == ("" if queued else "Continue.")
+    assert launch["resume"] is True
+    state = core.load_state(job)
+    assert state["threadId"] == "original" and state["model"] == "replacement" and state["effort"] == "high"
+    delivered = [event["text"] for event in events if event["kind"] == "test_delivery"]
+    assert delivered == (["queued instruction"] if queued else [])
+
+
 @pytest.mark.parametrize("args,timeout,text", [
     (("owner/job", "--watch", "after flag"), 1800, "after flag"),
     (("owner/job", "--watch", "20", "after timeout"), 20, "after timeout"),

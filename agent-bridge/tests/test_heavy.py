@@ -1,3 +1,4 @@
+import json
 import os
 import select
 import signal
@@ -68,7 +69,9 @@ def test_process_slot_exclusion_and_release(host, tmp_path, crash):
         assert "heavy_running=1" in summary
         assert not two.exists()
         assert select.select([second.stderr], [], [], 10)[0]
-        assert b"queue position 1/1" in second.stderr.readline()
+        waiting = second.stderr.readline()
+        assert b"queue position 1/1" in waiting
+        assert b"holder=" in waiting and b"elapsed=" in waiting and b"alive=yes (kernel lock)" in waiting
         assert not two.exists()
         if crash:
             first.kill()
@@ -123,8 +126,10 @@ def test_headroom_wait_reads_proc_again(host, monkeypatch, capsys, blocked):
         write_proc(host)
 
     def execute(name, args, env):
+        active = env.get("AGENT_BRIDGE_HEAVY_ACTIVE")
+        env.clear()
         assert args == ["program", "literal $ARG", "--flag"]
-        assert env["AGENT_BRIDGE_HEAVY_ACTIVE"] == "1"
+        assert active == "1"
         raise Executed
 
     monkeypatch.setattr(heavy.time, "sleep", tick)
@@ -164,6 +169,7 @@ def test_systemd_unavailable_falls_back_before_command(host, monkeypatch, capsys
     executed = []
 
     def execute(name, args, env):
+        env.clear()
         executed.append(args)
         raise Executed
 
@@ -183,7 +189,8 @@ def test_systemd_scope_reenters_before_locking_and_never_retries(host, monkeypat
     def probe(args, **kwargs):
         return subprocess.CompletedProcess(args, 0, "--expand-environment=BOOL" if modern else "", "")
 
-    def execute(name, args):
+    def execute(name, args, env):
+        env.clear()
         assert name == "systemd-run"
         assert ("--expand-environment=no" in args) is modern
         assert "MemoryMax=104857600" in args
@@ -193,7 +200,7 @@ def test_systemd_scope_reenters_before_locking_and_never_retries(host, monkeypat
         raise Executed
 
     monkeypatch.setattr(heavy.subprocess, "run", probe)
-    monkeypatch.setattr(heavy.os, "execvp", execute)
+    monkeypatch.setattr(heavy.os, "execvpe", execute)
     with pytest.raises(Executed):
         heavy.run(["program", "$literal"], "100")
 
@@ -239,3 +246,64 @@ def test_owners_and_watch_report_pressure_once(host, monkeypatch, tmp_path, caps
     watch.watch(["absent"])
     output = capsys.readouterr().out
     assert "host: available=" in output and output.count("WARNING: host overloaded") == 1
+
+
+def test_holder_record_contains_identity_but_no_arguments(host, monkeypatch):
+    monkeypatch.setenv("AGENT_BRIDGE_JOB", "owner/benchmark")
+    namespace = os.readlink("/proc/self/ns/pid")
+    monkeypatch.setenv("AGENT_BRIDGE_HOST_PID_NAMESPACE", namespace)
+    captured = []
+
+    def execute(name, command, env):
+        env.clear()
+        records = list(heavy.directory().glob("*.request"))
+        captured.append(json.loads(records[0].read_text()))
+        raise Executed
+
+    monkeypatch.setattr(heavy.os, "execvpe", execute)
+    with pytest.raises(Executed):
+        heavy.run(["/usr/bin/benchmark", "fixture-private-argument"])
+    row = captured[0]
+    assert row["job"] == "owner/benchmark" and row["command"] == "benchmark"
+    assert row["running"] and row["pid"] == os.getpid() and row["host_pid"] == os.getpid()
+    assert row["started_at"] and row["started_ns"] > 0
+    assert "fixture-private-argument" not in json.dumps(row)
+    assert not list(heavy.directory().glob("*.request"))
+
+
+def test_dead_holder_is_removed_by_kernel_lock_state_without_pid_access(host):
+    folder = heavy.prepare()
+    record = folder / "000.request"
+    record.write_text(json.dumps({"running": True, "slots": 1, "job": "owner/dead"}))
+    dead = []
+    with heavy.gate(folder):
+        assert heavy.entries(folder, dead=dead) == []
+    assert dead == ["owner/dead"] and not record.exists()
+
+
+def test_host_observer_resolves_a_namespaced_holder_pid(monkeypatch, tmp_path):
+    proc = tmp_path / "proc"
+    (proc / "self/ns").mkdir(parents=True)
+    (proc / "self/ns/pid").symlink_to("pid:[host]")
+    (proc / "42/ns").mkdir(parents=True)
+    (proc / "42/ns/pid").symlink_to("pid:[worker]")
+    (proc / "42/status").write_text("NSpid:\t42\t3\n")
+    monkeypatch.setattr(heavy, "PROC", proc)
+    row = {"host_namespace": "pid:[host]", "namespace": "pid:[worker]", "pid": 3}
+    assert heavy.resolve_host_pid(row) == 42
+    row["host_namespace"] = "pid:[other]"
+    assert heavy.resolve_host_pid(row) is None
+
+
+def test_light_command_runs_directly_while_heavy_slot_is_occupied(host, tmp_path):
+    marker, release = tmp_path / "holder", tmp_path / "release"
+    holder = launch(marker, release)
+    try:
+        started(marker)
+        done = subprocess.run([sys.executable, "-c", "print('light completed')"],
+                              capture_output=True, text=True, timeout=5)
+        assert done.returncode == 0 and done.stdout == "light completed\n"
+        assert holder.poll() is None
+    finally:
+        release.touch()
+        holder.communicate(timeout=5)

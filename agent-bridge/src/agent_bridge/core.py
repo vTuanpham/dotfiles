@@ -1,11 +1,14 @@
 import fcntl
 import json
 import os
+import re
 import shutil
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+
+from . import retries
 
 POLL = 0.2
 URGENT_KINDS = {
@@ -17,8 +20,6 @@ URGENT_KINDS = {
     "permission_denied",
     "peer_unknown",
     "steer_queued",
-    "stalled",
-    "slow",
 }
 HOME = Path(os.environ.get("AGENT_BRIDGE_HOME", "~/.local/state/agent-bridge")).expanduser()
 JOBS = HOME / "jobs"
@@ -38,9 +39,13 @@ MESSAGING_RULE = (
     "concrete cross-area requests or hand-offs, not chatter; replies arrive as '[from <name>] ...'. "
     "Coordinator steers may arrive mid-turn as user messages; follow them. You are a delegated worker "
     "and must never start agent-bridge jobs, subagents, or other agents yourself. "
-    "Run heavy commands (benchmarks, model servers, builds, full test suites, headless browsers, "
-    "bulk data work) through agent-bridge heavy -- <command>. Wrap the whole foreground job; "
-    "do not nest heavy calls or background a server outside its slot. Keep normal reads and edits unwrapped."
+    "Use agent-bridge heavy -- <command> only for model inference or benchmarks, dataset downloads or "
+    "extraction, full test suites, long-lived local servers or headless browsers, and commands expected "
+    "to use more than about 1 GiB or several cores for over a minute. Do not wrap worker runners, git, "
+    "edits, reads, lint, type checks or targeted tests; everything else runs directly. "
+    "Wrap the whole heavy foreground job; do not nest heavy calls or background a server outside its slot. "
+    "Waiting for a heavy slot is normal and is never a blocker to report. Do not send queue progress "
+    "messages; report only a holder shown dead or a wait exceeding 30 minutes."
 )
 REDELIVERED = "(redelivered after a runner restart; skip it if you already handled it)"
 
@@ -102,14 +107,16 @@ def load_state(job):
 
 
 def log(job, kind, level=None, **fields):
+    event = {"at": stamp(), "kind": kind,
+             "level": level or ("urgent" if kind in URGENT_KINDS else "info"), **fields}
+    attempt = retries.ATTEMPT.get()
+    if attempt is not None and kind in {"error", "turn_failed", "turn_completed"}:
+        attempt.append(event)
+        if retries.failed(event):
+            event = {**event, "kind": "attempt_failed", "level": "info", "originalKind": kind}
     append(
         Path(job) / "live.jsonl",
-        {
-            "at": stamp(),
-            "kind": kind,
-            "level": level or ("urgent" if kind in URGENT_KINDS else "info"),
-            **fields,
-        },
+        event,
     )
 
 
@@ -180,6 +187,7 @@ def human(size):
 
 
 WORKER_FLAG = "AGENT_BRIDGE_WORKER"
+SECRET_ENV = re.compile("KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH|COOKIE", re.IGNORECASE)
 
 
 def link(target, path):
@@ -188,20 +196,40 @@ def link(target, path):
         Path(path).symlink_to(target)
 
 
+def command_env(**extra):
+    """One environment boundary for workers and subprocesses; explicit denial wins over opt-in."""
+    policy = {}
+    for name in ("AGENT_BRIDGE_PASS_ENV", "AGENT_BRIDGE_DENY_ENV"):
+        value = os.environ.get(name, "")
+        names = {part.strip() for part in value.split(",")} if value else set()
+        if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", entry) for entry in names):
+            raise ValueError(f"{name} must contain comma-separated environment variable names")
+        policy[name] = names
+    passed, denied = policy["AGENT_BRIDGE_PASS_ENV"], policy["AGENT_BRIDGE_DENY_ENV"]
+    return {name: value for name, value in {**os.environ, **extra}.items()
+            if name not in denied and (name in passed or not SECRET_ENV.search(name))}
+
+
 def worker_env(job=None, **extra):
-    """Environment for a backend process: everything it runs is a delegated worker, which the CLI refuses."""
+    """Filtered backend environment plus the bridge worker identity and CLI restrictions."""
     return {
-        **os.environ,
+        **command_env(**extra),
+        "AGENT_BRIDGE_HOST_PID_NAMESPACE": os.readlink("/proc/self/ns/pid"),
         WORKER_FLAG: "1",
         **({"AGENT_BRIDGE_JOB": f"{Path(job).parent.name}/{Path(job).name}"} if job else {}),
-        **extra,
     }
 
 
-def capped(cmd):
+def job_caps(state=None):
+    state = state or {}
+    return {"memoryMax": state.get("memoryMax") or os.environ.get("CODEX_JOB_MEMORY_MAX", "2500M"),
+            "cpuQuota": state.get("cpuQuota") or os.environ.get("CODEX_JOB_CPU_QUOTA", "300%")}
+
+
+def capped(cmd, state=None):
     if not shutil.which("systemd-run"):
         return cmd
-    mem, cpu = os.environ.get("CODEX_JOB_MEMORY_MAX", "2500M"), os.environ.get("CODEX_JOB_CPU_QUOTA", "300%")
+    caps = job_caps(state)
     return [
         "systemd-run",
         "--user",
@@ -209,11 +237,11 @@ def capped(cmd):
         "--quiet",
         "--slice=codex.slice",
         "-p",
-        f"MemoryMax={mem}",
+        f"MemoryMax={caps['memoryMax']}",
         "-p",
         "MemorySwapMax=512M",
         "-p",
-        f"CPUQuota={cpu}",
+        f"CPUQuota={caps['cpuQuota']}",
         "nice",
         "-n",
         "10",

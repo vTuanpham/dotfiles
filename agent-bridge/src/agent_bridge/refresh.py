@@ -11,7 +11,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import opencode, reference
-from .core import HOME
+from .core import HOME, command_env
 
 DIR = HOME / "refresh"
 STAMP = DIR / "last"
@@ -149,7 +149,7 @@ def plans():
         ("agy models (id, effort, tier, bucket)", models),
     ):
         try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout
+            out = subprocess.run(cmd, env=command_env(), capture_output=True, text=True, timeout=60).stdout
         except (OSError, subprocess.SubprocessError):
             out = "(unavailable)"
         parts.append(f"== {title}\n{EMAIL.sub('<email>', out).strip()}\n")
@@ -191,7 +191,7 @@ def run(force=False):
     cmd += ["--effort", effort, "--title", "Refresh model reference", "--cwd", str(work)]
     cmd += ["--sandbox", "workspace-write", "--prompt-file", str(work / "brief.md")]
     try:
-        done = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT_S)
+        done = subprocess.run(cmd, env=command_env(), capture_output=True, text=True, timeout=TIMEOUT_S)
     except subprocess.TimeoutExpired:
         print(f"the refresh worker timed out; nothing changed (job {job})")
         return 1
@@ -202,7 +202,8 @@ def run(force=False):
     new = (work / "proposed.md").read_text(encoding="utf-8")
     errors, notes = validate(current, new, today)
     report(work, current, new, errors, notes)
-    subprocess.run([sys.executable, "-m", "agent_bridge.cli", "retire", job], capture_output=True)
+    subprocess.run([sys.executable, "-m", "agent_bridge.cli", "retire", job],
+                   env=command_env(), capture_output=True)
     if errors:
         print(f"proposal rejected, nothing changed: {'; '.join(errors)}\nreport: {work / 'report.md'}")
         return 1

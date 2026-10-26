@@ -165,7 +165,7 @@ def run(job, state, path, prompt, resume=False, compact=False):
         return
     cmd = command(state, job, resume)
     proc = subprocess.Popen(
-        capped(cmd),
+        capped(cmd, state),
         cwd=state["cwd"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

@@ -14,6 +14,7 @@ from .core import (
     POLL,
     REDELIVERED,
     capped,
+    command_env,
     confirm_steer,
     log,
     route_to_peers,
@@ -234,7 +235,7 @@ def run(job, state, path, prompt, resume=False):
             proc = None
             try:
                 proc = subprocess.Popen(
-                    capped(cmd),
+                    capped(cmd, state),
                     cwd=state["cwd"],
                     env=env,
                     stdin=subprocess.PIPE,
@@ -365,7 +366,8 @@ def run(job, state, path, prompt, resume=False):
 
 
 def models():
-    result = subprocess.run([binary(), "models"], capture_output=True, text=True, timeout=120)
+    result = subprocess.run([binary(), "models"], env=command_env(),
+                            capture_output=True, text=True, timeout=120)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or f"opencode models exited with code {result.returncode}")
     rows = result.stdout.splitlines()

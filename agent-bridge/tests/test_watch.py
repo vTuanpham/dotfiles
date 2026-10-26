@@ -71,13 +71,15 @@ def test_resumed_job_gets_a_fresh_stall_clock(monkeypatch, tmp_path, capsys):
 
 def test_new_stall_wakes_an_until_event_watch(monkeypatch, tmp_path, capsys):
     root, job = setup_job(tmp_path)
+    (job / "live.jsonl").write_text("")
     os.utime(job / "live.jsonl", (0, 0))
     monkeypatch.setattr(watcher, "JOBS", root)
     monkeypatch.setattr(watcher, "running", lambda state: True)
     times = iter([1000, 1200])
     monkeypatch.setattr(watcher.time, "time", lambda: next(times, 1200))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
-    assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=10_000) is True
+    assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=10_000,
+                         include_info=True) is True
     assert "silent for 3m while running (stalled?)" in capsys.readouterr().out
 
 
@@ -163,6 +165,7 @@ def test_socket_bytes_sums_only_the_jobs_sockets(monkeypatch):
 
 def test_a_silent_job_with_idle_processes_is_stalled(monkeypatch, tmp_path, capsys):
     root, job = setup_job(tmp_path)
+    (job / "live.jsonl").write_text("")
     os.utime(job / "live.jsonl", (0, 0))
     monkeypatch.setattr(watcher, "JOBS", root)
     monkeypatch.setattr(watcher, "running", lambda state: True)
@@ -171,7 +174,8 @@ def test_a_silent_job_with_idle_processes_is_stalled(monkeypatch, tmp_path, caps
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
     monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (7.0, {1}))  # an app-server waiting on nothing
     monkeypatch.setattr(watcher, "socket_bytes", lambda pids: {"a b": 100})
-    assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=10) is True
+    assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=10,
+                         include_info=True) is True
     assert "while running (stalled?)" in capsys.readouterr().out
 
 
@@ -302,8 +306,8 @@ def test_rearmed_watch_replays_all_unacknowledged_and_summarizes_each(monkeypatc
 def test_launch_offset_cannot_hide_pending_events(monkeypatch, tmp_path, capsys):
     root, job = setup_job(tmp_path)
     with (job / "live.jsonl").open("a") as stream:
-        stream.write('{"kind":"steer_queued"}\n')
+        stream.write('{"kind":"turn_completed"}\n')
     monkeypatch.setattr(watcher, "JOBS", root)
     monkeypatch.setattr(watcher, "running", lambda _: False)
     watcher.watch(["owner"], until_event=True, offsets={job: (job / "live.jsonl").stat().st_size})
-    assert "owner/worker steer_queued" in capsys.readouterr().out
+    assert "owner/worker turn_completed" in capsys.readouterr().out

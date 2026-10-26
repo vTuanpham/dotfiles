@@ -7,10 +7,20 @@ from contextlib import contextmanager
 from .core import URGENT_KINDS, save
 
 
-def urgent(event):
-    return (event.get("level") == "urgent" or event.get("kind") in URGENT_KINDS
-            or (event.get("kind") == "message"
-                and str(event.get("text", "")).lstrip().upper().startswith("URGENT:")))
+def urgent(event, include_info=False):
+    kind = event.get("kind")
+    if kind in {"heavy_wait", "retry_wait", "retryable_error", "attempt_failed"}:
+        return False
+    if kind in {"turn_completed", "turn_failed", "question", "question_timeout", "error",
+                "approval_declined", "permission_denied", "peer_unknown"}:
+        return True
+    if kind == "message":
+        text = str(event.get("text", "")).lstrip().upper()
+        if (event.get("level") in {"urgent", "blocking"} or event.get("blocking") is True
+                or text.startswith(("URGENT:", "BLOCKING:"))):
+            return True
+    return include_info and (kind in URGENT_KINDS or kind in {"message", "slow", "stalled"}
+                             or event.get("level") == "urgent")
 
 
 def read_owner(owner):
@@ -71,10 +81,11 @@ def event_lines(job, offset=0):
         return
 
 
-def pending(job):
+def pending(job, include_info=False):
     cursor = cursor_for(job, read_owner(job.parent))
     return [(end, event) for end, event in event_lines(job, cursor["through"])
-            if urgent(event) and not (event.get("kind") == "turn_completed" and end <= cursor["completed"])]
+            if urgent(event, include_info)
+            and not (event.get("kind") == "turn_completed" and end <= cursor["completed"])]
 
 
 def displayed(job, end):

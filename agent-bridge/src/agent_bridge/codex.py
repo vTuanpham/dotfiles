@@ -15,6 +15,7 @@ from .core import (
     MESSAGING_RULE,
     POLL,
     capped,
+    command_env,
     link,
     log,
     poll_steers,
@@ -78,11 +79,11 @@ def sync_auth(job):
 
 
 class Rpc:
-    def __init__(self, cwd, stderr):
+    def __init__(self, cwd, stderr, state=None):
         self.err = Path(stderr).open("a", encoding="utf-8")
         try:
             self.p = subprocess.Popen(
-                capped(["codex", "app-server", "--stdio"]),
+                capped(["codex", "app-server", "--stdio"], state),
                 cwd=cwd,
                 # every command the agent runs inherits it
                 env=worker_env(Path(stderr).parent, CODEX_HOME=str(build_home(Path(stderr).parent))),
@@ -153,7 +154,8 @@ class Rpc:
 
 def active_account():
     try:
-        out = subprocess.run(["codex-auth", "list"], capture_output=True, text=True, timeout=20).stdout
+        out = subprocess.run(["codex-auth", "list"], env=command_env(),
+                             capture_output=True, text=True, timeout=20).stdout
     except (OSError, subprocess.TimeoutExpired):
         return ""
     row = next((line.split() for line in out.splitlines() if line.lstrip().startswith("*")), [])
@@ -161,7 +163,7 @@ def active_account():
 
 
 def run(job, state, path, prompt, resume=False, compact=False):
-    rpc = Rpc(state["cwd"], Path(job) / "codex.stderr.log")
+    rpc = Rpc(state["cwd"], Path(job) / "codex.stderr.log", state)
     thread = state.get("threadId", "")
     turn = state.get("activeTurnId")
     usage = {}
@@ -394,7 +396,8 @@ def parse_models(catalog):
 
 
 def models():
-    result = subprocess.run(["codex", "debug", "models"], capture_output=True, text=True, timeout=120)
+    result = subprocess.run(["codex", "debug", "models"], env=command_env(),
+                            capture_output=True, text=True, timeout=120)
     if result.returncode:
         raise RuntimeError(
             result.stderr.strip() or f"codex debug models exited with code {result.returncode}"

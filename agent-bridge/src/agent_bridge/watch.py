@@ -11,7 +11,7 @@ from pathlib import Path
 from . import heavy
 from .acknowledgements import cursor_for, displayed, event_lines, pending, read_owner
 from .acknowledgements import urgent as is_urgent
-from .core import JOBS, load_state, log
+from .core import JOBS, command_env, job_caps, load_state, log
 
 
 def running(state):
@@ -58,7 +58,8 @@ def socket_bytes(pids):
     """TCP bytes moved so far per socket owned by `pids`, from `ss` (per-process I/O counters are not
     always compiled in, and /proc/net counts a whole namespace). {} when `ss` is unavailable."""
     try:
-        out = subprocess.run(["ss", "-tinpH"], capture_output=True, text=True, timeout=5).stdout
+        out = subprocess.run(["ss", "-tinpH"], env=command_env(),
+                             capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
         return {}
     sockets, owner = {}, None
@@ -133,7 +134,7 @@ def line_for(job, event, title=None):
     )
 
 
-def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
+def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None, include_info=False):
     """Returns False when `timeout` seconds pass first. A built-in bound, so a root whose harness allows only
     `agent-bridge ...` commands needs no `timeout` wrapper.
     Legacy launch `offsets` never hide pending events."""
@@ -144,6 +145,7 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
     first, idle_ticks, stalled, first_seen, last_kind = True, 0, set(), {}, {}
     samples, busy_at = {}, {}  # job -> (time, CPU seconds) at the last sample; job -> last time it was busy
     host_checked, host_printed, host_warned, host_sample, oom_seen = None, None, False, None, None
+    queued_jobs, heavy_waiting = frozenset(), set()
     while True:
         alive = urgent = False
         fired = {}
@@ -151,6 +153,7 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
         if host_checked is None or now - host_checked >= 10:
             host = heavy.status(host_sample)
             host_sample = host.sample
+            queued_jobs = host.queued_jobs
             if host_printed is None or now - host_printed >= 60:
                 print(host.summary, flush=True)
                 host_printed = now
@@ -174,11 +177,13 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
             except (OSError, json.JSONDecodeError):
                 state = {}
             label = f"{job.name} ({state['title']})" if state.get("title") else job.name
+            queued = f"{job.parent.name}/{job.name}" in queued_jobs
             if running(state):
                 alive = True
                 first_seen.setdefault(job, now)
                 # a long command or download logs nothing; CPU or TCP traffic of the job's processes is work
-                if job not in samples or now - samples[job][0] >= BUSY_WINDOW:
+                if not queued and not state.get("retry") and (
+                        job not in samples or now - samples[job][0] >= BUSY_WINDOW):
                     tree = tree_cpu(state.get("runnerPid"))
                     if tree is not None:
                         sample = (now, tree[0], socket_bytes(tree[1]))
@@ -191,7 +196,7 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
                     if slower and steps[2] >= PACE_RECENT:
                         recent, usual = round(steps[0]), round(steps[1])
                         print(f"{label}: slow, model steps take {recent}s (usually {usual}s)", flush=True)
-                        log(job, "slow", level="urgent", recentSeconds=recent, usualSeconds=usual,
+                        log(job, "slow", level="info", recentSeconds=recent, usualSeconds=usual,
                             message=f"model steps take {recent}s, usually {usual}s")
                 quiet = min(
                     int(now - first_seen[job]),
@@ -200,7 +205,14 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
                 # busy work earns a longer silence, not an endless one: a native call can spin forever
                 working = now - busy_at.get(job, -math.inf) <= 2 * BUSY_WINDOW
                 limit = stall_min * 60 * (BUSY_STALL_FACTOR if working else 1)
-                if first:
+                if queued:
+                    if job not in heavy_waiting:
+                        print(f"status: {label} waiting for heavy slot", flush=True)
+                        log(job, "heavy_wait", level="info", message="waiting for heavy slot")
+                    heavy_waiting.add(job)
+                    stalled.discard(job)
+                    first_seen[job] = now
+                elif first:
                     data = f.read_bytes() if f.exists() else b""
                     messages = data.count(b'"kind":"message"')
                     try:
@@ -212,20 +224,28 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
                         if last_kind[job] == "root_wait"
                         else f"status: {label} running, last event {quiet // 60}m ago, {messages} messages"
                     )
+                    if state.get("retry"):
+                        retry = state["retry"]
+                        status = f"status: {label} retrying {retry['attempt']}/{retry['maximum']}; same model"
+                    caps = job_caps(state)
+                    status += f" memory={caps['memoryMax']} cpu={caps['cpuQuota']}"
                     print(status, flush=True)
-                elif last_kind.get(job) == "root_wait":
+                elif last_kind.get(job) in {"root_wait", "retry_wait", "retryable_error"}:
                     stalled.discard(job)
                 elif quiet >= limit and job not in stalled:  # once per silence
                     stalled.add(job)
                     why = "processes busy: a long command, or a spinning one?" if working else "stalled?"
                     print(f"{label}: silent for {quiet // 60}m while running ({why})", flush=True)
-                    log(job, "stalled", level="urgent", quietSeconds=quiet, busy=working,
+                    log(job, "stalled", level="info", quietSeconds=quiet, busy=working,
                         message=f"silent for {quiet // 60}m" + (", processes busy" if working else ""))
                 elif quiet <= stall_min * 60:
                     stalled.discard(job)
+                if not queued:
+                    heavy_waiting.discard(job)
             else:
                 first_seen.pop(job, None)
                 stalled.discard(job)
+                heavy_waiting.discard(job)
             if not f.exists():
                 continue
             size = f.stat().st_size
@@ -237,16 +257,20 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None):
                 offsets[job] = end
                 if event.get("kind") == "root_wait" and last_kind.get(job) != "root_wait":
                     print(f"status: {label} waiting for root", flush=True)
+                if event.get("kind") == "retry_wait":
+                    print(f"status: {label} {event.get('message', 'retrying; same model')}", flush=True)
                 last_kind[job] = event.get("kind")
-                if (is_urgent(event) and end > cursor["through"]
+                if (is_urgent(event, include_info=True) and end > cursor["through"]
                         and not (event.get("kind") == "turn_completed" and end <= cursor["completed"])):
                     print(line_for(job, event, state.get("title")), flush=True)
                     displayed(job, end)
-                    fired[job, end] = event
-                    urgent = True
+                    if is_urgent(event, include_info):
+                        fired[job, end] = event
+                        urgent = True
         if until_event and urgent:
-            outstanding = {(job, end): event for job in job_dirs(owners) for end, event in pending(job)}
-            print("watch: urgent events (unacknowledged until result <job> or ack <owner/job>):", flush=True)
+            outstanding = {(job, end): event for job in job_dirs(owners)
+                           for end, event in pending(job, include_info)}
+            print("watch: wake events (unacknowledged until result <job> or ack <owner/job>):", flush=True)
             for (job, end), event in (fired | outstanding).items():
                 status = "unacknowledged" if (job, end) in outstanding else "acknowledged"
                 print(f"  {job.parent.name}/{job.name} {event.get('kind')} "

@@ -226,7 +226,7 @@ def fake_turns(monkeypatch, outputs, codes):
         commands.append(cmd)
         return Process()
 
-    monkeypatch.setattr(opencode, "capped", lambda cmd: cmd)
+    monkeypatch.setattr(opencode, "capped", lambda cmd, state=None: cmd)
     monkeypatch.setattr(opencode.subprocess, "Popen", popen)
     monkeypatch.setattr(opencode.select, "select", lambda *_: ([procs[-1].stdout], [], []))
     monkeypatch.setattr(opencode.os, "read", lambda *_: outputs.popleft())

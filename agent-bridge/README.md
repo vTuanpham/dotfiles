@@ -35,9 +35,12 @@ worker/model/effort labels and an account quota row.
 
 ## When a worker needs you
 
-Every watch replays unacknowledged urgent events before following live work.
-`watch --until-event` exits with every pending job, event kind and timestamp;
-re-arming cannot discard a completion. Printing is not acknowledgement:
+Every watch replays unacknowledged events before following live work.
+`watch --until-event` wakes for completion/failure, questions, errors and explicit
+blocking/URGENT messages, with each pending job, event kind and timestamp.
+Routine messages and slow/stall notices remain visible; `--include-info` also
+wakes for them. Queue waits and retry status never wake the root.
+Re-arming cannot discard a completion. Printing is not acknowledgement:
 `agent-bridge result <owner>/<job>` acknowledges that job's completions, while
 `agent-bridge ack <owner>` (or `<owner>/<job>`) acknowledges urgent events already
 displayed by watch. Handle questions and errors before acknowledging them. New
@@ -80,6 +83,46 @@ Notes:
 - **Reference updates:** see [Reference refresh](#reference-refresh) below; the CLI help owns the review workflow.
 
 Develop: `uv run pytest` and `uv run ruff check .` in this directory.
+
+## Heavy commands
+
+`agent-bridge heavy -- <command>` queues heavy foreground work across all owners
+and harnesses of the same host user. Workers receive this rule automatically.
+Heavy means inference/benchmarks, dataset download/extraction, full suites,
+long-lived servers/headless browsers, or more than about 1 GiB/several cores for
+over a minute. Runners, git, edits, reads, lint, type checks and targeted tests
+run directly. Waiting for a slot is normal; periodic holder status needs no ping.
+The default is one slot, with host memory/load and inherited job/slice cgroup
+headroom gates. `owners` and `watch` show pressure, queue counts and slice OOM
+kills. Existing cgroup membership and caps stay in place; slice settings are
+never changed. Optional standalone caps use systemd when available and warn
+before falling back. See `agent-bridge guide heavy` for defaults, research,
+configuration and limits.
+
+Choose job caps with `start ... --memory 4G --cpu 400%`, or `resume <job>` with
+those flags for its next launch. Caps above effective slice/host budgets are
+refused. A plain resume sends `Continue.` in the same native session when no
+steers are queued. Transient backend failures get four bounded, jittered retries
+on the same model; exhaustion suggests resuming that same thread on another model.
+
+## Worker environment
+
+Worker launches remove variables whose names contain `KEY`, `TOKEN`, `SECRET`,
+`PASSWORD`, `CREDENTIAL`, `AUTH` or `COOKIE` (case-insensitive). Normal runtime,
+locale, proxy and backend config paths remain available; existing backend auth
+files are unchanged. Set `AGENT_BRIDGE_PASS_ENV=NAME1,NAME2` in the root environment
+to pass specific variables a job needs. `AGENT_BRIDGE_DENY_ENV=NAME1,NAME2` adds
+exact names to remove, taking precedence over pass-through. Lists use exact,
+case-sensitive names and reject wildcards or malformed entries without echoing
+their contents.
+
+The same filter covers heavy commands, account/model queries and helper
+subprocesses. Set pass-through before launching a worker: a removed variable
+cannot be recovered from its parent environment later. Variables such as
+`SSH_AUTH_SOCK` also match the default filter and need explicit pass-through
+when required. This filters inherited environments; it does not restrict auth
+files or prevent a shell startup file from exporting variables again. Start a
+fresh worker process to apply the policy to an already-running backend.
 
 ## Restore and root access
 
