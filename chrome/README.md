@@ -51,14 +51,15 @@ Local checks do not prove a live extension connection. Finish with browser
 discovery through the harness's native Chrome tools; no separate browser client
 or alternative control route is needed.
 
-After an app update, `doctor` can report that app and native-host runtime paths
-differ. If the registered executables were removed and the app's current
-executables exist, run `chatgpt-browser repair-runtime`, then repeat `doctor` and
-restart the `node_repl` MCP server. The explicit repair updates only those three
-executable paths, preserves browser access settings, and makes an owner-only
-recovery backup under the local state directory. It refuses to choose between
-two still-installed runtimes or use missing replacement files. Other native-host
-problems still require the app's Computer Use setup.
+After an app update, MCP and Linux native-host startup automatically recover
+retired runtime paths. Recovery changes only the three executable paths, and
+only when every changed old path is gone and the app's current setup validates.
+Concurrent startups serialize the repair; protocol output stays clean. Browser
+access settings stay intact, with an owner-only recovery backup under the local
+state directory. `doctor` and `paths` remain read-only. `chatgpt-browser repair-runtime`
+also runs the same repair manually. A still-installed old runtime, missing
+replacement or invalid setup requires review through the app's Computer Use
+settings; recovery never guesses between installations.
 
 **The desktop app's WSL browser integration is the product gap.** The inspected
 Windows app reports browser availability as `reason=wsl-disabled` when running
@@ -128,7 +129,8 @@ compatibility path, not official WSL desktop integration or a policy override.
    failed, fix and restart `node_repl` before looking for its `js` tool.
 
 The adapter checks the app and host runtime paths agree and refuses extra runtime
-flags from app configuration. App upgrades can require repeating browser setup.
+flags from app configuration. Changes beyond retired executable paths can require
+repeating browser setup.
 Only the explicit launcher option disables the kernel sandbox; it does not
 change approval policies or bring over the computer-control service.
 Check the selected browser instance when both Windows and Linux Chrome are open.

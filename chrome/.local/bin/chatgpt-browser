@@ -6,6 +6,7 @@
 
 import argparse
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
 import os
@@ -29,6 +30,10 @@ RUNTIME_ENV = (
     "BROWSER_USE_CODEX_APP_BUILD_FLAVOR",
     "BROWSER_USE_CODEX_APP_VERSION",
 )
+
+
+class RuntimeMismatch(ValueError):
+    pass
 
 
 def text(value, label):
@@ -84,9 +89,9 @@ def load_setup(home, manifest, *, host_config=None):
     command = wsl_path(text(config.get("command"), "node_repl command"))
     for key, field in (("NODE_REPL_NODE_PATH", "nodePath"), ("CODEX_CLI_PATH", "codexCliPath")):
         if wsl_path(env[key]) != wsl_path(text(host_config.get(field), field)):
-            raise ValueError(f"App and native host runtimes differ ({field}); run chatgpt-browser repair-runtime for retired paths, or repeat browser setup in the app")
+            raise RuntimeMismatch(f"App and native host runtimes differ ({field}); run chatgpt-browser repair-runtime for retired paths, or repeat browser setup in the app")
     if command != wsl_path(text(host_config.get("nodeReplPath"), "nodeReplPath")):
-        raise ValueError("App and native host runtimes differ (nodeReplPath); run chatgpt-browser repair-runtime for retired paths, or repeat browser setup in the app")
+        raise RuntimeMismatch("App and native host runtimes differ (nodeReplPath); run chatgpt-browser repair-runtime for retired paths, or repeat browser setup in the app")
     for path in (host, command, client_path, wsl_path(str(service)), skill,
                  wsl_path(env["NODE_REPL_NODE_PATH"]), wsl_path(env["CODEX_CLI_PATH"])):
         if not path.is_file():
@@ -116,9 +121,18 @@ def read_registration():
     return home, manifest
 
 
-def discover():
+def discover(*, recover=False, origin=None):
     home, manifest = read_registration()
-    return home, manifest, load_setup(home, manifest)
+    if origin is not None and origin not in manifest["allowed_origins"]:
+        raise ValueError("Extension origin is not allowed by the installed native host")
+    try:
+        setup = load_setup(home, manifest)
+    except RuntimeMismatch:
+        if not recover:
+            raise
+        repair_runtime(home, manifest, automatic=True)
+        setup = load_setup(home, manifest)
+    return home, manifest, setup
 
 
 def register_linux(root, manifest):
@@ -135,8 +149,19 @@ def register_linux(root, manifest):
         output.write(json.dumps(wanted, indent=2) + "\n")
 
 
-def repair_runtime(home, manifest):
+def repair_runtime(home, manifest, *, automatic=False):
     """Refresh retired executable paths, preserving registration and access settings."""
+    state = Path(os.environ.get("XDG_STATE_HOME", ""))
+    if not state.is_absolute():
+        state = Path.home() / ".local/state"
+    lock_dir = state / "chatgpt-browser"
+    lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with os.fdopen(os.open(lock_dir / "runtime.lock", os.O_RDWR | os.O_CREAT, 0o600), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return repair_runtime_locked(home, manifest, state, automatic=automatic)
+
+
+def repair_runtime_locked(home, manifest, state, *, automatic):
     host = native_host_path(manifest)
     destination = host.parent / "extension-host-config.json"
     original = destination.read_bytes()
@@ -161,13 +186,11 @@ def repair_runtime(home, manifest):
         changed.append(field)
     load_setup(home, manifest, host_config=wanted)
     if not changed:
-        print("Browser runtime paths already match; no changes made")
+        if not automatic:
+            print("Browser runtime paths already match; no changes made")
         return
-    if all(wsl_path(current[field]).is_file() for field in changed):
-        raise ValueError("Both registered and configured runtimes still exist; select the intended setup in the app")
-    state = Path(os.environ.get("XDG_STATE_HOME", ""))
-    if not state.is_absolute():
-        state = Path.home() / ".local/state"
+    if any(wsl_path(current[field]).exists() for field in changed):
+        raise ValueError("Registered runtime paths still exist; select the intended setup in the app")
     backup = state / "backups/chrome" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     backup.mkdir(mode=0o700, parents=True)
     for name, payload in (
@@ -193,7 +216,8 @@ def repair_runtime(home, manifest):
         if temporary is not None:
             temporary.unlink(missing_ok=True)
     load_setup(home, manifest)
-    print(f"Updated retired runtime paths: {', '.join(changed)}; backup: {backup}")
+    print(f"Updated retired runtime paths: {', '.join(changed)}; backup: {backup}",
+          file=sys.stderr if automatic else sys.stdout)
 
 
 def doctor(user_data_dir=None):
@@ -257,9 +281,7 @@ def doctor(user_data_dir=None):
 
 def main():
     if len(sys.argv) == 2 and sys.argv[1].startswith("chrome-extension://"):
-        home, manifest, (host, _, _, _) = discover()
-        if sys.argv[1] not in manifest["allowed_origins"]:
-            raise ValueError("Extension origin is not allowed by the installed native host")
+        home, manifest, (host, _, _, _) = discover(recover=True, origin=sys.argv[1])
         os.chdir(host.parent)
         os.execv(str(host), [str(host), sys.argv[1]])
     parser = argparse.ArgumentParser(description=__doc__)
@@ -278,7 +300,7 @@ def main():
         home, manifest = read_registration()
         repair_runtime(home, manifest)
         return
-    home, manifest, (_, command, env, paths) = discover()
+    home, manifest, (_, command, env, paths) = discover(recover=args.mode == "mcp")
     if args.mode == "paths":
         print(json.dumps(paths))
     elif args.mode == "register-linux":

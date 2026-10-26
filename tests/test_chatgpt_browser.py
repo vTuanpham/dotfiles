@@ -1,7 +1,9 @@
 """The WSL adapter preserves stdio, limits service forwarding, and refuses stale setup."""
 
+import concurrent.futures
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path, PureWindowsPath
@@ -22,6 +24,9 @@ class BrowserTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
+        state = patch.dict(os.environ, {"XDG_STATE_HOME": str(self.home / "state")})
+        state.start()
+        self.addCleanup(state.stop)
         self.mapper = patch.object(browser, "wsl_path", self.map_path)
         self.mapper.start()
         self.addCleanup(self.mapper.stop)
@@ -151,6 +156,95 @@ class BrowserTests(unittest.TestCase):
             browser.repair_runtime(self.home, self.manifest)
         self.assertEqual(destination.read_bytes(), before)
 
+    def test_startup_recovers_retired_paths_without_polluting_mcp_stdout(self):
+        self.host_config.update(nodePath="C:/retired/node.exe", codexCliPath="C:/retired/codex.exe",
+                                nodeReplPath="C:/retired/node_repl.exe", proxyPort=12345)
+        self.write_config()
+        destination = self.host.parent / "extension-host-config.json"
+        before = destination.read_bytes()
+        with patch.object(browser, "read_registration", return_value=(self.home, self.manifest)), \
+                patch.dict(os.environ, {"XDG_STATE_HOME": str(self.home / "state")}), \
+                patch.object(browser.sys, "stdout", io.StringIO()) as output, \
+                patch.object(browser.sys, "stderr", io.StringIO()) as errors:
+            with self.assertRaises(ValueError):
+                browser.discover()
+            self.assertEqual(destination.read_bytes(), before)
+            setup = browser.discover(recover=True)[2]
+            self.assertEqual(setup[1], self.map_path("C:/runtime/node_repl.exe"))
+            self.assertEqual(json.loads(destination.read_text())["proxyPort"], 12345)
+            self.assertIn("Updated retired runtime paths", errors.getvalue())
+            errors.truncate(0)
+            errors.seek(0)
+            browser.discover(recover=True)
+            self.assertEqual(errors.getvalue(), "")
+            self.assertEqual(output.getvalue(), "")
+
+    def test_startup_recovers_again_after_a_subsequent_app_update(self):
+        with patch.object(browser, "read_registration", return_value=(self.home, self.manifest)), \
+                patch.dict(os.environ, {"XDG_STATE_HOME": str(self.home / "state")}), \
+                patch.object(browser.sys, "stderr", io.StringIO()):
+            previous = "runtime"
+            for release in ("runtime-2", "runtime-3"):
+                config = self.home / ".codex/config.toml"
+                config.write_text(config.read_text().replace(f"C:/{previous}/", f"C:/{release}/"))
+                for name in ("node.exe", "codex.exe", "node_repl.exe"):
+                    old = self.map_path(f"C:/{previous}/{name}")
+                    new = self.map_path(f"C:/{release}/{name}")
+                    new.parent.mkdir(exist_ok=True)
+                    old.rename(new)
+                setup = browser.discover(recover=True)[2]
+                self.assertEqual(setup[1], self.map_path(f"C:/{release}/node_repl.exe"))
+                previous = release
+
+    def test_recovery_preserves_any_still_installed_runtime(self):
+        self.host_config.update(nodePath="C:/older/node.exe", nodeReplPath="C:/retired/node_repl.exe")
+        older = self.map_path("C:/older/node.exe")
+        older.parent.mkdir()
+        older.touch()
+        self.write_config()
+        destination = self.host.parent / "extension-host-config.json"
+        before = destination.read_bytes()
+        with patch.object(browser, "read_registration", return_value=(self.home, self.manifest)), \
+                patch.dict(os.environ, {"XDG_STATE_HOME": str(self.home / "state")}):
+            with self.assertRaisesRegex(ValueError, "still exist"):
+                browser.discover(recover=True)
+        self.assertEqual(destination.read_bytes(), before)
+
+    def test_concurrent_startups_recover_once(self):
+        self.host_config.update(nodePath="C:/retired/node.exe", codexCliPath="C:/retired/codex.exe",
+                                nodeReplPath="C:/retired/node_repl.exe")
+        self.write_config()
+        state = self.home / "state"
+        with patch.object(browser, "read_registration", return_value=(self.home, self.manifest)), \
+                patch.dict(os.environ, {"XDG_STATE_HOME": str(state)}), \
+                patch.object(browser.sys, "stderr", io.StringIO()), \
+                concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            setups = list(pool.map(lambda _: browser.discover(recover=True), range(8)))
+        self.assertEqual(len(setups), 8)
+        self.assertEqual(len(list((state / "backups/chrome").iterdir())), 1)
+
+    def test_native_origin_is_checked_before_recovery(self):
+        with patch.object(browser, "read_registration", return_value=(self.home, self.manifest)), \
+                patch.object(browser, "repair_runtime") as repair:
+            with self.assertRaisesRegex(ValueError, "origin"):
+                browser.discover(recover=True, origin="chrome-extension://unapproved/")
+        repair.assert_not_called()
+
+    def test_recovery_does_not_rewrite_invalid_setup(self):
+        for field, value in (("schemaVersion", 2), ("browserClientPath", "C:/missing/client.mjs")):
+            with self.subTest(field=field):
+                original = self.host_config[field]
+                self.host_config[field] = value
+                self.host_config["nodeReplPath"] = "C:/retired/node_repl.exe"
+                self.write_config()
+                destination = self.host.parent / "extension-host-config.json"
+                before = destination.read_bytes()
+                with patch.object(browser, "read_registration", return_value=(self.home, self.manifest)), \
+                        self.assertRaises(ValueError):
+                    browser.discover(recover=True)
+                self.assertEqual(destination.read_bytes(), before)
+                self.host_config[field] = original
+
     def test_invalid_state_directories_use_the_home_state_directory(self):
         for value in ("", ".", "relative/state"):
             with self.subTest(value=value):
@@ -165,11 +259,12 @@ class BrowserTests(unittest.TestCase):
 
     def test_mcp_exec_keeps_protocol_context_and_does_not_attach_flags(self):
         setup = (self.host, self.map_path("C:/runtime/node_repl.exe"), {"BROWSER": "setting"}, {})
-        with patch.object(browser, "discover", return_value=(self.home, self.manifest, setup)), \
+        with patch.object(browser, "discover", return_value=(self.home, self.manifest, setup)) as discover, \
                 patch.object(browser.os, "chdir"), patch.object(browser.os, "execve") as execute, \
                 patch.dict(os.environ, {"CONVERSATION_CONTEXT": "retained"}), \
                 patch.object(browser.sys, "argv", [str(script), "mcp"]):
             browser.main()
+        discover.assert_called_once_with(recover=True)
         command, args, env = execute.call_args.args
         self.assertEqual(args, [command])
         self.assertEqual(env["CONVERSATION_CONTEXT"], "retained")
@@ -186,6 +281,19 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["stdin"], browser.subprocess.DEVNULL)
         self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
         self.assertIn("[Console]::OutputEncoding", run.call_args.args[0][-1])
+
+    def test_native_host_startup_recovers_before_exec(self):
+        setup = (self.host, self.map_path("C:/runtime/node_repl.exe"), {}, {})
+        origin = self.manifest["allowed_origins"][0]
+        with patch.object(browser, "discover", return_value=(self.home, self.manifest, setup)) as discover, \
+                patch.object(browser.os, "chdir"), \
+                patch.object(browser.os, "execv", side_effect=SystemExit(0)) as execute, \
+                patch.object(browser.sys, "argv", [str(script), origin]):
+            with self.assertRaises(SystemExit) as exited:
+                browser.main()
+            self.assertEqual(exited.exception.code, 0)
+        discover.assert_called_once_with(recover=True, origin=origin)
+        execute.assert_called_once_with(str(self.host), [str(self.host), origin])
 
     def test_explicit_kernel_exception_preserves_approval_context(self):
         setup = (self.host, self.map_path("C:/runtime/node_repl.exe"), {"BROWSER": "setting"}, {})
