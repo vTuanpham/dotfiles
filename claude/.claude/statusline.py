@@ -157,7 +157,9 @@ if shown:
 git = ""
 try:
     st = subprocess.run(
-        ["git", "-C", cwd or ".", "status", "--porcelain=v1", "-b", "--untracked-files=no"],
+        # --no-optional-locks: the timeout can kill git mid-refresh, which would leave .git/index.lock.
+        ["git", "--no-optional-locks", "-C", cwd or ".", "status", "--porcelain=v1", "-b",
+         "--untracked-files=no"],
         capture_output=True, text=True, timeout=0.4,
     ).stdout.splitlines()
 except Exception:
