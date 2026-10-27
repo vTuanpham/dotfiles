@@ -227,7 +227,7 @@ def test_invalid_retention_does_not_retire(world, monkeypatch, days):
 
 def test_expired_job_with_live_runner_is_not_purged(world, monkeypatch, capsys):
     job = job_at(world, retiredAt="2020-01-01T00:00:00+00:00", purgeAfter="2020-01-15T00:00:00+00:00")
-    monkeypatch.setattr(watch, "running", lambda _: True)
+    monkeypatch.setattr(watch.status, "running", lambda _: True)
     with pytest.raises(SystemExit):
         command(monkeypatch, "purge")
     assert "live runner" in capsys.readouterr().err

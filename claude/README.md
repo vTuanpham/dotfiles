@@ -82,6 +82,13 @@ only when space allows; unknown turn times are omitted. Finished jobs stay as
 `done` until Bridge's `result` or explicit `ack` acknowledges their completion.
 Identical account/model details appear once when there is room.
 
+Bridge jobs, quota numbers and tidy eligibility come from
+[`agent-bridge status --json`](../agent-bridge/src/agent_bridge/guide/status.md).
+Wake maps the shared state and stall reason; heavy waits, root pauses and retry
+backoff stay normal known states. Peer conversations are available in that
+contract for a future visual. The native Claude `statusline.py` still renders
+Claude's own session/context/cost input; it has no separate Bridge parser.
+
 The quota row belongs to Wake and appears while Bridge jobs are running. It shows
 account numbers, never emails. `h` is five-hour, `w` weekly and `m` monthly
 remaining percent; Codex plans report different windows (Plus `h w`, Pro `w`).

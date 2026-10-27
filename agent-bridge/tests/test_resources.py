@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from agent_bridge import cli, core, heavy, resources, watch
+from agent_bridge import cli, core, heavy, resources, status, status_render, watch
 
 
 def write_group(path, maximum="max", current=0, quota="max", usage=0, oom=0, throttled=0):
@@ -113,10 +113,10 @@ def test_cpu_controller_absence_is_visible(budgets):
     _, job = budgets
     (job.parent / "cpu.max").unlink()
     (job.parent / "cpu.stat").write_text("usage_usec 100\n")
-    report = heavy.status()
-    assert "oom_kill=14" in report.summary
-    assert "cpu_quota=unavailable/unlimited" in report.summary
-    assert "throttled_usec=None" in report.summary
+    report = status_render.pressure(*status.collect_host()[:2])
+    assert "oom_kill=14" in report
+    assert "cpu_quota=unavailable/unlimited" in report
+    assert "throttled_usec=None" in report
 
 
 def test_watch_reports_oom_totals_and_increases_once(budgets, monkeypatch, tmp_path, capsys):
@@ -143,7 +143,7 @@ def test_malformed_cgroup_data_fails_closed(budgets, file, value):
     (job / file).write_text(value)
     with pytest.raises(ValueError):
         resources.pressure()
-    assert heavy.status().sample is None
+    assert status.collect_host()[2] is None
 
 
 def test_root_outside_slice_still_reads_worker_slice(budgets):

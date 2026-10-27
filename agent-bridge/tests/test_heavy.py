@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_bridge import cli, heavy, resources, watch
+from agent_bridge import cli, heavy, resources, status, status_render, watch
 from agent_bridge.core import MESSAGING_RULE
 
 
@@ -66,7 +66,7 @@ def test_process_slot_exclusion_and_release(host, tmp_path, crash):
         second = launch(two, release)
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            summary = heavy.status().summary
+            summary = status_render.pressure(*status.collect_host()[:2])
             if "heavy_queued=1" in summary:
                 break
             time.sleep(0.01)
@@ -89,8 +89,8 @@ def test_process_slot_exclusion_and_release(host, tmp_path, crash):
         release.touch()
         second.wait(timeout=5)
         assert second.returncode == 0
-        assert "heavy_queued=0" in heavy.status().summary
-        assert "heavy_running=0" in heavy.status().summary
+        assert "heavy_queued=0" in status_render.pressure(*status.collect_host()[:2])
+        assert "heavy_running=0" in status_render.pressure(*status.collect_host()[:2])
     finally:
         for process in (first, second):
             if process is not None:
@@ -123,7 +123,7 @@ def test_configured_hard_cap_allows_two_jobs(host, tmp_path):
     try:
         for n in range(2):
             started(tmp_path / str(n))
-        assert "heavy_running=2" in heavy.status().summary
+        assert "heavy_running=2" in status_render.pressure(*status.collect_host()[:2])
         third = launch(tmp_path / "third", release, AGENT_BRIDGE_HEAVY_SLOTS="2")
         processes.append(third)
         assert select.select([third.stderr], [], [], 10)[0]
@@ -358,7 +358,7 @@ def test_memory_fit_runs_two_jobs_without_a_slot_cap(host, monkeypatch, tmp_path
     try:
         for n in range(2):
             started(tmp_path / str(n))
-        report = heavy.status().summary
+        report = status_render.pressure(*status.collect_host()[:2])
         assert "heavy_running=2" in report and "heavy_reserved=2048MiB" in report
         assert "heavy=owner/job0 need=1024MiB" in report
         assert "heavy=owner/job1 need=1024MiB" in report
@@ -388,7 +388,7 @@ def test_memory_that_does_not_fit_waits_and_exit_releases_need(host, monkeypatch
             first_release.touch()
         first.wait(timeout=5)
         started(tmp_path / "second")
-        report = heavy.status().summary
+        report = status_render.pressure(*status.collect_host()[:2])
         assert "heavy_running=1" in report and "heavy_reserved=3072MiB" in report
     finally:
         finish(processes, [first_release, second_release])

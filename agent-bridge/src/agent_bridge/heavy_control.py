@@ -8,7 +8,6 @@ import time
 
 from . import heavy
 from .core import WORKER_FLAG
-from .resources import MIB
 
 TERM_GRACE = 5
 
@@ -24,24 +23,13 @@ def require_root():
 
 def listing():
     require_root()
-    folder = heavy.prepare()
-    with heavy.gate(folder):
-        rows = heavy.entries(folder)
-        paused = heavy.pause_state(folder)
-    if paused["reason"] is not None:
-        print(f"heavy: paused by root: {paused['reason']}")
-    print("ID JOB COMMAND NEED EXCLUSIVE STATE TIME ALIVE")
-    now = time.monotonic_ns()
-    for path, row in rows:
-        state = "running" if row["running"] else "queued"
-        if (row.get("control") or {}).get("cancelled"):
-            state = "cancelling"
-        age = (max(0, now - row["started_ns"]) if row["running"] and row.get("started_ns") is not None
-               else heavy.waited_ns(row, paused, now)) // 10**9
-        clock = "elapsed" if row["running"] else "wait"
-        print(f"{request_id(path)} {row.get('job') or 'standalone'} {row.get('command') or 'unknown'} "
-              f"{row['need'] / MIB:g}MiB {'yes' if row['exclusive'] else 'no'} {state} "
-              f"{clock}={age}s yes(kernel-lock)")
+    from .status import Collector
+    from .status_render import heavy_list
+
+    snapshot = Collector().collect(include_quotas=False)
+    if snapshot.heavy.error:
+        raise ValueError(snapshot.heavy.error)
+    print("\n".join(heavy_list(snapshot)))
 
 
 def pause(reason):

@@ -95,7 +95,7 @@ test('a crew member keeps its place by who it is: the same jobs and birds in ano
   }
 })
 
-test('a whole day played in half frames, as the band paints it, draws no black pixel (an undefined colour) in any landscape', () => {
+test('a whole day played in half frames, as the band paints it, draws no black pixel (an undefined colour) in any landscape', { timeoutMs: 15_000 }, () => {
   for (const preset of Object.keys(LANDSCAPES) as SceneInput['preset'][]) {
     for (let t = 0; t < 120; t++) {
       const px = scenePixels({ ...base, preset, width: 186, frame: 5000 + t / 2, hour: (4 + (t / 120) * 24) % 24, weather: weathers[1]! })

@@ -30,8 +30,8 @@ def number(path):
     return int(value)
 
 
-def cgroup_paths():
-    membership = PROC / "self/cgroup"
+def cgroup_paths(pid="self", include_shared=True):
+    membership = PROC / str(pid) / "cgroup"
     if not membership.exists():
         return []
     unified = [line[3:] for line in membership.read_text().splitlines() if line.startswith("0::")]
@@ -43,7 +43,7 @@ def cgroup_paths():
     # A root outside codex.slice must still see the shared worker budget.
     shared = CGROUP / f"user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service/codex.slice"
     paths = []
-    for leaf in (current, shared if shared.exists() else current):
+    for leaf in (current, shared if include_shared and shared.exists() else current):
         while leaf != CGROUP:
             if leaf not in paths:
                 paths.append(leaf)
@@ -194,17 +194,22 @@ def memory_size(value):
     return size
 
 
+def cpu_size(cpu):
+    quota = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)%", cpu)
+    if not quota or Decimal(quota[1]) <= 0:
+        raise ValueError("memory and CPU caps must be positive; CPU uses a percentage such as 400%")
+    return Decimal(quota[1])
+
+
 def validate_caps(memory, cpu):
     """Validate per-job limits against the shared slice/ancestors, never the calling job's scope."""
     host = pressure()
     size = memory_size(memory)
-    quota = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)%", cpu)
-    if not quota or Decimal(quota[1]) <= 0:
-        raise ValueError("memory and CPU caps must be positive; CPU uses a percentage such as 400%")
+    quota = cpu_size(cpu)
     ancestors = [g for g in host.groups if host.slice and host.slice.path.is_relative_to(g.path)]
     memory_max = min([host.total, *[g.maximum for g in ancestors if g.maximum is not None]])
     cpu_max = min([float(os.cpu_count() or 1), *[g.cpus for g in ancestors if g.cpus is not None]])
     if size > memory_max:
         raise ValueError(f"memory cap exceeds effective slice/host limit ({memory_max / MIB:.0f} MiB)")
-    if Decimal(quota[1]) > Decimal(str(cpu_max)) * 100:
+    if quota > Decimal(str(cpu_max)) * 100:
         raise ValueError(f"CPU cap exceeds effective slice/host limit ({cpu_max * 100:g}%)")

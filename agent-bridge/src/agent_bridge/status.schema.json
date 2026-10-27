@@ -1,0 +1,1268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-bridge:status:1",
+  "title": "Agent Bridge status v1",
+  "$ref": "#/$defs/Snapshot",
+  "$defs": {
+    "Assessment": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "slow",
+            "stalled",
+            "known",
+            "inactive",
+            "unknown"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "quiet_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "threshold_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recent_step_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usual_step_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "quiet_seconds",
+        "threshold_seconds",
+        "recent_step_seconds",
+        "usual_step_seconds"
+      ],
+      "additionalProperties": true
+    },
+    "Event": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "job": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind": {
+          "type": "string"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "wakes": {
+          "type": "boolean"
+        },
+        "informational": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "job",
+        "offset",
+        "kind",
+        "at",
+        "text",
+        "status",
+        "error",
+        "wakes",
+        "informational"
+      ],
+      "additionalProperties": true
+    },
+    "PeerMessage": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 160
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "target",
+        "at",
+        "kind",
+        "size",
+        "preview"
+      ],
+      "additionalProperties": true
+    },
+    "PeerEdge": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "last_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "target",
+        "count",
+        "last_at",
+        "last_kind"
+      ],
+      "additionalProperties": true
+    },
+    "Peers": {
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PeerEdge"
+          }
+        },
+        "recent_messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PeerMessage"
+          },
+          "maxItems": 100
+        },
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "message_limit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "nodes",
+        "edges",
+        "recent_messages",
+        "window_seconds",
+        "message_limit"
+      ],
+      "additionalProperties": true
+    },
+    "HeavyRequest": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "job": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "need_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "exclusive": {
+          "type": "boolean"
+        },
+        "state": {
+          "type": "string"
+        },
+        "age_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alive": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "job",
+        "command",
+        "need_bytes",
+        "exclusive",
+        "state",
+        "age_seconds",
+        "started_at",
+        "alive"
+      ],
+      "additionalProperties": true
+    },
+    "HeavyQueue": {
+      "type": "object",
+      "properties": {
+        "requests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HeavyRequest"
+          }
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "pause_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reserved_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "budget_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "requests",
+        "paused",
+        "pause_reason",
+        "reserved_bytes",
+        "budget_bytes",
+        "error"
+      ],
+      "additionalProperties": true
+    },
+    "GroupPressure": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "memory_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory_max_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "oom_kill": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "oom_kill_delta": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attributed_job": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cpu_quota": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usage_usec": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "throttled_usec": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cpu_fraction": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "throttled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "memory_bytes",
+        "memory_max_bytes",
+        "oom_kill",
+        "oom_kill_delta",
+        "attributed_job",
+        "cpu_quota",
+        "usage_usec",
+        "throttled_usec",
+        "cpu_fraction",
+        "throttled"
+      ],
+      "additionalProperties": true
+    },
+    "HostPressure": {
+      "type": "object",
+      "properties": {
+        "available_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "total_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "load1": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "headroom_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GroupPressure"
+          }
+        },
+        "warning": {
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "available_bytes",
+        "total_bytes",
+        "load1",
+        "headroom_bytes",
+        "groups",
+        "warning",
+        "error"
+      ],
+      "additionalProperties": true
+    },
+    "QuotaWindow": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "remaining_percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "group": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "string"
+        },
+        "resets": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "label",
+        "remaining_percent",
+        "group",
+        "limit",
+        "resets"
+      ],
+      "additionalProperties": true
+    },
+    "Quota": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "windows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuotaWindow"
+          }
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "age_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "fresh",
+            "stale",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "backend",
+        "account",
+        "plan",
+        "active",
+        "windows",
+        "status",
+        "observed_at",
+        "age_seconds",
+        "freshness"
+      ],
+      "additionalProperties": true
+    },
+    "Job": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "backend": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "account": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "directory": {
+          "type": "string"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "idle",
+            "retired",
+            "waiting_for_heavy",
+            "paused",
+            "retrying",
+            "blocked_on_question",
+            "waiting_for_root"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "last_event_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_event_age_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stall": {
+          "$ref": "#/$defs/Assessment"
+        },
+        "memory_cap": {
+          "type": "string"
+        },
+        "cpu_cap": {
+          "type": "string"
+        },
+        "memory_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cpu_seconds": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "oom_kill": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "oom_kill_delta": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "awaiting_root": {
+          "type": "boolean"
+        },
+        "unanswered_urgent": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retry_attempt": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retry_maximum": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "now_doing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retired_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "purge_after": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "log_identity": {
+          "type": "string"
+        },
+        "acknowledged_through": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed_through": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "name",
+        "title",
+        "backend",
+        "account",
+        "model",
+        "effort",
+        "cwd",
+        "directory",
+        "running",
+        "state",
+        "reason",
+        "last_event_at",
+        "last_event_age_seconds",
+        "stall",
+        "memory_cap",
+        "cpu_cap",
+        "memory_bytes",
+        "cpu_seconds",
+        "oom_kill",
+        "oom_kill_delta",
+        "message_count",
+        "last_message",
+        "started_at",
+        "finished_at",
+        "awaiting_root",
+        "unanswered_urgent",
+        "retry_attempt",
+        "retry_maximum",
+        "now_doing",
+        "retired_at",
+        "purge_after",
+        "log_identity",
+        "acknowledged_through",
+        "completed_through"
+      ],
+      "additionalProperties": true
+    },
+    "Owner": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "jobs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "running": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unanswered_urgent": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_root_command": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "jobs",
+        "running",
+        "unanswered_urgent",
+        "size_bytes",
+        "last_root_command"
+      ],
+      "additionalProperties": true
+    },
+    "TidyItem": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "age_days": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "is_dirty": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "path",
+        "owner",
+        "name",
+        "bytes",
+        "age_days",
+        "is_dirty"
+      ],
+      "additionalProperties": true
+    },
+    "Retention": {
+      "type": "object",
+      "properties": {
+        "retired": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expired": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "eligible": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dirty": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reclaim_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TidyItem"
+          }
+        },
+        "scanned": {
+          "type": "boolean"
+        },
+        "archive_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "retired",
+        "expired",
+        "eligible",
+        "dirty",
+        "reclaim_bytes",
+        "items",
+        "scanned",
+        "archive_path"
+      ],
+      "additionalProperties": true
+    },
+    "Dependency": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "reason"
+      ],
+      "additionalProperties": true
+    },
+    "Snapshot": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Job"
+          }
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Owner"
+          }
+        },
+        "wake_events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Event"
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Event"
+          }
+        },
+        "heavy": {
+          "$ref": "#/$defs/HeavyQueue"
+        },
+        "pressure": {
+          "$ref": "#/$defs/HostPressure"
+        },
+        "quotas": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Quota"
+          }
+        },
+        "retention": {
+          "$ref": "#/$defs/Retention"
+        },
+        "peers": {
+          "$ref": "#/$defs/Peers"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Dependency"
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "generated_at",
+        "jobs",
+        "owners",
+        "wake_events",
+        "events",
+        "heavy",
+        "pressure",
+        "quotas",
+        "retention",
+        "peers",
+        "dependencies",
+        "errors"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

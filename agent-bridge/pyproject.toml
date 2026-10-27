@@ -12,10 +12,10 @@ build-backend = "setuptools.build_meta"
 agent-bridge = "agent_bridge.cli:main"
 
 [tool.setuptools.package-data]
-agent_bridge = ["guide/*.md", "guide/models.lock"]  # the help text and what it was last checked against
+agent_bridge = ["guide/*.md", "guide/models.lock", "status.schema.json"]
 
 [dependency-groups]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "jsonschema>=4,<5"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -402,8 +402,10 @@ def quota(account=None):
     from .core import save, stamp
 
     save(ACCOUNTS / account / "quota.json", {"account": account, "at": stamp(), "rows": rows})
-    for q in rows:
-        print(f"{account}\t{q['group']}\t{q['limit']}\t{q['remaining']}%\t{q['resets']}")
+    from . import status, status_render
+
+    snapshot = status.refreshed_quota({"account": account, "at": stamp(), "rows": rows})
+    print("\n".join(status_render.quota(snapshot, "agy", account)))
 
 
 def fallback(job, state, state_path):
@@ -413,19 +415,21 @@ def fallback(job, state, state_path):
     cooldowns = state.get("agyFallbackCooldowns", {})
 
     def quota_cache(account_dir):
+        from .status_inputs import agy_quota
+
         try:
             data = json.loads((account_dir / "quota.json").read_text())
-            cached_at = datetime.fromisoformat(data["at"])
-            if cached_at.tzinfo is None:
-                raise ValueError("timezone required for cached quota")
-            age = (datetime.now(timezone.utc) - cached_at.astimezone(timezone.utc)).total_seconds()
-            if age > 600:
+            cached = agy_quota(data, time.time())
+            if cached.freshness != "fresh" or cached.account != account_dir.name:
                 raise ValueError("stale quota")
         except (OSError, ValueError, KeyError, TypeError):
             with contextlib.redirect_stdout(io.StringIO()):
                 quota(account_dir.name)
             data = json.loads((account_dir / "quota.json").read_text())
-        return data["rows"]
+            cached = agy_quota(data, time.time())
+            if cached.account != account_dir.name:
+                raise ValueError("quota account mismatch")
+        return cached.windows
 
     while True:
         completed = []
@@ -448,10 +452,10 @@ def fallback(job, state, state_path):
         previous = state.get("account")
         try:
             current_rows = quota_cache(ACCOUNTS / str(previous))
-            current_row = next((row for row in current_rows if bucket in row["group"].casefold()), {})
+            current_row = next((row for row in current_rows if bucket in row.group.casefold()), None)
         except (OSError, ValueError, KeyError, TypeError):
-            current_row = {}
-        reset = current_row.get("resets") or error
+            current_row = None
+        reset = current_row.resets if current_row and current_row.resets else error
         cooldowns[previous] = reset
         for account_dir in sorted(ACCOUNTS.iterdir()):
             account = account_dir.name
@@ -472,8 +476,8 @@ def fallback(job, state, state_path):
                         continue
                 except ValueError:
                     continue
-            row = next((row for row in rows if bucket in row["group"].casefold()), None)
-            if row and int(row["remaining"]) > 0:
+            row = next((row for row in rows if bucket in row.group.casefold()), None)
+            if row and row.remaining_percent > 0:
                 switch_account(job, state, account)
                 state["agyFallbackCooldowns"] = cooldowns
                 save(state_path, state)

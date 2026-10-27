@@ -1,45 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 import type { WakeQuota } from '../../types'
 
-// Quota per signed-in account of both bridges, read-only: `codex-auth list` (its own local cache; emails are never
-// kept) and agy's per-account cache ~/.agy-accounts/<a>/quota.json (written by `agent-bridge quota --backend agy`).
-
-/** `codex-auth list` rows -> one quota per account; no email survives. Windows depend on the plan: Free has a monthly
- * limit only (m), Plus a five-hour and a weekly (h w), Pro / Pro Lite a weekly only (w). */
-export function parseCodexAuth(text: string): WakeQuota[] {
-  const out: WakeQuota[] = []
-  for (const line of text.split('\n')) {
-    const m = /^\s*(\*)?\s*(\d{2})\s+\S+@\S+\s+(.*)$/.exec(line)
-    if (!m) continue
-    const rest = m[3] ?? ''
-    const plan = (/^([A-Za-z][A-Za-z ]*?)\s{2,}/.exec(rest)?.[1] ?? '').trim()
-    const pcts = [...rest.matchAll(/(\d+)%/g)].map(p => Number(p[1]))
-    const parts = pcts.length === 0 ? []
-      : /^free/i.test(plan) ? [{ label: 'm', pct: pcts[0]! }] // codex-auth prints the monthly number in its 5H column
-      : /^plus/i.test(plan) ? pcts.map((pct, i) => ({ label: i === 0 ? 'h' : 'w', pct }))
-      : [{ label: 'w', pct: pcts[1] ?? pcts[0]! }] // Pro: its 5H column repeats the weekly number
-    // a 401 is signed out until someone logs in again; a timeout or other blank is transient
-    const status = rest.includes('token_expired') ? 'expired' : /\b401\b/.test(rest) ? 'signed out' : undefined
-    out.push({ cli: 'codex', account: m[2]!, plan, active: m[1] === '*', parts, status })
-  }
-  return out
-}
-
-const GROUP: Record<string, string> = { 'Gemini Models': 'G', 'Claude and GPT models': 'C', 'Gemini 4 Argon': 'A' }
-
-/** One cached `/usage` result -> each bucket's limits (G Gemini, C Claude, A Argon) × window (h five-hour, w weekly). */
-export function parseAgyQuota(text: string): WakeQuota | undefined {
-  try {
-    const v = JSON.parse(text) as { account?: string; rows?: { group: string; limit: string; remaining: number }[] }
-    if (!v.account || !Array.isArray(v.rows)) return undefined
-    const parts = v.rows
-      .map(r => ({ label: (GROUP[r.group] ?? r.group.slice(0, 1)) + (/five hour/i.test(r.limit) ? 'h' : 'w'), pct: r.remaining }))
-      .sort((a, b) => a.label[0] === b.label[0] ? a.label.localeCompare(b.label) : 0) // per bucket: h before w
-    return { cli: 'agy', account: v.account, plan: 'Pro', active: false, parts }
-  } catch {
-    return undefined
-  }
-}
+import { bridgeSnapshot } from './bridge'
 
 /** One display label for any bridge job: short model family + effort, whichever CLI it runs on. */
 export function jobLabel(backend: string, model: string, effort: string): { model: string; effort: string } {
@@ -92,17 +54,13 @@ export function quotaGroups(quotas: WakeQuota[]): { cli: 'codex' | 'agy'; accoun
 
 export async function scanQuotas($: EngineInterface, opts: { refreshAgy?: boolean } = {}): Promise<WakeQuota[]> {
   if (opts.refreshAgy) {
-    // `/usage` makes no model call; failures leave the previous cache in place
+    // Preserve the existing refresh schedule; consume numbers only from the status contract.
     await $.process.run(['agent-bridge', 'quota', '--backend', 'agy'], { timeoutMs: 180_000 }).catch(() => undefined)
   }
-  const home = await $.env.get('HOME')
-  if (!home) return []
-  const codex = await $.process.run(['codex-auth', 'list']).catch(() => undefined)
-  const found = await $.process.run(['find', `${home}/.agy-accounts`, '-maxdepth', '2', '-name', 'quota.json']).catch(() => undefined)
-  const agy: WakeQuota[] = []
-  for (const path of found?.stdout.split('\n').filter(Boolean) ?? []) {
-    const q = parseAgyQuota(await $.fs.read(path).catch(() => ''))
-    if (q) agy.push(q)
-  }
-  return [...(codex?.exitCode === 0 ? parseCodexAuth(codex.stdout) : []), ...agy.sort((a, b) => a.account.localeCompare(b.account))]
+  const snapshot = await bridgeSnapshot($)
+  if (!snapshot) throw new Error('Bridge quota status unavailable')
+  return snapshot.quotas.filter(q => q.backend === 'codex' || q.backend === 'agy').map(q => ({
+    cli: q.backend as 'codex' | 'agy', account: q.account, plan: q.plan ?? '', active: q.active,
+    parts: q.windows.map(w => ({ label: w.label, pct: w.remaining_percent })), status: q.status ?? undefined,
+  }))
 }
