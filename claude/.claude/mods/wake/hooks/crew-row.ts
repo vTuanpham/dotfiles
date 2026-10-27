@@ -96,7 +96,7 @@ export function crewRows(jobs: WakeChip[], now: number, width: number): CrewRow[
       effort: effort ?? '?',
       elapsed: age === undefined ? '?' : span(age),
       reason: state === 'stalled' || state === 'blocked_on_question' ? job.reason ?? '' : '',
-      memory: memory === undefined ? '?' : 'm' + bar(memory),
+      memory: memory === undefined ? '?' : '▣' + bar(memory),
       peers,
     }
     const detail = selected.map(([name, size]) => ' ' + pad(truncate(values[name], size), size)).join('')
@@ -113,7 +113,7 @@ const mark = (quota: WakeQuota) => (quota.cli === 'agy' ? '✦' : '◈')
 export function quotaText(quota: WakeQuota): string {
   // The stale-cache '~' only means something beside numbers; a dead account has none to be stale.
   const stale = !quota.status && quota.freshness && quota.freshness !== 'fresh' ? '~' : ''
-  return `${mark(quota)}${quota.account}${quota.active ? '*' : ''}${stale} ${quota.status ?? (quota.parts.length ? quota.parts.map(p => `${p.label}${bar(p.pct / 100)}`).join(' ') : '?')}`
+  return `${mark(quota)}${quota.account}${quota.active ? '*' : ''}${stale} ${quota.status ?? (quota.parts.length ? quota.parts.map(p => `${p.label}${Math.round(p.pct)}%${bar(p.pct / 100)}`).join(' ') : '?')}`
 }
 
 /** Neighbouring accounts of one CLI in the same dead state read once: '◈03–06 ✕ expired', not four times. */

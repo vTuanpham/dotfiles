@@ -37,15 +37,15 @@ test('known memory, freshness, effort and directed weighted peers render without
   expect(row.detail).toContain('↗reviewer:3')
   expect(row.detail).toContain('↙other:2')
   expect(crewRows([{ ...base, lastEventAt: undefined, memoryBytes: null }], 20_000, 120)[0]!.detail).toContain('?')
-  expect(quotaText({ cli: 'codex', account: '01', plan: '', active: true, parts: [{ label: 'w', pct: 50 }] })).toBe('◈01* w▰▰▱▱')
-  expect(quotaText({ cli: 'codex', account: '01', plan: '', active: true, freshness: 'unknown', parts: [{ label: 'w', pct: 50 }] })).toBe('◈01*~ w▰▰▱▱')
+  expect(quotaText({ cli: 'codex', account: '01', plan: '', active: true, parts: [{ label: 'w', pct: 50 }] })).toBe('◈01* w50%▰▰▱▱')
+  expect(quotaText({ cli: 'codex', account: '01', plan: '', active: true, freshness: 'unknown', parts: [{ label: 'w', pct: 50 }] })).toBe('◈01*~ w50%▰▰▱▱')
 })
 
 test('dead accounts fold into one range, and the stale mark only follows numbers', () => {
   const dead = (account: string, status: string) => ({ cli: 'codex' as const, account, plan: '', active: false, parts: [], status })
   const live = { cli: 'codex' as const, account: '01', plan: '', active: true, freshness: 'stale', parts: [{ label: 'w', pct: 50 }] }
   const lines = quotaLines([live, dead('02', 'signed out'), dead('03', 'expired'), dead('04', 'expired'), dead('05', 'expired'), dead('06', 'expired')], 200)
-  expect(lines).toEqual(['◈01*~ w▰▰▱▱  ◈02 signed out  ◈03–06 ✕ expired'])
+  expect(lines).toEqual(['◈01*~ w50%▰▰▱▱  ◈02 signed out  ◈03–06 ✕ expired'])
   expect(quotaText(dead('03', 'expired'))).toBe('◈03 expired')
 })
 
