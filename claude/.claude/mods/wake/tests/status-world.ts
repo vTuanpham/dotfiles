@@ -13,7 +13,7 @@ export const job = (changes: Partial<BridgeSnapshot['jobs'][number]> = {}): Brid
   backend: 'codex', account: '01', model: 'gpt-6-sol', effort: 'high', cwd: '/repo', running: true,
   state: 'running', reason: 'runner alive', stall: { state: 'ok', reason: 'within silence threshold' },
   last_event_at: NOW, started_at: NOW, finished_at: null, awaiting_root: false, last_message: 'ready',
-  retired_at: null, log_identity: '1:2', ...changes,
+  retired_at: null, log_identity: '1:2', memory_bytes: null, memory_cap: '', ...changes,
 })
 
 export const event = (offset: number, changes: Partial<BridgeSnapshot['events'][number]> = {}): BridgeSnapshot['events'][number] => ({

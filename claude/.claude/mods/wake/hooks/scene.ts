@@ -9,7 +9,7 @@ import { type Canvas, canvas, hash, mix, sprite } from './pixels'
 //   their windows  the turn's tool calls, coloured by kind (a red one failed)
 //   the live one   the turn in progress, being built
 //   street lamps   plan progress (lit steps done)
-//   crew           bridge jobs and subagents, one family per harness, bigger with the model's tier (amber: stale):
+//   crew           bridge jobs and subagents, one family per harness, bigger with the model's class (amber: stale):
 //                  Codex drones, airship, boats; agy sparks, comets, constellations; Claude sparrows, gulls, eagles;
 //                  OpenCode hot-air balloons, small to striped to banded
 //   birds          running subagents (Claude's family)
@@ -29,8 +29,8 @@ export const EFFECT_FRAMES: Record<SceneEffect['kind'], number> = { fireworks: 4
 
 export type SceneWeather = { cloud: number; rain: 0 | 1 | 2 | 3; snow: 0 | 1 | 2 | 3; fog: boolean; thunder: boolean; wind: number }
 
-/** A running subagent as a bird: its id's seed (who it is: its lane and pace come from it) and its model's tier. */
-export type SceneAgent = { seed: number; tier: 1 | 2 | 3 }
+/** A running subagent as a bird: its id's seed (who it is: its lane and pace come from it) and its model's class. */
+export type SceneAgent = { seed: number; tier: 1 | 2 | 3 | 4 }
 
 export type SceneInput = {
   width: number
@@ -475,9 +475,9 @@ export function scenePixels(input: SceneInput): Uint32Array {
   // birds: running subagents, over the backdrop; each keeps a lane and pace by who it is (the five first by identity fly)
   for (const [bird, j] of stations(input.agents.map(agent => ({ isStale: false, seed: agent.seed, tier: agent.tier, kind: 'claude' as const })), 5)) {
     if (j >= 5) continue
-    const tier = bird.tier // the Claude family's birds: sparrow, gull, eagle (the eagle glides slower)
-    const x = Math.round((input.frame * (0.5 + j * 0.08) * (tier === 3 ? 0.7 : 1) + j * 29) % (c.W + 20)) - 10
-    const y = 3 + (j % 3) + Math.round(Math.sin((input.frame + j * 9) * (tier === 3 ? 0.07 : 0.15)))
+    const tier = bird.tier // larger Claude birds glide slower
+    const x = Math.round((input.frame * (0.5 + j * 0.08) * (tier >= 3 ? 0.7 : 1) + j * 29) % (c.W + 20)) - 10
+    const y = 3 + (j % 3) + Math.round(Math.sin((input.frame + j * 9) * (tier >= 3 ? 0.07 : 0.15)))
     fly(c, look, x, y, bird)
   }
 

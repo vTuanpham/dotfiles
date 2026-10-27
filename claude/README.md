@@ -63,7 +63,7 @@ It is Claude-only; [Agent Bridge](../agent-bridge/README.md) and
 | What changes | What Wake draws |
 | --- | --- |
 | Turns and tool calls | Structures and coloured windows; the current turn is under construction |
-| Bridge workers and Claude subagents | Crew sprites by harness and model tier, plus names, model, effort and age in the crew row |
+| Bridge workers and Claude subagents | Crew sprites by harness and model class, plus compact crew rows |
 | Job stops making progress | Amber stale marker |
 | Tests pass / command fails / Bridge job finishes | Fireworks / storm / shooting star |
 | Plan steps / session mood | Lit lamps / Mochi working, waiting, happy, sad or asleep |
@@ -71,34 +71,41 @@ It is Claude-only; [Agent Bridge](../agent-bridge/README.md) and
 
 ### Crew and quota rows
 
-<img src="../docs/images/wake-dock.gif" alt="Wake's beach scene animating above the activity, crew and quota rows, a prompt and the Claude Code status line. Call-outs name what each sprite is: street lamps are plan steps, a boat is a Codex worker, a bird is a Claude subagent, a constellation is an agy worker, the rising building is the current turn and Mochi shows the session's mood." width="100%">
+Bridge crew has one line per job: title, harness and model class, state, effort,
+event freshness and age, memory/cap, and recent peer links. Color distinguishes
+families and states; short marks replace repeated model and status words. All
+rows use the same columns, so each worker keeps its own harness and class. Narrow
+layouts shrink titles and omit the same lower-priority columns for every row;
+`/wake legend` explains the marks. A stalled or blocked job carries its reason
+when there is room. Finished jobs remain until Bridge's `result` or `ack`.
 
-*Call-outs follow each sprite. Below the scene: activity, crew and quota rows, the prompt, and the Claude Code status line (`statusline.py` here), all demo values.*
+The compact list follows Claude Code's subagent presentation: one recognizable
+marker and name, a brief state and small counters, with color providing emphasis
+and longer explanations kept out of the list. Claude's own subagent row remains
+unchanged. The [Claude Code documentation](https://code.claude.com/docs/en/sub-agents)
+describes its subagent workflow and status access.
 
-Bridge crew rows put names first, each within an equal share of the width.
-`12s` means time since the last event; `stalled 16m` marks silence past Bridge's
-15-minute default (waiting for root is exempt). Known, longer turn times appear
-only when space allows; unknown turn times are omitted. Finished jobs stay as
-`done` until Bridge's `result` or explicit `ack` acknowledges their completion.
-Identical account/model details appear once when there is room.
+Classes are 1 Haiku/Luna, 2 Sonnet/Terra, 3 Opus/Sol and 4 Fable/Astra;
+unrecognized models fall back to class 2. Each harness has four scene sprites.
+If the crew will not fit alongside the scene, Wake temporarily gives the rows
+the available space instead; an overflow count indicates any remaining rows.
 
 Bridge jobs, quota numbers and tidy eligibility come from
 [`agent-bridge status --json`](../agent-bridge/src/agent_bridge/guide/status.md).
 Wake maps the shared state and stall reason; heavy waits, root pauses and retry
-backoff stay normal known states. Peer conversations are available in that
-contract for a future visual. The native Claude `statusline.py` still renders
+backoff stay normal known states. Directed peer marks show message count and
+whether the last activity is older than 15 minutes. The native Claude `statusline.py` still renders
 Claude's own session/context/cost input; it has no separate Bridge parser.
 
-The quota row belongs to Wake and appears while Bridge jobs are running. It shows
-account numbers, never emails. `h` is five-hour, `w` weekly and `m` monthly
-remaining percent; Codex plans report different windows (Plus `h w`, Pro `w`).
+The quota rows belong to Wake and appear while Bridge jobs are running. They show
+account numbers, never emails, with bars for remaining quota. `h` is five-hour,
+`w` weekly and `m` monthly; Codex plans report different windows (Plus `h w`, Pro `w`).
 agy's `G`, `C`, `A` are Gemini, Claude/GPT and Argon buckets. Codex numbers come
 from the local `codex-auth` cache and can be stale; agy numbers come from each
 account's cache, refreshed with `agent-bridge quota --backend agy`.
 
-The capture uses synthetic account identifiers and quota values, not an account
-or subscription inventory. `*` marks the active demo account. A low window
-colors that account's quota text peach.
+`*` marks the active account; `?` means its quota is unknown, and `~` marks a
+stale reading or one without a known sample time.
 
 ### Use and check
 
@@ -112,7 +119,7 @@ ln -s ~/dotfiles/claude/.claude/mods ~/.claude/mods
 `"env": { "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/wake" }`, and an
 interactive session reloads it when its files change, so edits here apply live.
 
-- `/wake` summarises; `/wake tour` plays every landscape for 12 s, a whole day in each; `/wake scene <city|harbor|beach|mountains|countryside|forest|desert|tundra|auto>`
+- `/wake` summarises; `/wake legend` explains the crew; `/wake tour` plays every landscape for 12 s, a whole day in each; `/wake scene <city|harbor|beach|mountains|countryside|forest|desert|tundra|auto>`
   pins a landscape to the current place; `/wake place <city|auto>` overrides the
   IP-based location (GeoJS, then ipwho.is; weather from Open-Meteo; all keyless).
 - Pins, the place and cached weather live in the mod's store
@@ -122,5 +129,7 @@ interactive session reloads it when its files change, so edits here apply live.
   on load; it is ignored).
 - `bun dev/showcase.ts` and `bun dev/dock.ts` render the animation frames behind the README GIFs
   ([docs/tools](../docs/tools/README.md) turns them into images).
+- `bun dev/crew.ts <codex|agy|claude|opencode>` renders the four sprite classes;
+  `bun dev/crew-review.ts` renders synthetic before/after rows at three widths.
 - Look at a landscape before changing it: `bun dev/preview.ts <landscape>` writes
   a sheet of every day phase, weather, effect and event to `dev/<landscape>.png`.

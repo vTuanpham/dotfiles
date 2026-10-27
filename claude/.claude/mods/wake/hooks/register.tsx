@@ -3,7 +3,7 @@ import type { EngineInterface, Register, RenderElement, Timer } from 'claude-cod
 
 import type { WakeAgent, WakeCall, WakeChip, WakeQuota, WakeDigest, WakeMood, WakeNeed, WakeNow, WakePreset, WakePulse, WakePulseKind, WakeRecap, WakeRecapLine, WakeStep, WakeSurroundings, WakeTally } from '../types'
 import { ownedBy, ownersIn, scanCodex, type CodexCursor } from './sources/codex'
-import { jobLabel, makerOf, modelTier, quotaGroups, scanQuotas } from './sources/accounts'
+import { makerOf, modelTier, scanQuotas } from './sources/accounts'
 import { extractCalls, writeRecap } from './sources/recap'
 import { scanTidy, tidyRequest } from './sources/tidy'
 import { type BandState, sceneInput } from './band'
@@ -11,7 +11,8 @@ import { KIND_COLOR } from './landscapes/kit'
 import { EFFECT_FRAMES, SCENE_ROWS, type SceneEffect, eventName, sceneCells, sceneFrame } from './scene'
 import { PRESETS, nextRain, skyOf } from './sources/weather'
 import { lookAround, namePlace, pinPreset } from './surroundings'
-import { COLOR, readable, clock, commandHead, crewTiming, fitSlots, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
+import { COLOR, readable, clock, commandHead, fitSlots, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
+import { crewRows, quotaLines } from './crew-row'
 
 // Wake lives in the flow of the chat: a living diorama above the prompt (the session as a
 // town in the real weather where you are, Mochi on the street), a line of words and the
@@ -55,16 +56,11 @@ const MARK: Record<WakeRecapLine['mark'], { glyph: string; color: string }> = {
 
 /** Nerd Font circle slices (the status line's spinner); the geometric quarter circles are missing from many fonts. */
 const spinner = (frame: number) => String.fromCodePoint(0xf0a9e + (frame % 8))
-// bridge jobs animate on the same 8-frame beat as Claude's own spinner, each with its own shape:
-// Codex a braille orbit, agy a twinkling star, Claude a diamond, OpenCode a balloon that fills and lights its burner
-const orbit = (frame: number) => '⣾⣽⣻⢿⡿⣟⣯⣷'[frame % 8]!
-const twinkle = (frame: number) => '✦✧✶✷✸✷✶✧'[frame % 8]!
-const balloon = (frame: number) => '·•○●●○•·'[frame % 8]!
 /** What a bridge job is called to the person: its title, else (old jobs) its name. */
 const titleOf = (job: { name: string; title?: string }) => job.title ?? job.name
 
-/** Capability pips: 1 to 3 of ▰▱▱ lit by model tier. */
-const pips = (tier: 1 | 2 | 3) => '▰'.repeat(tier) + '▱'.repeat(3 - tier)
+/** The original three-pip row, with a fourth pip for class 4. */
+const pips = (tier: 1 | 2 | 3 | 4) => '▰'.repeat(tier) + '▱'.repeat(Math.max(0, 3 - tier))
 const diamond = (frame: number) => '◆◇◈◇◆◇◈◇'[frame % 8]!
 
 const hex = (rgb: number) => '#' + rgb.toString(16).padStart(6, '0')
@@ -284,8 +280,7 @@ async function codexTick($: EngineInterface) {
   await update($, chips, () =>
     scan.jobs
       .filter(job => job.running || job.awaitingRoot || (job.finishedAt ?? 0) > now - 30 * 60_000)
-      .slice(0, 6)
-      .map(job => ({ name: job.name, title: titleOf(job), backend: job.backend, account: job.account, model: job.model, effort: job.effort, running: job.running, isStale: job.isStale, since: job.finishedAt ?? job.lastEventAt, startedAt: job.startedAt, lastEventAt: job.lastEventAt, awaitingRoot: job.awaitingRoot, waitingForRoot: job.waitingForRoot, maker: makerOf(job.model) })),
+      .map(job => ({ name: job.name, title: titleOf(job), backend: job.backend, account: job.account, model: job.model, effort: job.effort, running: job.running, isStale: job.isStale, since: job.finishedAt ?? job.lastEventAt, startedAt: job.startedAt, lastEventAt: job.eventKnown ? job.lastEventAt : undefined, awaitingRoot: job.awaitingRoot, waitingForRoot: job.waitingForRoot, maker: makerOf(job.model), state: job.state, reason: job.reason, memoryBytes: job.memoryBytes, memoryCap: job.memoryCap, peers: job.peers })),
   )
   const away = await isAway($, ASK_AWAY_MS)
   for (const job of scan.jobs) {
@@ -322,7 +317,7 @@ async function goAway($: EngineInterface, since: number) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await safely(async () => {
-      await $.command.register({ name: 'wake', description: 'What Wake knows; /wake tour, /wake scene <landscape|auto>, /wake place <city|auto>', argumentHint: '[tour|scene <name>|place <city>]' })
+      await $.command.register({ name: 'wake', description: 'What Wake knows; /wake legend, tour, scene or place', argumentHint: '[legend|tour|scene <name>|place <city>]' })
       await $.tool.register({
         name: 'tidy_scan',
         description:
@@ -349,6 +344,7 @@ export const register: Register = on => {
   on('command.run', { command: 'wake' }, async ($, e) => {
     const [verb = '', ...rest] = e.args.trim().split(/\s+/)
     const arg = rest.join(' ')
+    if (verb === 'legend') return { text: 'Crew: ◈ Codex · ✦ agy · ◆ Claude · ○ OpenCode; number is model class 1–4. ● running · ⌁ heavy queue · = paused · ↻ retrying · ? needs answer · ! stalled · ✓ done · ○ idle. Dots show effort; bars show event freshness and memory/cap. ↗/↙ peer direction, number is messages, · is older than 15 minutes. Quota bars show remaining per account/window; ? means unknown, ~ means stale or freshness unknown.' }
     if (verb === 'tour') {
       tour = { start: frameNo }
       return { text: `Touring ${PRESETS.length} landscapes, 12 s each, a whole day in each; your own scene comes back after.` }
@@ -567,7 +563,9 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const working = e.props.isWorking || started !== null
     const width = e.props.bodyColumns
-    const withScene = Raster !== undefined && e.props.maxRows >= SCENE_ROWS + 2 && width >= 40
+    const bridgeCount = jobs.filter(job => job.running || job.awaitingRoot).length
+    const crewRowsNeeded = bridgeCount + Number(crewAgents.length > 0) + (bridgeCount ? quotaLines(accounts, Math.max(0, width - 2)).length : 0)
+    const withScene = Raster !== undefined && e.props.maxRows >= SCENE_ROWS + 2 + crewRowsNeeded && width >= 40
     band = withScene ? { id: e.requestId, width } : null
     const input = toured(sceneInput(await bandState($), width, frameNo, effect ? { kind: effect.kind, age: frameNo - effect.start } : null, now))
     const frame0 = withScene ? sceneFrame(input) : null
@@ -650,95 +648,46 @@ export const register: Register = on => {
 
     // what needs the person, under the words; first the crew at work: subagents and bridge jobs
     const rows: RenderElement[] = []
-    const bridgeLabels = running.map(job => {
-      const backend = job.backend ?? 'codex'
-      const label = jobLabel(backend, job.model, job.effort)
-      return `${backend}${job.account ? `·${job.account}` : ''} ${label.model} ${label.effort}`.trim()
-    })
-    const sharedLabel = bridgeLabels.length > 1 && bridgeLabels.every(label => label === bridgeLabels[0]) ? bridgeLabels[0]! : ''
-    const crewCount = crewAgents.length + running.length
-    const sharedWidth = sharedLabel && width >= crewCount * 36 + sharedLabel.length + 3 ? sharedLabel.length + 3 : 0
-    // each slot takes the width its words need; what short slots leave over goes to the long ones
+    // Keep Claude's native subagent row intact; bridge jobs each get their own line.
     const agentText = (agent: WakeAgent) => `${agent.name ?? agent.description} ${pips(agent.model ? modelTier('claude', agent.model) : parentTier)} claude·${agent.type} · ${span(now - agent.since)}`
-    // a job's details at a given slot width: narrow slots drop the turn clock, then the model
-    const details = (job: WakeChip, index: number, columns: number) => {
-      const timing = crewTiming(job, now, columns)
-      const label = sharedLabel ? '' : bridgeLabels[index]!
-      const metadata = label && columns >= (job.title || job.name).length + timing.length + label.length + 4 ? label : ''
-      return { timing, metadata, length: 2 + (job.title || job.name).length + 1 + timing.length + (metadata ? metadata.length + 1 : 0) }
-    }
-    const crewRoom = width - Math.max(0, crewCount - 1) * 3 - sharedWidth
     const agentNeeds = crewAgents.map(agent => 2 + agentText(agent).length)
-    const full = running.map((job, index) => details(job, index, Infinity))
-    const first = fitSlots([...agentNeeds, ...full.map(one => one.length)], crewRoom)
-    // a job whose full details fit keeps them; a capped one drops details at its width; then fit again
-    const shown = running.map((job, index) => {
-      const width = first[crewAgents.length + index]!
-      return width >= full[index]!.length ? full[index]! : details(job, index, width)
-    })
-    const slots = fitSlots([...agentNeeds, ...shown.map(one => one.length)], crewRoom)
-    const crew: RenderElement[] = [
-      ...crewAgents.map((agent, index) => (
-        <Box width={slots[index]!} flexShrink={0} overflow="hidden"><Text wrap="truncate-end">
-          <Text color={ink.pink}>{diamond(frame)} </Text>
-          <Text color={ink.text}>{agent.name ?? agent.description}</Text>
-          <Text color={ink.pink}> {pips(agent.model ? modelTier('claude', agent.model) : parentTier)}</Text>
-          <Text color={ink.pink}> claude</Text>
-          <Text color={ink.subtle}>·{agent.type} · {span(now - agent.since)}</Text>
-        </Text></Box>
-      )),
-      ...running.map((job, index) => {
-        const backend = job.backend ?? 'codex'
-        const [color, glyph] = backend === 'agy' ? [ink.blue, twinkle] : backend === 'claude' ? [ink.pink, diamond] : backend === 'opencode' ? [ink.green, balloon] : [ink.teal, orbit]
-        const finished = !job.running || job.waitingForRoot
-        const statusColor = job.isStale ? ink.peach : finished ? ink.yellow : color
-        const title = job.title || job.name
-        const slot = slots[crewAgents.length + index]!
-        const { timing, metadata } = shown[index]!
-        return (
-          <Box width={slot} flexShrink={0} overflow="hidden">
-            <Box flexShrink={0}><Text color={statusColor}>{job.isStale ? G.stale : finished ? G.done : glyph(frame)} </Text></Box>
-            <Box flexGrow={0} flexShrink={1} minWidth={1}><Text color={ink.text} wrap="truncate-end">{title}</Text></Box>
-            <Box flexShrink={0}><Text color={job.isStale || finished ? statusColor : ink.subtle}> {timing}{metadata ? ` ${metadata}` : ''}</Text></Box>
-          </Box>
-        )
-      }),
-    ]
-    if (crew.length > 0) {
+    const rowWidth = Math.max(0, width - 2) // extras has one cell of padding on either side
+    const slots = fitSlots(agentNeeds, rowWidth - Math.max(0, crewAgents.length - 1) * 3)
+    if (crewAgents.length > 0) {
       rows.push(
-        <Box width={width} overflow="hidden">
-          {crew.map((part, i) => (
+        <Box width={rowWidth} overflow="hidden">
+          {crewAgents.map((agent, index) => (
             <Box flexShrink={0}>
-              {i > 0 ? <Text color={ink.surface}> │ </Text> : ''}
-              {part}
+              {index > 0 ? <Text color={ink.surface}> │ </Text> : ''}
+              <Box width={slots[index]!} flexShrink={0} overflow="hidden"><Text wrap="truncate-end">
+                <Text color={ink.pink}>{diamond(frame)} </Text>
+                <Text color={ink.text}>{agent.name ?? agent.description}</Text>
+                <Text color={ink.pink}> {pips(agent.model ? modelTier('claude', agent.model) : parentTier)}</Text>
+                <Text color={ink.pink}> claude</Text>
+                <Text color={ink.subtle}>·{agent.type} · {span(now - agent.since)}</Text>
+              </Text></Box>
             </Box>
           ))}
-          {sharedWidth ? <Text color={ink.subtle}> │ {sharedLabel}</Text> : ''}
         </Box>,
       )
     }
+    const bridgeRows = crewRows(running, now, rowWidth)
+    for (const [index, job] of running.entries()) {
+      const row = bridgeRows[index]!
+      const familyColor = job.backend === 'agy' ? ink.blue : job.backend === 'claude' ? ink.pink : job.backend === 'opencode' ? ink.green : ink.teal
+      const stateColor = row.state === 'stalled' ? ink.red : row.state === 'blocked_on_question' ? ink.peach
+        : row.state === 'paused' || row.state === 'waiting_for_heavy' ? ink.yellow
+        : row.state === 'retrying' ? ink.mauve : row.state === 'done' || row.state === 'waiting_for_root' ? ink.green : ink.teal
+      rows.push(<Box width={rowWidth} overflow="hidden"><Text wrap="truncate-end">
+        <Text color={ink.text}>{row.title}</Text>
+        {row.family ? <Text> <Text color={familyColor}>{row.family}</Text><Text color={stateColor}> {row.glyph}</Text></Text> : ''}
+        <Text color={ink.subtle}>{row.detail}</Text>
+      </Text></Box>)
+    }
     if (running.length > 0 && accounts.length > 0) {
-      // the CLIs at work first, so the end of a long line cuts the idle ones; accounts with no numbers
-      // (signed out, expired, timed out) shrink to a count
-      const inUse = new Set(running.map(job => job.backend ?? 'codex'))
-      const readable = accounts.filter(q => q.parts.length > 0 && q.status === undefined)
-      const offline = accounts.length - readable.length
-      const groups = quotaGroups([...readable.filter(q => inUse.has(q.cli)), ...readable.filter(q => !inUse.has(q.cli))])
-      rows.push(
-        <Text wrap="truncate-end">
-          {groups.map((g, i) => {
-            const first = i === 0 || groups[i - 1]!.cli !== g.cli
-            return (
-              <Text>
-                {i > 0 ? <Text color={ink.surface}>{first ? ' │ ' : ' · '}</Text> : ''}
-                <Text color={g.cli === 'agy' ? ink.blue : ink.teal}>{first ? `${g.cli} ` : ''}{g.accounts.join(' ')}</Text>
-                <Text color={g.bad ? ink.red : g.low ? ink.peach : ink.subtle}> {g.text}</Text>
-              </Text>
-            )
-          })}
-          {offline > 0 ? <Text color={ink.subtle}>{groups.length > 0 ? ' · ' : ''}{offline} offline</Text> : ''}
-        </Text>,
-      )
+      const inUse = new Set(running.map(job => job.backend))
+      const ordered = [...accounts.filter(q => inUse.has(q.cli)), ...accounts.filter(q => !inUse.has(q.cli))]
+      for (const line of quotaLines(ordered, rowWidth)) rows.push(<Box width={rowWidth} overflow="hidden"><Text color={ink.subtle} wrap="truncate-end">{line}</Text></Box>)
     }
     let hotkey = 1
     const key = () => String(hotkey++)

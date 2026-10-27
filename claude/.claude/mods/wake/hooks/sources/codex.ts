@@ -23,6 +23,12 @@ export type CodexJob = {
   finishedAt?: number
   urgent: { at: number; text: string }[] // urgent events new since the cursor (turn_completed excluded), text <= 300
   completedNow: boolean // a turn_completed arrived since the cursor
+  state: string
+  reason: string
+  eventKnown: boolean
+  memoryBytes: number | null
+  memoryCap: string
+  peers: { target: string; count: number; lastAt: number; outgoing: boolean }[]
 }
 
 export type CodexCursor = Record<string, number> // live.jsonl path -> byte offset seen
@@ -93,6 +99,11 @@ export async function scanCodex(
       urgent: fresh.filter(e => e.wakes && e.kind !== 'turn_completed')
         .map(e => ({ at: e.at ? Date.parse(e.at) : now, text: (e.text || e.kind).slice(0, 300) })),
       completedNow: fresh.some(e => e.kind === 'turn_completed'),
+      state: job.state, reason: job.stall.state === 'stalled' ? job.stall.reason : job.reason,
+      eventKnown: job.last_event_at !== null, memoryBytes: job.memory_bytes, memoryCap: job.memory_cap,
+      peers: snapshot.peers.edges.filter(e => e.source === job.id || e.target === job.id).map(e => ({
+        target: e.source === job.id ? e.target : e.source, count: e.count, lastAt: Date.parse(e.last_at), outgoing: e.source === job.id,
+      })),
     })
   }
   jobs.sort((a, b) => Number(b.running) - Number(a.running) || b.lastEventAt - a.lastEventAt)
