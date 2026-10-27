@@ -24,8 +24,9 @@ quota above the Claude Code prompt.
 Call-outs name what each thing is, and follow it as it moves. Below the scene are the
 activity, crew and quota rows, then the prompt and the Claude Code status line (model and
 effort, folder and branch, context, 5-hour and 7-day limits, cost). `h` is five-hour, `w`
-weekly, `*` the active account; in this capture Codex 01–02 are Pro (weekly only) and
-03–04 are Plus, and agy's `G`, `C`, `A` are Gemini, Claude/GPT and Argon.
+weekly, `*` the active account. All account identifiers and quota values in these
+illustrations are synthetic, not a subscription inventory. agy's `G`, `C`, `A`
+are Gemini, Claude/GPT and Argon.
 [Crew and quota details](claude/README.md#crew-and-quota-rows).
 
 Eight landscapes, with time, weather and session state drawn into the scene: work, a

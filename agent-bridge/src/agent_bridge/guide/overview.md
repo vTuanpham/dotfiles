@@ -5,15 +5,23 @@ One CLI with four backends: `codex`, `agy`, `claude` and `opencode`.
 ## Which backend
 - **Never bridge to your own harness.** A Claude root uses its Agent tool for Claude workers, a Codex root its own subagents, an agy root its own. The bridge is only for the other harnesses.
 - Before launching, read the notes of the backend you will launch in `agent-bridge start --help`: its models, effort levels, quota and quirks.
-- No backend is the default: you choose per task, by the model it needs, the plan's quota and the cost. What each is good at: Codex (Luna, Sol) coding, implementation, sweeps and audits; Sonnet (claude), or agy's Claude Opus when Claude quota is tight, taste-heavy UI/visual work; agy a separate quota pool with Gemini and Claude models; OpenCode free models cheap, bounded or non-sensitive work. The plan-by-plan spending guide and the effort/cost table are the dated "Plans and model strength" section in `agent-bridge guide plans`. A user or project instruction that states a preference outranks all of it.
+- No backend is the default: choose by the task's model needs, allowance and cost. Codex (Luna, Sol) suits coding, implementation, sweeps and audits; Sonnet or agy's Claude Opus suits taste-heavy visual work; agy offers Gemini and Claude models; OpenCode free models suit bounded work. Generic model roles and the effort/cost table are in `agent-bridge guide plans`. Read `agent-bridge guide subscriptions` only when the choice depends on a plan, quota depth or retention policy; it catalogs all vendor tiers and live discovery commands. Ordinary delegation does not require it. A user or project preference outranks this advice.
 - A delegated worker never starts jobs itself; the runner tells every worker so.
 
 ## Keeping the reference current
-`start` may warn that the model and plan reference is old, that the live model lists changed, or that a refreshed reference is waiting. A weekly job proposes updates and never applies them. When one is waiting you are the reviewer, and you apply it yourself without asking the user:
+`agent-bridge refresh --check` is read-only JSON: new/gone model IDs per backend, lock date/age and stale guide filenames. `agent-bridge stale` renders the same data as text and caches warnings for `start`. A missing/signed-out backend is not evidence that its models disappeared.
+
+Choose either source-review path:
+
+- **Worker proposal:** `agent-bridge refresh --force` stages both guides in one sandboxed job. The weekly timer uses the same path. It never applies or records a proposal, even when nothing changed. When one is waiting you are the reviewer:
 1. `agent-bridge stale` prints the report path. Read the diff and the worker's notes.
 2. Re-check what changed. Fetch each cited source page and confirm every changed number or claim says what the diff says, and look at any new model ids the worker skipped. A claim its source does not support, or changed advice (how freely to spend a plan, which effort to prefer), means `agent-bridge refresh --discard`.
-3. Otherwise `agent-bridge refresh --apply --yes`. It edits `guide/models.md` and the lock and leaves them uncommitted; tell the user in one line what changed.
+3. Otherwise `agent-bridge refresh --apply --yes`. One apply step edits `guide/models.md`, `guide/subscriptions.md` and their shared `models.lock` (model inventory plus both document hashes), leaving them uncommitted; tell the user in one line what changed. Both originals must still match the proposal; an intervening edit to either requires a fresh proposal.
 The free-tier zero-retention list lives in code (`ZDR_FREE` in `opencode.py`); changing it is the user's call.
+
+- **Root edit:** if you already fetched the sources or the change is small, edit both guides as needed, re-check cited claims, and set their `Checked` stamps to today's date. Keep generic model/effort advice in `models.md` and every vendor tier in `subscriptions.md`; never add account state. Every live ID must appear in backticks in the guides, either with advice or in the explicit intentionally-omitted inventory with a reason. Retain unresolved `Unverified` markers and well-formed source links. `agent-bridge refresh --record` validates, shows the diff against HEAD and asks for confirmation; use `--record --yes` after source review in a noninteractive root. It writes only the lock, never guide text, and drops an obsolete waiting proposal. Validation failure leaves the lock unchanged.
+
+Only apply/record writes the lock. `stale --accept` is a legacy alias for the same record validation. Both paths leave changes uncommitted. Inspect `git diff` before committing.
 
 ## Jobs
 - Flags are in `agent-bridge <command> --help`.

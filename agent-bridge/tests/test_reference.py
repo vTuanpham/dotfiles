@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 from datetime import date, timedelta
@@ -6,9 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_bridge import reference, refresh
+from agent_bridge import cli, reference, refresh
 
 REAL = (reference.GUIDES / "models.md").read_text(encoding="utf-8")
+SUBSCRIPTIONS = (reference.GUIDES / "subscriptions.md").read_text(encoding="utf-8")
 TODAY = date.today().isoformat()
 _LUNA = re.search(
     r"\| Luna \| (\d+) / \$[\d.]+", REAL
@@ -21,6 +23,7 @@ def home(tmp_path, monkeypatch):
     guides = tmp_path / "guide"
     guides.mkdir()
     (guides / "models.md").write_text(REAL, encoding="utf-8")
+    (guides / "subscriptions.md").write_text(SUBSCRIPTIONS, encoding="utf-8")
     monkeypatch.setattr(reference, "GUIDES", guides)
     monkeypatch.setattr(reference, "LOCK", guides / "models.lock")
     monkeypatch.setattr(reference, "CACHE", tmp_path / "stale.json")
@@ -28,6 +31,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(refresh, "DIR", tmp_path / "refresh")
     monkeypatch.setattr(refresh, "STAMP", tmp_path / "refresh/last")
     monkeypatch.setattr(reference, "HOME", tmp_path)
+    monkeypatch.setattr(refresh, "committed", lambda: {"models.md": REAL, "subscriptions.md": SUBSCRIPTIONS})
     (tmp_path / "refresh").mkdir()
     lists = {"codex": ["gpt-6-luna", "gpt-6.1-sol"], "opencode": ["opencode/glm-5.3-flash-free", "other/x"]}
     monkeypatch.setattr(
@@ -59,9 +63,8 @@ def test_a_clean_refresh_passes_and_a_big_move_is_only_a_note():
     [
         ({"| Haiku 5.5 |": "| Haiku 5.4 |"}, "model row was dropped"),
         ({LUNA_CELL: "| Luna | 220 / $0.005"}, "out of range"),
-        ({"- **Codex Free**": "- **Codex Gratis**"}, "bullet labels"),
-        ({"`opencode/minimax-m3.1-flash-free`": "`opencode/new-thing-free`"}, "zero-retention list"),
-        ({"| Astra | Plus | never |": "| Astra | Plus | sometimes |"}, "advice"),
+        ({"- **Small models need effort**": "- **Small models**"}, "bullet labels"),
+        ({"| Astra | hardest audits": "| Astra | routine work"}, "advice"),
     ],
 )
 def test_a_proposal_that_restructures_or_touches_the_privacy_list_is_rejected(edit, expected):
@@ -79,7 +82,7 @@ def test_a_stale_date_and_a_truncated_rewrite_are_rejected():
 
 
 def test_stale_reports_new_and_gone_models_and_warns_from_the_cache(home, capsys):
-    reference.LOCK.write_text(f"refreshed {TODAY}\ncodex gpt-6-luna\ncodex gpt-5.6-terra\n", encoding="utf-8")
+    write_lock("codex gpt-6-luna\ncodex gpt-5.6-terra\n")
     assert reference.warning() is None
     found = reference.check()
     assert found[0].startswith("codex: new gpt-6.1-sol; gone gpt-5.6-terra")
@@ -91,9 +94,7 @@ def test_stale_reports_new_and_gone_models_and_warns_from_the_cache(home, capsys
 
 
 def test_a_listing_that_shares_nothing_with_the_lock_is_a_failed_listing(home, monkeypatch):
-    reference.LOCK.write_text(
-        f"refreshed {TODAY}\ncodex gpt-6-luna\nopencode opencode/glm-5.3-flash-free\n", encoding="utf-8"
-    )
+    write_lock("codex gpt-6-luna\nopencode opencode/glm-5.3-flash-free\n")
     monkeypatch.setattr(
         reference,
         "LISTERS",
@@ -109,19 +110,21 @@ def test_a_listing_that_shares_nothing_with_the_lock_is_a_failed_listing(home, m
 
 def test_an_old_lock_and_a_waiting_proposal_each_warn(home):
     reference.LOCK.write_text(f"refreshed {date.today() - timedelta(days=45)}\n", encoding="utf-8")
-    assert "past its check date" in reference.warning()
+    assert "past their check date" in reference.warning()
     reference.accept()
     reference.PENDING.write_text(str(home))
     assert "waiting for a root to re-check" in reference.warning()
 
 
-def worker(home, edit):
+def worker(home, edit, subscriptions=lambda text: text):
     """A stand-in for the sandboxed worker: edits only the proposal in its working directory."""
 
     def run(cmd, **_):
         if cmd[3:4] == ["start"]:
             work = home / "refresh" / TODAY
-            (work / "proposed.md").write_text(edit((work / "current.md").read_text()), encoding="utf-8")
+            for name, change in (("models.md", edit), ("subscriptions.md", subscriptions)):
+                (work / f"proposed-{name}").write_text(
+                    change((work / f"current-{name}").read_text()), encoding="utf-8")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     return run
@@ -176,15 +179,22 @@ LIVE_LOCK = (
 )
 
 
-def test_a_worker_that_changes_nothing_restarts_the_clock_without_touching_the_guide(
+def write_lock(models, refreshed=TODAY):
+    hashes = "".join(f"guide {name} {digest}\n" for name, digest in reference.guide_hashes().items())
+    reference.LOCK.write_text(f"refreshed {refreshed}\n{hashes}{models}", encoding="utf-8")
+
+
+def test_a_worker_that_changes_nothing_waits_for_apply_before_restarting_the_clock(
     home, monkeypatch, capsys
 ):
     old = date.today() - timedelta(days=20)
-    reference.LOCK.write_text(f"refreshed {old}\n{LIVE_LOCK}", encoding="utf-8")
+    write_lock(LIVE_LOCK, old)
     monkeypatch.setattr(refresh.subprocess, "run", worker(home, lambda text: text))  # not even the date
     assert refresh.run(force=True) == 0
-    assert "nothing changed" in capsys.readouterr().out
-    assert (reference.GUIDES / "models.md").read_text() == REAL and not reference.PENDING.exists()
+    assert "proposal is waiting" in capsys.readouterr().out
+    assert (reference.GUIDES / "models.md").read_text() == REAL and reference.PENDING.exists()
+    assert reference.read_lock()[0] == old
+    assert refresh.apply(yes=True) == 0
     assert reference.read_lock()[0] == date.today()
 
 
@@ -212,20 +222,10 @@ def test_a_guide_edited_while_the_worker_ran_is_not_overwritten(home, monkeypatc
     )
 
 
-def test_plans_come_from_the_machine_with_emails_masked(monkeypatch):
-    shown = "* 01 someone@example.com  Pro Lite  0\n  02 other@mail.co.uk  Free  -"
-    monkeypatch.setattr(
-        refresh.subprocess, "run", lambda cmd, **_: SimpleNamespace(returncode=0, stdout=shown, stderr="")
-    )
-    text = refresh.plans()
-    assert "Pro Lite" in text and "<email>" in text and "@" not in text
-    assert text.count("== ") == 3
-
-    def missing(cmd, **_):
-        raise FileNotFoundError(cmd[0])
-
-    monkeypatch.setattr(refresh.subprocess, "run", missing)
-    assert refresh.plans().count("(unavailable)") == 3
+def test_refresh_brief_has_no_live_subscription_input():
+    assert "plans.txt" not in refresh.BRIEF
+    assert "EVERY vendor tier" in refresh.BRIEF
+    assert not refresh.HOLDER_WORDING.search(refresh.BRIEF)
 
 
 def test_apply_refuses_a_proposal_made_against_an_older_guide(home, monkeypatch):
@@ -255,3 +255,129 @@ def test_a_failed_or_timed_out_worker_changes_nothing(home, monkeypatch, capsys)
     monkeypatch.setattr(refresh.subprocess, "run", timeout)
     assert refresh.run(force=True) == 1
     assert "timed out" in capsys.readouterr().out and not reference.PENDING.exists()
+
+
+def test_both_guides_share_one_report_apply_and_lock(home, monkeypatch):
+    reference.accept()
+    changed = refreshed(SUBSCRIPTIONS).replace("numeric allowance Unverified", "exact allowance Unverified")
+    monkeypatch.setattr(refresh.subprocess, "run", worker(home, small_fix, lambda text: changed))
+    assert refresh.run(force=True) == 0
+    assert (reference.GUIDES / "subscriptions.md").read_text() == SUBSCRIPTIONS
+    report = (Path(reference.PENDING.read_text()) / "report.md").read_text()
+    assert "proposed/models.md" in report and "proposed/subscriptions.md" in report
+    assert refresh.apply(yes=True) == 0
+    assert (reference.GUIDES / "subscriptions.md").read_text() == changed
+    assert reference.guide_drift() == []
+    assert reference.read_lock()[1] == {
+        "codex": {"gpt-6-luna", "gpt-6.1-sol"}, "opencode": {"opencode/glm-5.3-flash-free"}}
+
+
+def test_apply_refuses_intervening_subscription_edit(home, monkeypatch):
+    reference.accept()
+    monkeypatch.setattr(refresh.subprocess, "run", worker(home, small_fix))
+    refresh.run(force=True)
+    (reference.GUIDES / "subscriptions.md").write_text(SUBSCRIPTIONS + "\nintervening edit\n")
+    with pytest.raises(SystemExit, match="guide changed"):
+        refresh.apply(yes=True)
+    assert (reference.GUIDES / "models.md").read_text() == REAL
+
+
+def test_subscription_tier_and_privacy_gate_validation():
+    for old, new, error in (
+        ("| Pro ($100/month)", "| Other tier", "tier rows"),
+        ("`opencode/minimax-m3.1-flash-free`", "`opencode/new-free`", "zero-retention list"),
+    ):
+        errors, _ = refresh.validate(SUBSCRIPTIONS, refreshed(SUBSCRIPTIONS).replace(old, new),
+                                     TODAY, "subscriptions.md")
+        assert any(error in item for item in errors)
+
+
+def test_structured_check_is_read_only_and_identifies_stale_guide(home, monkeypatch):
+    reference.accept()
+    before = reference.LOCK.read_bytes()
+    (reference.GUIDES / "subscriptions.md").write_text(SUBSCRIPTIONS + "\nedit\n")
+    monkeypatch.setattr(reference, "live", lambda: {"codex": {"gpt-6-luna", "new-model"}})
+    data = reference.inspect()
+    assert data["age_days"] == 0
+    assert data["stale_guides"] == ["subscriptions.md"]
+    assert data["models"]["codex"] == {"new": ["new-model"], "gone": ["gpt-6.1-sol"]}
+    assert reference.LOCK.read_bytes() == before and not reference.CACHE.exists()
+
+
+def test_record_keeps_guide_text_and_records_both_hashes(home):
+    reference.accept()
+    model = reference.GUIDES / "models.md"
+    model.write_text(refreshed(REAL) + "\nIntentionally omitted: `new-model`.\n")
+    before = refresh.documents(reference.GUIDES)
+    assert refresh.record(yes=True) == 0
+    assert refresh.documents(reference.GUIDES) == before
+    assert reference.guide_drift() == []
+    assert set(reference.guide_hashes()) == set(reference.DOCUMENTS)
+
+
+@pytest.mark.parametrize("failure", ["model", "date", "holder", "section", "link", "unverified"])
+def test_record_rejects_invalid_root_edits_without_changing_lock(home, monkeypatch, failure):
+    reference.accept()
+    before = reference.LOCK.read_bytes()
+    path = reference.GUIDES / "models.md"
+    text = refreshed(REAL)
+    if failure == "model":
+        monkeypatch.setattr(reference, "live", lambda: {"codex": {"gpt-6-luna", "uncovered-model"}})
+        expected = "uncovered-model missing"
+    elif failure == "date":
+        text = text.replace(f"Checked {TODAY}", "Checked 2000-01-01")
+        expected = "Checked date"
+    elif failure == "holder":
+        text += "\nYour plan is Plus.\n"
+        expected = "holder-specific"
+    elif failure == "section":
+        text = text.replace("### Inventory coverage", "### Coverage")
+        expected = "missing section"
+    elif failure == "link":
+        text += "\n[bad](https://)\n"
+        expected = "malformed"
+    else:
+        text = text.replace("Unverified", "Verified")
+        expected = "Unverified markers"
+    path.write_text(text)
+    with pytest.raises(SystemExit, match=expected):
+        refresh.record(yes=True)
+    assert reference.LOCK.read_bytes() == before and path.read_text() == text
+
+
+def test_record_requires_confirmation(home, monkeypatch):
+    monkeypatch.setattr(refresh.sys.stdin, "isatty", lambda: False)
+    with pytest.raises(SystemExit, match="--record --yes"):
+        refresh.record()
+
+
+def test_refresh_check_and_record_cli_routes(home, monkeypatch, capsys):
+    reference.accept()
+    monkeypatch.setattr(refresh.sys, "argv", ["agent-bridge", "refresh", "--check"])
+    cli.main()
+    assert json.loads(capsys.readouterr().out)["stale_guides"] == []
+    assert not reference.CACHE.exists()
+    calls = []
+    monkeypatch.setattr(refresh, "record", lambda yes: calls.append(yes) or 0)
+    monkeypatch.setattr(refresh.sys, "argv", ["agent-bridge", "refresh", "--record", "--yes"])
+    with pytest.raises(SystemExit) as done:
+        cli.main()
+    assert done.value.code == 0 and calls == [True]
+
+
+def test_subscription_guide_cli_remains_opt_in(monkeypatch, capsys):
+    monkeypatch.setattr(refresh.sys, "argv", ["agent-bridge", "guide", "subscriptions"])
+    cli.main()
+    assert capsys.readouterr().out == SUBSCRIPTIONS.strip() + "\n"
+
+
+def test_public_docs_and_help_have_no_holder_specific_wording():
+    repo = Path(__file__).resolve().parents[2]
+    tracked = subprocess.run(["git", "ls-files", "-z"], cwd=repo,
+                             capture_output=True, text=True, check=True).stdout.split("\0")
+    paths = {repo / name for name in tracked if name.endswith(".md")}
+    paths.update(reference.GUIDES / name for name in reference.DOCUMENTS)
+    paths.add(reference.GUIDES.parent / "cli.py")
+    offenders = [str(path.relative_to(repo)) for path in sorted(paths)
+                 if refresh.HOLDER_WORDING.search(path.read_text(encoding="utf-8"))]
+    assert offenders == []

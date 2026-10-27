@@ -6,7 +6,7 @@ Use the newest model of each family (highest version wins; never older or spark)
 - **Sol**: clearly stronger than Luna: tricky implementation, deep diagnosis, review. Effort `medium|high|xhigh`.
 - **Astra**: quota-heavy; reserve it for the hardest audits and tasks and for brainstorming (read-only). Effort `low|medium|high` (xhigh/max only when the user asks).
 
-How freely to spend each depends on the plan (the `*` row in `codex-auth list`): see "Plans" in `agent-bridge guide plans`.
+Read `agent-bridge guide subscriptions` only when the choice depends on a plan or allowance. Check the live account with `codex-auth list`; use `agent-bridge guide plans` for generic model/effort advice.
 
 ## Specifics
 - Steers land inside the active turn.
@@ -16,8 +16,8 @@ How freely to spend each depends on the plan (the `*` row in `codex-auth list`):
 
 ## Quota and accounts
 When a turn fails with a usage or limit error:
-1. Run `codex-auth list`. The 5H/WEEKLY columns are percent remaining from local cache only, so an account idle for hours can show stale numbers. Pro Lite has no 5h limit, so its 5H column repeats the weekly one. Mask emails in any output you show.
-2. Switch by email without printing it: `codex-auth switch "$(codex-auth list | awk '$1=="NN"{print $2}')"` (a bare number doesn't match). Burn the Plus accounts first (any with 5h and weekly left), then Pro Lite, then Free.
+1. Run `codex-auth list`. The 5H/WEEKLY columns are percent remaining from local cache only, so an account idle for hours can show stale numbers. On tiers without a five-hour limit, the 5H column can repeat the weekly value. Live output may label the $100 tier differently from the pricing page. Mask emails in any output you show.
+2. Switch to an authorized account with sufficient allowance by email without printing it: `codex-auth switch "$(codex-auth list | awk '$1=="NN"{print $2}')"` (a bare number doesn't match). Choose from live access and remaining windows rather than assuming a particular set of tiers.
 3. Run `codex app-server daemon restart` so the new login applies; codex-auth alone doesn't.
 4. Resume one failed job and confirm it progresses for ~30 s before resuming the rest. If it still fails at once, move to the next account.
 

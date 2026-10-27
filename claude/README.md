@@ -89,8 +89,9 @@ agy's `G`, `C`, `A` are Gemini, Claude/GPT and Argon buckets. Codex numbers come
 from the local `codex-auth` cache and can be stale; agy numbers come from each
 account's cache, refreshed with `agent-bridge quota --backend agy`.
 
-In the capture, Codex 01–02 are Pro and 03–04 are Plus; `*` marks the active
-account. A low window colors that account's quota text peach.
+The capture uses synthetic account identifiers and quota values, not an account
+or subscription inventory. `*` marks the active demo account. A low window
+colors that account's quota text peach.
 
 ### Use and check
 

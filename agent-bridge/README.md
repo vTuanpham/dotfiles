@@ -68,7 +68,8 @@ Install and use (a uv tool, editable from this checkout):
 uv tool install --editable ~/dotfiles/agent-bridge
 agent-bridge --help            # compact command map and workflow rules
 agent-bridge guide workflow    # routing, watching, briefs, review, cleanup and reference refresh
-agent-bridge guide plans       # plans, model strength and costs
+agent-bridge guide plans       # generic model strength, effort and costs (legacy command name)
+agent-bridge guide subscriptions # all vendor tiers; read only for plan-dependent choices
 agent-bridge start --help      # each backend's models, effort levels, quota and quirks
 ```
 
@@ -154,9 +155,12 @@ remains in place.
 ## Reference refresh
 
 `agent-bridge stale` compares live model lists with `guide/models.lock`; `start`
-warns when the reference is old or a proposal is waiting. `guide/models.md` and
-`models.lock` are checked by the [reference timer](../systemd/README.md#startup-and-timers).
+warns when the reference is old or a proposal is waiting. `guide/models.md`,
+`guide/subscriptions.md` and their shared `models.lock` are checked by the
+[reference timer](../systemd/README.md#startup-and-timers).
 The check runs daily; a worker can propose an update at most weekly. Applying a proposal leaves it
 uncommitted. Follow **Keeping the reference current** in `agent-bridge guide workflow`:
-read the report, re-check its cited sources, then apply or discard. Only a refresh
-with no change and no drift resets the staleness clock without root review.
+read the report, re-check its cited sources, then apply or discard. A root can also
+read structured drift with `agent-bridge refresh --check`, edit the guides after
+source review and run `agent-bridge refresh --record --yes`. Only apply/record
+writes the lock; proposals, including no-change proposals, wait for review.

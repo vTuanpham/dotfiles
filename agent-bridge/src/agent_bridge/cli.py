@@ -284,14 +284,15 @@ def main():
             "Read result, verify the work, then retire when its context is no longer needed.\n\n"
             "Details: <command> --help for flags; start --help for backend notes.\n"
             "Guides: guide workflow (routing, watch, briefs, review, Keeping the reference current);\n"
-            "        guide plans (Plans, model strength, quota and costs); guide prints both.\n"
+            "        guide plans (model strength and costs); guide prints workflow and plans.\n"
+            "        guide subscriptions (all tiers; read only for plan-dependent choices).\n"
             "Storage: ~/.local/state/agent-bridge/jobs (or $AGENT_BRIDGE_HOME/jobs)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
-    g = sub.add_parser("guide", help="read full workflow or Plans guidance")
-    g.add_argument("topic", nargs="?", choices=("workflow", "plans", "heavy"),
+    g = sub.add_parser("guide", help="read workflow, model or subscription guidance")
+    g.add_argument("topic", nargs="?", choices=("workflow", "plans", "subscriptions", "heavy"),
                    help="omit to read workflow and plans")
     sub.add_parser(
         "sessions", help="export native job identities as JSON (no transcripts)",
@@ -445,16 +446,19 @@ def main():
         x.add_argument(
             "--account", help="agy account name (defaults to a1 for models, all signed-in accounts for quota)"
         )
-    stale = sub.add_parser("stale", help="check whether the model and plan reference needs a refresh")
-    stale.add_argument("--accept", action="store_true", help="record the live model lists as reviewed")
+    stale = sub.add_parser("stale", help="render model and guide drift (refresh --check for JSON)")
+    stale.add_argument("--accept", action="store_true", help="legacy alias for refresh --record --yes")
     rf = sub.add_parser(
         "refresh", help="propose, apply or discard a model reference refresh",
         description="Weekly: a sandboxed worker proposes a refreshed reference; you confirm it.",
     )
-    rf.add_argument("--force", action="store_true", help="run even if one ran in the last 7 days")
-    rf.add_argument("--apply", action="store_true", help="apply the waiting proposal after confirmation")
-    rf.add_argument("--yes", action="store_true", help="with --apply: the user already confirmed")
-    rf.add_argument("--discard", action="store_true", help="drop the waiting proposal")
+    action = rf.add_mutually_exclusive_group()
+    action.add_argument("--force", action="store_true", help="run even if one ran in the last 7 days")
+    action.add_argument("--apply", action="store_true", help="apply the waiting proposal after confirmation")
+    action.add_argument("--check", action="store_true", help="read-only drift, age and stale guides as JSON")
+    action.add_argument("--record", action="store_true", help="validate root edits and record source review")
+    rf.add_argument("--yes", action="store_true", help="with --apply/--record: sources already re-checked")
+    action.add_argument("--discard", action="store_true", help="drop the waiting proposal")
     if len(sys.argv) > 1:
         if sys.argv[1] == "status":
             p.error("unknown command 'status'; use watch <job>, result <job>, or owners")
@@ -504,7 +508,8 @@ def main():
                       mem=a.mem, exclusive=a.exclusive)
             return
         if a.command == "guide":
-            names = {"workflow": ("overview",), "plans": ("models",), "heavy": ("heavy",)}
+            names = {"workflow": ("overview",), "plans": ("models",),
+                     "subscriptions": ("subscriptions",), "heavy": ("heavy",)}
             print(guide(*names.get(a.topic, ("overview", "models"))))
             return
         if a.command == "sessions":
@@ -525,13 +530,16 @@ def main():
             return
         if a.command == "stale":
             if a.accept:
-                reference.accept()
-                print("recorded the live model lists in the lock")
-                return
+                raise SystemExit(refresh.record(yes=True))
             found = reference.check()
             print("\n".join(found) if found else "the reference is current")
             raise SystemExit(1 if found else 0)
         if a.command == "refresh":
+            if a.check:
+                print(json.dumps(reference.inspect(), indent=2))
+                return
+            if a.record:
+                raise SystemExit(refresh.record(a.yes))
             if a.discard:
                 raise SystemExit(refresh.discard())
             raise SystemExit(refresh.apply(a.yes) if a.apply else refresh.run(a.force))
