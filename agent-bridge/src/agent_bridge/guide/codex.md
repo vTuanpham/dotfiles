@@ -4,7 +4,8 @@
 Use the newest model of each family (highest version wins; never older or spark); pass exact IDs because a bare family name can select the wrong metadata.
 - **Luna**: cheap bulk worker for coding, implementation, bounded sweeps and bug-finding audits (`xhigh|max` for audits). Effort `high|xhigh|max` only. Cheap per token but thinks long, so wall time can exceed Sol's.
 - **Sol**: clearly stronger than Luna: tricky implementation, deep diagnosis, review. Effort `medium|high|xhigh`.
-- **Astra**: quota-heavy; reserve it for the hardest audits and tasks and for brainstorming (read-only). Effort `low|medium|high` (xhigh/max only when the user asks).
+- **Terra**: fast model for visual, UI and computer-use work and for writing; faster than Sol. Start at `medium|high`.
+- **Astra**: the strongest Codex model, for the hardest audits, architecture questions and read-only brainstorming. Effort `low|medium|high` (xhigh/max when the user asks). It draws more quota per job, so size jobs to match.
 
 Read `agent-bridge guide subscriptions` only when the choice depends on a plan or allowance. Check the live account with `codex-auth list`; use `agent-bridge guide plans` for generic model/effort advice.
 
