@@ -347,6 +347,15 @@ def test_codex_rejects_workers_wrong_roots_and_malformed_metadata(change):
         codex.root(FakeRpc(incomplete), codex_target())
 
 
+def test_codex_unloaded_root_is_readable_but_not_writable_and_only_when_unloaded():
+    unloaded = {**codex_root(), "canAcceptDirectInput": None, "status": {"type": "notLoaded"}}
+    info = codex.root(FakeRpc(unloaded), codex_target())
+    assert info["canAcceptDirectInput"] is False and info["status"] == {"type": "notLoaded"}
+    for status in ("idle", "active", "systemError"):
+        with pytest.raises(ValueError, match="input capability"):
+            codex.root(FakeRpc({**unloaded, "status": {"type": status}}), codex_target())
+
+
 def test_codex_only_exposes_chat_and_preserves_cursor():
     def row(kind, **kwargs):
         return {"turnId": "turn", "item": {"id": kind, "type": kind, **kwargs}}

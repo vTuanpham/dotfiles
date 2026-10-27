@@ -42,9 +42,12 @@ def validate_root(value, session_id):
         raise ValueError("Harness did not identify the selected root")
     if value["parentThreadId"] is not None or value.get("sessionId") != session_id:
         raise ValueError("Only root sessions can be registered")
-    if type(value.get("canAcceptDirectInput")) is not bool:
-        raise ValueError("Harness did not report input capability")
     status = value.get("status")
     if type(status) is not dict or status.get("type") not in ("active", "idle", "notLoaded", "systemError"):
         raise ValueError("Harness returned an unsupported session status")
+    accepts = value.get("canAcceptDirectInput")
+    if accepts is None and status["type"] == "notLoaded":
+        return {**value, "canAcceptDirectInput": False}  # an unloaded thread reports null: readable, not writable
+    if type(accepts) is not bool:
+        raise ValueError("Harness did not report input capability")
     return value
