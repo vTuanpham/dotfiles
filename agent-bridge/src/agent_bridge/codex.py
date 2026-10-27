@@ -265,7 +265,8 @@ def run(job, state, path, prompt, resume=False, compact=False):
                         state["lastTurnId"] = turn
                     persist()
                 elif method == "item/started" and item.get("type") == "commandExecution":
-                    log(job, "command_start", turnId=p.get("turnId"), command=item.get("command"))
+                    log(job, "command_start", turnId=p.get("turnId"), itemId=item.get("id"),
+                        command=item.get("command"))
                 elif method == "item/completed" and item.get("type") == "agentMessage":
                     text = item.get("text", "")
                     urgent = text.lstrip().upper().startswith("URGENT:")
@@ -282,6 +283,7 @@ def run(job, state, path, prompt, resume=False, compact=False):
                     log(
                         job,
                         "command_end",
+                        itemId=item.get("id"),
                         turnId=p.get("turnId"),
                         status=item.get("status"),
                         exitCode=item.get("exitCode"),

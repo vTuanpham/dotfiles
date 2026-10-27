@@ -9,6 +9,7 @@ from . import (
     agy,
     claude,
     codex,
+    groups,
     heavy,
     heavy_control,
     opencode,
@@ -19,8 +20,10 @@ from . import (
     retries,
     status,
     status_render,
+    waiting,
 )
 from .acknowledgements import acknowledge, event_lines
+from .assessment import DEFAULT_DECLARED_WAIT_SECONDS, SILENCE_SECONDS
 from .core import (
     ARCHIVE,
     JOBS,
@@ -77,7 +80,7 @@ def harness():
 def record_root(job):
     owner = Path(job).parent
     owner.mkdir(parents=True, exist_ok=True)
-    save(owner / "root.json", {"at": stamp(), "harness": harness()})
+    save(owner / "root.json", {"at": stamp(), "harness": harness(), **(root_identity() or {})})
 
 
 def root_identity():
@@ -253,7 +256,7 @@ def main():
         and len(sys.argv) > 1
         and not any(flag in sys.argv[1:] for flag in ("-h", "--help"))
         and sys.argv[1] in {"start", "resume", "steer", "interrupt", "stop", "compact", "retire",
-                            "restore", "purge", "sessions", "ack"}
+                            "restore", "purge", "sessions", "ack", "group"}
     ):
         print("agent-bridge: delegated workers can't drive agent-bridge jobs", file=sys.stderr)
         raise SystemExit(2)
@@ -285,6 +288,16 @@ def main():
     snapshot.add_argument("owner", nargs="*", help="optional owner or owner/job filters")
     snapshot.add_argument("--json", action="store_true", help="emit the version 1 JSON contract")
     snapshot.add_argument("--storage", action="store_true", help="scan sizes and expired retirement safety")
+    snapshot.add_argument("--no-quotas", action="store_true",
+                          help="skip account caches for a bounded status probe")
+    wait = sub.add_parser("waiting", help="declare a bounded silent wait for this worker")
+    action = wait.add_mutually_exclusive_group(required=True)
+    action.add_argument("--on", choices=waiting.KINDS)
+    action.add_argument("--clear", action="store_true")
+    wait.add_argument("--for", dest="duration", type=groups.duration,
+                      default=DEFAULT_DECLARED_WAIT_SECONDS, help="expected duration, at most 2h")
+    wait.add_argument("--note", default="", help="short reason, at most 80 printable characters")
+    wait.add_argument("--peer", help="sibling job name for a peer/dependency wait")
     s = sub.add_parser(
         "start",
         help="create a job and run its first turn",
@@ -334,6 +347,7 @@ def main():
     s.add_argument("--prompt-file", help="read prompt from PATH or '-' for stdin; default is <job>/prompt.md")
     s.add_argument("--detach", action="store_true", help="run in the background and return the job path")
     s.add_argument("--watch", **WATCH)
+    s.add_argument("--group", type=groups.name, help="root-owned completion wake group")
     r = sub.add_parser("resume", help="continue the same job/session; queued steers take precedence")
     r.add_argument("job", help="job as <owner>/<name>")
     r.add_argument("--model", help="switch model starting on the next turn")
@@ -344,6 +358,31 @@ def main():
     r.add_argument("--prompt-file", help="read follow-up from PATH or '-' for stdin")
     r.add_argument("--detach", action="store_true", help="run in the background and return the job path")
     r.add_argument("--watch", **WATCH)
+    r.add_argument("--group", type=groups.name, help="set the completion wake group for this job")
+    gp = sub.add_parser("group", help="root-owned completion batching policy and membership")
+    gc = gp.add_subparsers(dest="group_action", required=True)
+    gs = gc.add_parser("set", help="configure a group before launching its members")
+    gs.add_argument("owner")
+    gs.add_argument("name")
+    gs.add_argument("--wake", choices=("each", "all", "quiet"), required=True)
+    gs.add_argument("--settle", type=groups.duration, default=60,
+                    help="completion settle window (default 60s)")
+    gs.add_argument("--remind", type=groups.duration, default=900,
+                    help="unread reminder (default 15m; off disables)")
+    gs.add_argument("--max-wait", type=groups.duration, help="all policy deadline, such as 30m")
+    gs.add_argument("--repeat-reminders", action="store_true",
+                    help="repeat reminders with exponential backoff")
+    gs.add_argument("--members", nargs="*", default=[], help="declare member job names before launch")
+    gl = gc.add_parser("list", help="show effective group policies")
+    gl.add_argument("owner")
+    clear = gc.add_parser("clear", help="reset a group's policy to the defaults")
+    clear.add_argument("owner")
+    clear.add_argument("name")
+    ga = gc.add_parser("assign", help="set a group without resuming the job")
+    ga.add_argument("job")
+    ga.add_argument("name")
+    gu = gc.add_parser("unassign", help="return a job to its owner's ungrouped policy")
+    gu.add_argument("job")
     st = sub.add_parser("steer", help="send a message; resume idle jobs automatically")
     st.add_argument("job", help="job as <owner>/<name>")
     st.add_argument("text", nargs="?", help="steer text (use either this or --prompt-file)")
@@ -408,8 +447,8 @@ def main():
     w.add_argument(
         "--stall-min",
         type=int,
-        default=15,
-        help="minutes of silence before reporting a running job as stalled (default: 15)",
+        default=SILENCE_SECONDS // 60,
+        help="override the snapshot classifier's silence threshold, in minutes",
     )
     w.add_argument(
         "--timeout",
@@ -483,6 +522,62 @@ def main():
                     )
     runner_fd = None
     try:
+        if a.command == "waiting":
+            from .status_model import DeclaredWait
+
+            identity = os.environ.get("AGENT_BRIDGE_JOB")
+            if not os.environ.get(WORKER_FLAG) or not identity:
+                raise ValueError("waiting requires the worker's AGENT_BRIDGE_JOB environment")
+            job = resolve_job(identity)
+            if a.clear:
+                if a.peer or a.note or any(arg.split("=", 1)[0] == "--for" for arg in sys.argv):
+                    raise ValueError("--clear cannot be combined with declaration fields")
+                waiting.write(job, None)
+                print("waiting: cleared")
+            else:
+                peer = f"{job.parent.name}/{a.peer}" if a.peer else None
+                if peer and (peer == identity or not (resolve_job(peer) / "state.json").is_file()):
+                    raise ValueError("peer must be another existing sibling job")
+                value = DeclaredWait(a.on, a.note, stamp(), a.duration, peer)
+                waiting.write(job, value)
+                log(job, "waiting_declared")
+                print(f"waiting: {a.on} for {a.duration}s")
+            return
+        if a.command == "group":
+            groups.require_root()
+            if a.group_action in {"assign", "unassign"}:
+                job = resolve_job(a.job)
+                if not (job / "state.json").is_file():
+                    raise ValueError("group assignment requires an existing job")
+                record_root(job)
+                groups.assign(job, a.name if a.group_action == "assign" else None)
+                print(f"group: {a.job} assigned to {a.name if a.group_action == 'assign' else '@ungrouped'}")
+            else:
+                owner = resolve_job(f"{groups.name(a.owner)}/placeholder").parent
+                if a.group_action != "list":
+                    record_root(owner / "placeholder")
+                if a.group_action == "set":
+                    if a.settle is None:
+                        raise ValueError("settle needs a duration; use 0s for immediate each")
+                    from .status_model import WakePolicy
+
+                    policy = WakePolicy(a.wake, a.settle, a.remind, a.max_wait, a.repeat_reminders)
+                    groups.configure(owner, a.name, policy, a.members)
+                    print(f"group: {a.owner}/{a.name} wake={a.wake} settle={a.settle}s")
+                elif a.group_action == "clear":
+                    groups.clear(owner, a.name)
+                    print(f"group: {a.owner}/{a.name} reset to each with 60s settle and 15m reminders")
+                else:
+                    data = groups.settings(owner, [])
+                    from dataclasses import asdict
+
+                    print(f"{a.owner}/@ungrouped "
+                          + json.dumps(asdict(groups.DEFAULT_POLICY), sort_keys=True))
+                    labels = set(data["policies"]) | {row["group"] for row in data["members"].values()}
+                    for label in sorted(labels):
+                        raw = data["policies"].get(label, asdict(groups.DEFAULT_POLICY))
+                        print(f"{a.owner}/{label} " + json.dumps(raw, sort_keys=True))
+            return
         if a.command == "heavy":
             if a.argv[:1] and a.argv[0] in {"list", "cancel", "pause", "resume"}:
                 if a.mem is not None or a.exclusive or a.memory_max_mib is not None:
@@ -499,7 +594,8 @@ def main():
             print(guide(*names.get(a.topic, ("overview", "models"))))
             return
         if a.command == "status":
-            snapshot = status.Collector(JOBS).collect(a.owner, storage=a.storage)
+            snapshot = status.Collector(JOBS).collect(a.owner, storage=a.storage,
+                                                    include_quotas=not a.no_quotas)
             if a.json:
                 print(json.dumps(snapshot.to_dict(), allow_nan=False))
             else:
@@ -509,6 +605,10 @@ def main():
                         print(status_render.job_status(job))
                 for line in status_render.peer_conversations(snapshot):
                     print(line)
+                print(f"unacknowledged completions: {snapshot.unacknowledged_completions}; "
+                      f"oldest age={snapshot.oldest_unacknowledged_completion_age_seconds}s")
+                for notice in snapshot.group_events:
+                    print(status_render.group_notice(notice))
             return
         if a.command == "sessions":
             print(json.dumps(session_bindings()))
@@ -740,6 +840,11 @@ def main():
         else:
             prompt = read_prompt(job / "prompt.md")
         save(state_path, state)
+        if a.command in {"start", "resume"}:
+            configured = groups.settings(job.parent, [])["members"].get(job.name)
+            group = getattr(a, "group", None) or (configured["group"] if configured else None)
+            if group is not None:
+                groups.assign(job, group, new_turn=True)
         backend = module if resume else BACKENDS[a.backend]
         extra = {"compact": True} if a.command == "compact" else {}
         if a.command == "resume":

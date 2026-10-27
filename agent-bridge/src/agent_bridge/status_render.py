@@ -107,6 +107,8 @@ def job_status(job):
     name = label(job)
     if not job.running:
         return f"status: {name} {job.state} memory={job.memory_cap} cpu={job.cpu_cap}"
+    if job.waiting or job.in_flight:
+        return f"status: {name} {job.stall.reason} memory={job.memory_cap} cpu={job.cpu_cap}"
     if job.state in {"waiting_for_heavy", "paused", "blocked_on_question"}:
         return f"status: {name} {job.reason}"
     if job.state == "waiting_for_root":
@@ -136,3 +138,7 @@ def event(job, value):
         + (f" error={value.error[:200]}" if value.error else "")
         + (f" | {value.text.replace(chr(10), ' ')[:600]}" if value.text else "")
     )
+
+
+def group_notice(notice):
+    return f"{notice.owner}/{notice.group or '@ungrouped'}: {notice.kind} | {notice.text}"

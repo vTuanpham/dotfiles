@@ -297,10 +297,10 @@ def test_rearmed_watch_replays_all_unacknowledged_and_summarizes_each(monkeypatc
             stream.write(json.dumps({"kind": kind, "at": "2026-10-25T00:00:00Z"}) + "\n")
     monkeypatch.setattr(watcher, "JOBS", root)
     monkeypatch.setattr(status, "running", lambda _: False)
-    for _ in range(2):
+    for index in range(2):
         watcher.watch(["owner"], until_event=True)
         output = capsys.readouterr().out
-        assert "owner/worker turn_completed 2026-10-25T00:00:00Z [unacknowledged]" in output
+        assert ("results: owner/worker" in output) is (index == 0)
         assert "owner/second question 2026-10-25T00:00:00Z [unacknowledged]" in output
 
 
@@ -311,4 +311,4 @@ def test_launch_offset_cannot_hide_pending_events(monkeypatch, tmp_path, capsys)
     monkeypatch.setattr(watcher, "JOBS", root)
     monkeypatch.setattr(status, "running", lambda _: False)
     watcher.watch(["owner"], until_event=True, offsets={job: (job / "live.jsonl").stat().st_size})
-    assert "owner/worker turn_completed" in capsys.readouterr().out
+    assert "results: owner/worker" in capsys.readouterr().out

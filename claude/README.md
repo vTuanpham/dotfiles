@@ -9,6 +9,7 @@ Claude Code configuration under `~/.claude`. Each part has its own kind:
 | `settings.json`, status lines (`statusline-starship.sh` runs `statusline.py`; `subagent_statusline.py` draws the subagent rows) | Snapshot: holds this machine's paths | `install.sh --apply snapshots` copies what is missing on a new machine |
 | `CLAUDE.md` (`~/.claude/CLAUDE.md` links here; it imports the shared `~/.config/agents/AGENTS.md`), Bridge/Baton and the [pstack skills](../agents/README.md#engineering-skills) | Live link | `install.sh --apply links` |
 | Hook and plugin entries | Merged into the live `settings.json` | `install.sh --apply hooks` |
+| [Root stop safety net](.claude/hooks/README.md) | Script is a live link; entries merge into settings | `install.sh --apply links`, then `install.sh --apply hooks` |
 | [Wake mod](#wake-mod-live) | Live link; reloads as its files change | `install.sh --apply links` |
 
 ## Hooks
@@ -27,6 +28,10 @@ is out. Claude also loads the `ponytail` plugin (`enabledPlugins` and `extraKnow
 `settings.json`; see "Plugin: ponytail" in the top-level README), which ships hooks of its own.
 
 ## Remote questions and notifications
+
+The [root Stop hook](.claude/hooks/README.md) reminds the root once to arm a
+Bridge watch or acknowledge unread work before ending a turn. It allows user
+questions and fails open on errors. Disable with `AGENT_BRIDGE_STOP_GUARD=0 claude`.
 
 The settings snapshot enables `remoteControlAtStartup`, `inputNeededNotifEnabled`
 and `agentPushNotifEnabled`. Remote Control provides the native phone/browser
@@ -88,14 +93,20 @@ describes its subagent workflow and status access.
 
 Classes are 1 Haiku/Luna, 2 Sonnet/Terra, 3 Opus/Sol and 4 Fable/Astra;
 unrecognized models fall back to class 2. Each harness has four scene sprites.
+A filling circle beside the harness mark (◔ ◑ ◕ ◉) shows the class, and a
+five-step signal meter shows effort, lit steps against dots.
 If the crew will not fit alongside the scene, Wake temporarily gives the rows
 the available space instead; an overflow count indicates any remaining rows.
+A stall mark comes from Bridge's shared
+[stall classifier](../agent-bridge/src/agent_bridge/guide/status.md#bounded-waits-and-one-stall-classifier-v12);
+known waits have their own reasons. Finished jobs stay as `done` until Bridge's
+`result` or explicit `ack` acknowledges their completion.
 
 Bridge jobs, quota numbers and tidy eligibility come from
 [`agent-bridge status --json`](../agent-bridge/src/agent_bridge/guide/status.md).
 Wake maps the shared state and stall reason; heavy waits, root pauses and retry
-backoff stay normal known states. Directed peer marks show message count and
-whether the last activity is older than 15 minutes. The native Claude `statusline.py` still renders
+backoff stay normal known states. Directed peer marks name the other job and
+show a message count past one; links older than 15 minutes are dropped. The native Claude `statusline.py` still renders
 Claude's own session/context/cost input; it has no separate Bridge parser.
 
 The quota rows belong to Wake and appear while Bridge jobs are running. They show

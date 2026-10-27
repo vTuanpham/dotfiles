@@ -6,7 +6,7 @@ import subprocess
 from datetime import datetime
 
 from . import agy, resources
-from .acknowledgements import event_lines, urgent
+from .acknowledgements import INFORMATIONAL_ONLY_KINDS, event_lines, urgent
 from .core import command_env, load_state, tree_size
 from .status_model import Event, Quota, QuotaWindow, TidyItem
 
@@ -52,6 +52,11 @@ class EventLog:
             "preview",
             "message_kind",
             "quietSeconds",
+            "tool_use_id",
+            "itemId",
+            "stepId",
+            "tool",
+            "noticeId",
         }
         for end, raw in event_lines(job, self.offset):
             self.offset = end
@@ -62,6 +67,9 @@ class EventLog:
                 for key in ("text", "message", "question", "status"):
                     if raw.get(key) is not None and type(raw[key]) is not str:
                         raise ValueError("invalid event field")
+                for key in ("tool_use_id", "itemId", "stepId", "tool", "noticeId"):
+                    if raw.get(key) is not None and (not isinstance(raw[key], str) or len(raw[key]) > 512):
+                        raise ValueError("invalid tool identity")
                 text = raw.get("text") or raw.get("question") or raw.get("message") or ""
                 event = Event(
                     f"{self.job_id}:{self.identity}:{end}",
@@ -73,7 +81,7 @@ class EventLog:
                     raw.get("status") or "",
                     str(raw.get("error") or ""),
                     urgent(raw),
-                    urgent(raw, True),
+                    urgent(raw, True) or raw["kind"] in INFORMATIONAL_ONLY_KINDS,
                 )
                 self.rows.append(({k: v for k, v in raw.items() if k in fields}, event))
             except (ValueError, TypeError):

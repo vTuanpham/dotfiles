@@ -15,7 +15,9 @@
             "stalled",
             "known",
             "inactive",
-            "unknown"
+            "unknown",
+            "long-command",
+            "overdue-wait"
           ]
         },
         "reason": {
@@ -45,6 +47,37 @@
             {
               "type": "integer",
               "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "activity_age_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "waiting_on_job": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notice_id": {
+          "anyOf": [
+            {
+              "type": "string"
             },
             {
               "type": "null"
@@ -954,6 +987,36 @@
         "completed_through": {
           "type": "integer",
           "minimum": 0
+        },
+        "group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "waiting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeclaredWait"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "in_flight": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InFlight"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -992,7 +1055,8 @@
         "purge_after",
         "log_identity",
         "acknowledged_through",
-        "completed_through"
+        "completed_through",
+        "group"
       ],
       "additionalProperties": true
     },
@@ -1035,6 +1099,29 @@
               "type": "null"
             }
           ]
+        },
+        "root_backend": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "root_session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "active_watch": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -1043,7 +1130,10 @@
         "running",
         "unanswered_urgent",
         "size_bytes",
-        "last_root_command"
+        "last_root_command",
+        "root_backend",
+        "root_session_id",
+        "active_watch"
       ],
       "additionalProperties": true
     },
@@ -1245,6 +1335,37 @@
           "items": {
             "type": "string"
           }
+        },
+        "schema_minor": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WakeGroup"
+          }
+        },
+        "group_events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GroupNotice"
+          }
+        },
+        "unacknowledged_completions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "oldest_unacknowledged_completion_age_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1260,9 +1381,316 @@
         "retention",
         "peers",
         "dependencies",
-        "errors"
+        "errors",
+        "schema_minor",
+        "groups",
+        "group_events",
+        "unacknowledged_completions",
+        "oldest_unacknowledged_completion_age_seconds"
       ],
       "additionalProperties": true
+    },
+    "WakePolicy": {
+      "type": "object",
+      "properties": {
+        "wake": {
+          "enum": [
+            "each",
+            "all",
+            "quiet"
+          ]
+        },
+        "settle_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "remind_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_wait_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "repeat_reminders": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "wake",
+        "settle_seconds",
+        "remind_seconds",
+        "max_wait_seconds",
+        "repeat_reminders"
+      ],
+      "additionalProperties": true
+    },
+    "GroupNotice": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "job": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind": {
+          "type": "string"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "wakes": {
+          "type": "boolean"
+        },
+        "informational": {
+          "type": "boolean"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completion_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "seen": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "job",
+        "offset",
+        "kind",
+        "at",
+        "text",
+        "status",
+        "error",
+        "wakes",
+        "informational",
+        "owner",
+        "group",
+        "jobs",
+        "missing",
+        "completion_ids",
+        "seen"
+      ],
+      "additionalProperties": true
+    },
+    "WakeGroup": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "policy": {
+          "$ref": "#/$defs/WakePolicy"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "done": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "held_completions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "next_reminder_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "settle_due_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_wait_due_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "name",
+        "policy",
+        "members",
+        "done",
+        "total",
+        "held_completions",
+        "next_reminder_at",
+        "settle_due_at",
+        "max_wait_due_at"
+      ],
+      "additionalProperties": true
+    },
+    "DeclaredWait": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "command",
+            "peer",
+            "root",
+            "external",
+            "dependency"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "declared_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expected_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 7200
+        },
+        "peer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "note",
+        "declared_at",
+        "expected_seconds",
+        "peer"
+      ]
+    },
+    "InFlight": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "age_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "started_at",
+        "age_seconds"
+      ]
     }
   }
 }

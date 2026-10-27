@@ -6,8 +6,10 @@ import statistics
 import subprocess
 from pathlib import Path
 
+from .assessment import BUSY_BYTES, BUSY_CPU, BUSY_WINDOW, PACE_BASELINE, PACE_RECENT
 from .core import command_env
 from .status_inputs import timestamp
+from .status_model import InFlight
 
 
 def running(state):
@@ -21,12 +23,6 @@ def running(state):
 
 
 TICKS = os.sysconf("SC_CLK_TCK")
-BUSY_WINDOW = 60  # seconds per activity sample
-BUSY_CPU = 3.0  # CPU seconds per window (5% of a core): real work, well above an idle app-server
-BUSY_BYTES = 16 * 1024  # TCP bytes per window: a live model stream or download, well above keep-alives
-BUSY_STALL_FACTOR = 3  # a busy silent job is reported after 3x --stall-min
-PACE_RECENT, PACE_BASELINE = 5, 10  # model steps judged, and earlier steps they are judged against
-PACE_SLOW, PACE_FLOOR = 5, 60  # slow: recent steps 5x the job's usual, and at least a minute each
 SS_PID = re.compile(r"pid=(\d+)")
 SS_BYTES = re.compile(r"\bbytes_(?:acked|received):(\d+)")
 
@@ -81,6 +77,8 @@ def pace(events):
         except (KeyError, TypeError, ValueError):
             continue
         kind = event.get("kind")
+        if kind == "waiting_declared":
+            gaps, last, reported = [], None, None
         if kind in ("turn_started", "command_end"):
             last = at
         elif kind == "command_start" and last is not None:
@@ -92,6 +90,25 @@ def pace(events):
         return None
     unreported = len(gaps) - (reported if reported is not None else -PACE_RECENT)
     return statistics.median(gaps[-PACE_RECENT:]), statistics.median(gaps[:-PACE_RECENT]), unreported
+
+
+def in_flight(rows, now):
+    """Match native tool identities, with FIFO pairing only for legacy id-less events."""
+    active = {}
+    for raw, event in rows:
+        if event.kind in {"turn_started", "turn_completed", "turn_failed", "error"}:
+            active.clear()
+        elif event.kind == "command_start" and event.at:
+            key = raw.get("tool_use_id") or raw.get("itemId") or raw.get("stepId") or event.id
+            active.setdefault(key, InFlight(event.id, raw.get("tool") or "command", event.at,
+                                             max(0, int(now - timestamp(event.at)))))
+        elif event.kind == "command_end":
+            key = raw.get("tool_use_id") or raw.get("itemId") or raw.get("stepId")
+            if key is not None:
+                active.pop(key, None)
+            elif active:
+                active.pop(next(iter(active)))
+    return min(active.values(), key=lambda item: timestamp(item.started_at)) if active else None
 
 
 def busy(before, after):

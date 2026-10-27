@@ -54,11 +54,17 @@ protocol.
 
 ## When a worker needs you
 
-Every watch replays unacknowledged events before following live work.
-`watch --until-event` wakes for completion/failure, questions, errors and explicit
-blocking/URGENT messages, with each pending job, event kind and timestamp.
+Choose a group policy when launching several workers. Default `each` batches
+completions for 60 seconds; `all` waits for the group (optionally `--max-wait`),
+and `quiet` leaves results visible. `group set OWNER NAME --wake all --members a b`
+configures a group; launch with `--group NAME`. Unread results get one informational
+reminder after 15 minutes. The [group contract](src/agent_bridge/guide/status.md#completion-groups-v11)
+documents controls and fields. `watch --until-event` delivers completion digests
+once and immediately wakes for failures, questions, errors and explicit
+blocking/URGENT messages, flushing any held results.
 Routine messages and slow/stall notices remain visible; `--include-info` also
-wakes for them. Queue waits and retry status never wake the root.
+wakes for them. Group policies still apply with that flag; reminders, queue
+waits and retry status never wake the root.
 Re-arming cannot discard a completion. Printing is not acknowledgement:
 `agent-bridge result <owner>/<job>` acknowledges that job's completions, while
 `agent-bridge ack <owner>` (or `<owner>/<job>`) acknowledges urgent events already
@@ -67,7 +73,7 @@ events arriving after display stay pending. Use a unique owner per root; its
 versioned `jobs/<owner>/ack.json` stores per-job byte cursors, with locked atomic
 updates. Missing cursors replay old urgent history; old jobs need no migration.
 See `agent-bridge guide workflow` for the cursor format and watch lifecycle.
-Wake shows names first with compact event ages, marks 15-minute silence as
+Wake shows names first with compact event ages, marks classifier-assessed silence as
 `stalled`, and keeps unacknowledged completions visible as `done`. Known turn
 times appear only when useful and space allows.
 

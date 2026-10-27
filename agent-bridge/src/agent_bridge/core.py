@@ -49,7 +49,10 @@ MESSAGING_RULE = (
     "measurements, never for test suites. Fitting heavy jobs run concurrently. "
     "Waiting for a heavy slot is normal and is never a blocker to report. Do not send queue progress "
     "messages; report only a holder shown dead or a wait exceeding 30 minutes excluding root pauses. "
-    "A root pause is normal; wait for resume. Queue cancellation exits 125; follow the root's steer."
+    "A root pause is normal; wait for resume. Queue cancellation exits 125; follow the root's steer. "
+    "Before a long silent build, benchmark, peer or external wait, use agent-bridge waiting "
+    "--on command|peer|root|external|dependency --for 20m --note 'short reason'; "
+    "add --peer NAME for a sibling. Your next tool call or message clears it."
 )
 REDELIVERED = "(redelivered after a runner restart; skip it if you already handled it)"
 
@@ -64,6 +67,32 @@ def append(path, value):
 
 
 def save(path, state):
+    path = Path(path)
+    if path.name != "state.json":
+        return atomic_save(path, state)
+    # A runner's in-memory state must neither erase nor revive a worker declaration.
+    with state_lock(path.parent):
+        payload = dict(state)
+        current = load_state(path.parent) if path.exists() else {}
+        for key in ("waiting", "assessment_notices"):
+            if key in current:
+                payload[key] = current[key]
+            else:
+                payload.pop(key, None)
+        atomic_save(path, payload)
+
+
+@contextmanager
+def state_lock(job):
+    fd = os.open(Path(job) / "state.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def atomic_save(path, state):
     path = Path(path)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
@@ -111,6 +140,14 @@ def load_state(job):
 
 
 def log(job, kind, level=None, **fields):
+    if kind in {"command_start", "message", "turn_started", "turn_completed", "turn_failed",
+                "error", "question", "approval_declined", "permission_denied", "question_timeout"}:
+        from .waiting import clear
+
+        try:
+            clear(Path(job))
+        except (OSError, ValueError):
+            pass  # state damage must never prevent a native failure/message reaching the log
     if kind == "message" and isinstance(fields.get("text"), str):
         head, sep, _ = fields["text"].partition(":")
         if sep and head.upper().startswith("TO "):

@@ -90,6 +90,7 @@ LINKS=(
   "agents/.agents/skills/agent-bridge .agents/skills/agent-bridge"
   "claude/.claude/CLAUDE.md .claude/CLAUDE.md"
   "claude/.claude/mods .claude/mods"
+  "claude/.claude/hooks/bridge-stop.py .claude/hooks/bridge-stop.py"
   "claude/.claude/skills/agent-baton .claude/skills/agent-baton"
   "claude/.claude/skills/agent-bridge .claude/skills/agent-bridge"
   "codex/.codex/AGENTS.md .codex/AGENTS.md"

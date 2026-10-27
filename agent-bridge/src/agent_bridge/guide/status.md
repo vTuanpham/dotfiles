@@ -6,6 +6,8 @@ the packaged JSON Schema 2020-12 contract is `agent_bridge/status.schema.json`.
 `status_render.py` owns human views. Read JSON directly, never parse text views.
 
 V1 evolves additively: existing fields retain their types, units and meanings.
+`schema_minor: 1` adds completion wake groups; `schema_minor: 2` adds bounded waits
+and in-flight tools. Older V1 readers ignore those fields and unfamiliar assessment states.
 Readers ignore unknown fields at every level and reject unsupported
 `schema_version` values. Incompatible changes require another version. Unknown
 readings are `null`, not guessed zeroes. `errors` identifies unavailable/rejected
@@ -32,20 +34,20 @@ separate protocol. Polling keeps that protocol out of every harness.
 | `generated_at` | UTC observation timestamp. Ages are seconds, memory bytes, CPU seconds or explicitly named microseconds. All timestamps include timezones. |
 | `jobs` | Stable `id = owner/name`, identity/model/effort/account, live runner, state/reason, event time/age, stall assessment, configured caps, observed memory/CPU and OOMs, retry counts, current stage, completion visibility and retirement dates. Retired jobs remain in JSON; human views omit them. |
 | `owners` | Active/running/unanswered counts and last root command; sizes with `--storage`. |
-| `wake_events` | Every unacknowledged default wake event, stable event ID and byte offset. Reading status never marks it displayed. |
+| `wake_events` | Native critical events and unseen completion digests. Successful native completions remain in `events` and unread counters. Reading status never marks a wake displayed. |
 | `events` | Pending default/informational events plus the last 100 events per job. Pending events are never truncated. `wakes` and `informational` encode default and opt-in wake policy. |
 | `heavy` | Requests with stable ID, owning job or null, executable basename (no arguments), declared need/exclusivity, state, wait/elapsed seconds, kernel-lock liveness, reserved/budget bytes, pause flag/reason and source errors. Wait time excludes pauses. |
 | `pressure` | Host availability/load/shared headroom, cgroup memory/CPU/throttling, historical OOM totals, deltas and attribution when known. |
 | `quotas` | Available Codex/agy account caches, window labels/remaining percent/reset text, plan/active flag and freshness. No account addresses. Unsupported backends have no rows; absence means unknown, not unlimited. |
 | `retention` | Retired/expired counts, optional verified eligible/dirty counts, reclaim bytes and items. Dirty, unreadable, symlinked or live retired worktrees are never claimed reclaimable. No purge occurs. |
 | `peers` | Stable job nodes, directed weighted conversations and bounded deliveries, described below. |
-| `dependencies` | Provable heavy exclusivity edges: queued exclusive requests wait for holders, or queued requests wait for an exclusive holder. Targets are `heavy:<request-id>`. |
+| `dependencies` | Heavy exclusivity edges target `heavy:<request-id>`; worker-declared peer/dependency edges target stable job IDs. |
 
 Job states: `running`, `idle`, `retired`, `waiting_for_heavy`, `paused`,
 `retrying`, `blocked_on_question`, `waiting_for_root`. Paused jobs are queued
 behind a root admission pause; existing holders continue. `stall.state` is
-`known`, `inactive`, `unknown`, `ok`, `slow` or `stalled`, with reason, quiet seconds and
-effective threshold. Known waits suppress both pace and silence notices. If queue
+`known`, `inactive`, `unknown`, `ok`, `slow`, `stalled`, `long-command` or `overdue-wait`,
+with reason, quiet seconds and effective threshold. Known waits suppress both pace and silence notices. If queue
 state cannot be read, assessment is unknown rather than a guessed stall. Busy
 CPU/network work keeps the existing three-times silence allowance. Watch still
 starts a fresh silence clock on first observation; notices remain informational.
@@ -103,8 +105,8 @@ Unknown-peer failures and explicit root messages retain their wake behavior.
   need consistent backend instrumentation first.
 - File overlap warnings need reliable edit attribution; shared worktree diffs
   cannot identify which worker changed a path.
-- General dependencies need explicit wait events; only heavy exclusivity is
-  currently proved by persisted state.
+- General dependency scheduling needs a coordinator contract; declared peer
+  edges describe bounded waits without inferring a dependency from ordinary messages.
 - Durable timeline replay needs its own retention/cursor protocol; recent
   history and complete wake backlog cover current readers.
 - Per-job quota burn cannot be separated reliably from account cache changes
@@ -112,3 +114,89 @@ Unknown-peer failures and explicit root messages retain their wake behavior.
 
 Runtime dependencies remain empty. The locked development-only `jsonschema`
 dependency validates actual collector/CLI snapshots against the shipped schema.
+
+## Completion groups (V1.1)
+
+`jobs[].group` is a root-owned label. `groups[]` exposes `id`, `owner`, `name`
+(null for the ungrouped bucket), `policy`, `members`, `done`, `total`,
+`held_completions` (event IDs), `next_reminder_at`, `settle_due_at`, and
+`max_wait_due_at`. `unacknowledged_completions` and
+`oldest_unacknowledged_completion_age_seconds` are top-level unread counters.
+
+`group_events[]` contains durable completion batches, partial batches, reminders
+and observed OOM notices. Wake-eligible notices also appear in `wake_events`.
+They retain the Event shape with offset zero (owner-ledger events, not byte
+cursors), plus `owner`, `group`, `jobs`, `missing`, `completion_ids`, and `seen`.
+No renderer changes are needed to consume the new fields additively.
+
+The default `each` policy opens a fixed 60-second settle window at the first
+unread completion; later results inside it share one digest. `--settle 0s`
+restores immediate completion wakes. `all` emits once when every current member
+turn finishes, counting failures; `--max-wait` emits a partial list and missing
+members instead. Root launch/resume and subsequent native turns define new
+batches. Predeclare `--members` before launching fast workers to avoid an early
+one-member batch. `quiet` never wakes for successful completions. Critical
+events always bypass policies and flush held completions into that wake.
+
+Root commands: `group set OWNER NAME --wake all --members a b --max-wait 30m`,
+`start ... --group NAME`, `resume JOB --group NAME`, `group assign JOB NAME`,
+`group unassign JOB`, `group list OWNER`, `group clear OWNER NAME`.
+Clearing resets policy defaults while retaining labels. Policies and membership
+live in private, atomically replaced `OWNER/groups.json`; worker state writes
+cannot overwrite them. Missing/corrupt policies use `each`. A separate locked
+`group-wakes.json` stores notification IDs/cursors, so a crash cannot append a
+duplicate batch. Display marks a digest delivered once; explicit result/ack
+still controls unread status. A malformed notification ledger fails open to
+immediate native completion wakes rather than hiding work.
+
+Reminders default to 15 minutes and never wake, even with `--include-info`.
+They are generated when status/watch observes the owner and appear in the next
+watch and status text; no observer means no background push. `--remind off`
+disables them; `--repeat-reminders` opts into doubling backoff, capped at a year. Acknowledging
+results clears their reminders. `owners[].active_watch` uses kernel locks, not
+PID guesses; `root_backend` and `root_session_id` identify the owning session.
+Claude's optional repository Stop hook uses these fields to catch an unarmed
+watch at a turn boundary; Codex/agy roots should arm a watch or poll the JSON.
+
+## Bounded waits and one stall classifier (V1.2)
+
+Before a long silent operation a worker can run:
+
+```sh
+agent-bridge waiting --on command --for 20m --note 'full build'
+agent-bridge waiting --on peer --peer reviewer --for 20m --note 'review reply'
+agent-bridge waiting --clear
+```
+
+Kinds are `command`, `peer`, `root`, `external`, `dependency`. The default expected
+duration is 20 minutes, capped at two hours; notes accept at most 80 printable
+characters. `--peer` names an existing sibling. Only the worker's own environment
+selects its job; this command cannot set group policies. Declarations survive
+runner saves/restarts and clear on the next tool start or outgoing message, as
+well as a terminal result, question or failure. The declaring tool's result does
+not clear the declaration. Failure/question/urgent wake behavior is unchanged.
+
+`jobs[].waiting` is null or `{kind, note, declared_at, expected_seconds, peer}`;
+`peer` is a stable `owner/name` or null. `jobs[].in_flight` is null or
+`{id, kind, started_at, age_seconds}`, derived from matched native tool events.
+`stall.activity_age_seconds`, `stall.waiting_on_job` and `stall.notice_id` supply
+age, dependency target and a stable informational notice identity. A running peer
+produces a `waiting-on owner/name` reason; peer chains/cycles never extend deadlines.
+
+`assessment.py` owns every stall/pace threshold. Its named defaults are
+`SILENCE_SECONDS` (15 minutes), `COMMAND_GRACE_SECONDS` (10 minutes), and
+`WAIT_GRACE_FACTOR` (1.25). Queue/pause/retry/question states take precedence;
+unacknowledged critical events cannot be hidden by declarations. An in-flight
+tool is known until command grace, then `long-command`. A declaration is known
+until its duration plus grace, then `overdue-wait`, including when the declaring
+command is still running. Otherwise the ordinary silence and model-pace checks
+apply. Existing busy-process allowance and `--stall-min` override are inputs to
+this same classifier. Watch warmup never resets tool/declaration ages.
+
+`long-command` and `overdue-wait` produce one durable informational notice per
+tool/declaration, including across concurrent/rearmed watches. Neither wakes,
+even with `--include-info`. Their assessment remains visible in status JSON/text.
+Declarations are not progress and do not reset the silence clock; clearing an
+old declaration exposes genuine silence immediately. Native OpenCode events
+currently arrive with completed tool results, so they cannot prove an in-flight
+start; bounded declarations remain available there.
