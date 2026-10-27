@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 
-from . import watch
+from . import status
 from .core import append, command_env, human, load_state, lock_runner, save, stamp, tree_size
 
 
@@ -45,7 +45,7 @@ def retire(job, archive, read_report, keep_days=14, purge=False):
     fd = lock_runner(job)
     try:
         state = load_state(job)
-        if watch.running(state):
+        if status.running(state):
             raise RuntimeError("job has a live runner; stop it before retiring")
         if not state.get("retiredAt"):
             retired = stamp()
@@ -78,7 +78,7 @@ def restore(job):
     fd = lock_runner(job)
     try:
         state = load_state(job)
-        if watch.running(state):
+        if status.running(state):
             raise RuntimeError("job has a live runner; stop it before restoring")
         state.pop("retiredAt", None)
         state.pop("purgeAfter", None)
@@ -92,7 +92,7 @@ def purge(job):
     fd = lock_runner(job)
     try:
         state = load_state(job)
-        if watch.running(state):
+        if status.running(state):
             raise RuntimeError("job has a live runner; stop it before purging")
         if not purge_due(state):
             raise RuntimeError("job is not eligible for purge; use retire --purge for immediate deletion")

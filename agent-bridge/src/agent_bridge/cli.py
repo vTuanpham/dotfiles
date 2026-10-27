@@ -17,14 +17,15 @@ from . import (
     resources,
     retirement,
     retries,
+    status,
+    status_render,
 )
-from .acknowledgements import acknowledge, event_lines, urgent
+from .acknowledgements import acknowledge, event_lines
 from .core import (
     ARCHIVE,
     JOBS,
     POLL,
     WORKER_FLAG,
-    human,
     job_caps,
     load_state,
     lock_runner,
@@ -35,7 +36,6 @@ from .core import (
     save,
     stamp,
     steer_lock,
-    tree_size,
 )
 from .watch import watch
 
@@ -130,27 +130,9 @@ def events(job, offset=0):
 
 
 def unanswered_urgent(job):
-    evs = events(job)
-    turns = [i for i, e in enumerate(evs) if e.get("kind") == "turn_completed"]
-    start, end = (turns[-2] if len(turns) > 1 else -1), (turns[-1] if turns else len(evs) - 1)
-    if list((Path(job) / "steer").glob("[0-9]*.md")):
-        return 0
-    blocking = [
-        i
-        for i in range(start + 1, end + 1)
-        if evs[i].get("kind") in ("message", "question") and urgent(evs[i])
-    ]
-    if blocking and any(event.get("kind") == "stopped" for event in evs[blocking[-1] + 1 :]):
-        return 0
-    last_steer = max(
-        (
-            i
-            for i, event in enumerate(evs)
-            if event.get("kind") in ("steer_sent", "root_steer", "question_answered")
-        ),
-        default=-1,
-    )
-    return sum(i > last_steer for i in blocking)
+    from .status_inputs import unanswered
+
+    return unanswered(Path(job), events(job))
 
 
 def linger(job, state, state_path, backend):
@@ -291,12 +273,16 @@ def main():
     )
     sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
     g = sub.add_parser("guide", help="read full workflow or Plans guidance")
-    g.add_argument("topic", nargs="?", choices=("workflow", "plans", "heavy"),
+    g.add_argument("topic", nargs="?", choices=("workflow", "plans", "heavy", "status"),
                    help="omit to read workflow and plans")
     sub.add_parser(
         "sessions", help="export native job identities as JSON (no transcripts)",
         description="Export native job identities across owners as JSON (no transcript data).",
     )
+    snapshot = sub.add_parser("status", help="versioned harness-neutral status snapshot")
+    snapshot.add_argument("owner", nargs="*", help="optional owner or owner/job filters")
+    snapshot.add_argument("--json", action="store_true", help="emit the version 1 JSON contract")
+    snapshot.add_argument("--storage", action="store_true", help="scan sizes and expired retirement safety")
     s = sub.add_parser(
         "start",
         help="create a job and run its first turn",
@@ -456,8 +442,6 @@ def main():
     rf.add_argument("--yes", action="store_true", help="with --apply: the user already confirmed")
     rf.add_argument("--discard", action="store_true", help="drop the waiting proposal")
     if len(sys.argv) > 1:
-        if sys.argv[1] == "status":
-            p.error("unknown command 'status'; use watch <job>, result <job>, or owners")
         if sys.argv[1] == "backends":
             p.error("unknown command 'backends'; use models --backend <codex|agy|claude|opencode>")
         flags = sys.argv[2:sys.argv.index("--")] if "--" in sys.argv[2:] else sys.argv[2:]
@@ -504,8 +488,21 @@ def main():
                       mem=a.mem, exclusive=a.exclusive)
             return
         if a.command == "guide":
-            names = {"workflow": ("overview",), "plans": ("models",), "heavy": ("heavy",)}
+            names = {"workflow": ("overview",), "plans": ("models",),
+                     "heavy": ("heavy",), "status": ("status",)}
             print(guide(*names.get(a.topic, ("overview", "models"))))
+            return
+        if a.command == "status":
+            snapshot = status.Collector(JOBS).collect(a.owner, storage=a.storage)
+            if a.json:
+                print(json.dumps(snapshot.to_dict(), allow_nan=False))
+            else:
+                print(status_render.pressure(snapshot.pressure, snapshot.heavy))
+                for job in snapshot.jobs:
+                    if not job.retired_at:
+                        print(status_render.job_status(job))
+                for line in status_render.peer_conversations(snapshot):
+                    print(line)
             return
         if a.command == "sessions":
             print(json.dumps(session_bindings()))
@@ -559,27 +556,13 @@ def main():
                 print(f"acknowledged displayed events: {job.parent.name}/{job.name}")
             return
         if a.command == "owners":
-            from .watch import job_dirs, running
-
-            host = heavy.status()
-            print(host.summary)
-            if host.warning:
-                print(f"WARNING: host overloaded: {host.warning}; pause heavy work", file=sys.stderr)
-            for owner in sorted(p for p in JOBS.iterdir() if p.is_dir()) if JOBS.is_dir() else ():
-                jobs = list(job_dirs([owner.name]))
-                root_file = owner / "root.json"
-                try:
-                    root = json.loads(root_file.read_text())
-                except (OSError, json.JSONDecodeError):
-                    root = {}
-                print(
-                    f"{owner.name}: jobs={len(jobs)} running={sum(running(load_state(j)) for j in jobs)} "
-                    f"unanswered_urgent={sum(unanswered_urgent(j) for j in jobs)} "
-                    f"size={human(sum(tree_size(j) for j in jobs))} "
-                    f"last_root_command={root.get('at', 'unknown')} "
-                    "caps=" + ",".join(f"{j.name}[memory={job_caps(load_state(j))['memoryMax']},"
-                                       f"cpu={job_caps(load_state(j))['cpuQuota']}]" for j in jobs)
-                )
+            snapshot = status.Collector(JOBS).collect(include_quotas=False, storage=True)
+            print(status_render.pressure(snapshot.pressure, snapshot.heavy))
+            if snapshot.pressure.warning:
+                print(f"WARNING: host overloaded: {snapshot.pressure.warning}; pause heavy work",
+                      file=sys.stderr)
+            for line in status_render.owners(snapshot):
+                print(line)
             return
         if a.command == "peers":
             caller_job = os.environ.get("AGENT_BRIDGE_JOB")
@@ -589,19 +572,9 @@ def main():
             if not value:
                 raise RuntimeError("peers needs AGENT_BRIDGE_JOB or a <job> argument")
             job = resolve_job(value)
-            from .watch import running
-
-            for peer in sorted(job.parent.iterdir()):
-                try:
-                    state = load_state(peer)
-                except (OSError, json.JSONDecodeError):
-                    continue
-                if state.get("retiredAt"):
-                    continue
-                print(
-                    f"{peer.name}\t{state.get('backend', 'unknown')}\t{state.get('model') or ''}\t"
-                    f"{state.get('title', '')}\t{'running' if running(state) else 'idle'}"
-                )
+            snapshot = status.Collector(job.parent.parent).collect([job.parent.name], include_quotas=False)
+            for line in status_render.peers(snapshot):
+                print(line)
             return
         if a.command == "result":
             job = resolve_job(a.job)
@@ -642,7 +615,7 @@ def main():
             if not text.strip():
                 raise RuntimeError("empty steer")
             before = (job / "live.jsonl").stat().st_size if (job / "live.jsonl").exists() else 0
-            from .watch import running
+            from .status import running
 
             with steer_lock(job):
                 state = load_state(job)
@@ -785,14 +758,14 @@ def main():
                         print(launch_message, flush=True)
                         return follow(job, before, watching)
                     try:
-                        exited, status = os.waitpid(pid, os.WNOHANG)
+                        exited, exit_status = os.waitpid(pid, os.WNOHANG)
                     except ChildProcessError:
                         exited = 0
                     if exited:
-                        if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0:
+                        if os.WIFEXITED(exit_status) and os.WEXITSTATUS(exit_status) == 0:
                             print(launch_message, flush=True)
                             return follow(job, before, watching)
-                        raise RuntimeError(f"detached runner exited before startup (status {status})")
+                        raise RuntimeError(f"detached runner exited before startup (status {exit_status})")
                     time.sleep(0.1)
                 tail = (
                     (job / "runner.log").read_text(errors="replace")[-2000:]

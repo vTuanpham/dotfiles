@@ -33,6 +33,25 @@ parent rather than guessing one. Workers cannot export other owners' inventory.
 In Claude Code, [Wake](../claude/README.md#crew-and-quota-rows) draws these jobs as crew, with
 worker/model/effort labels and an account quota row.
 
+Every harness can use the same versioned object:
+
+```sh
+agent-bridge status --json                 # jobs, pressure, quota caches and peer graph
+agent-bridge status --json <owner>         # owner or owner/job filter
+agent-bridge status --json --storage       # also verify expired retirement and sizes
+agent-bridge guide status
+```
+
+The [status guide](src/agent_bridge/guide/status.md) documents fields, polling,
+unknown readings and additive V1 evolution. The checked-in
+[JSON Schema](src/agent_bridge/status.schema.json) ships with the package.
+Readers ignore unknown fields and reject unsupported `schema_version` values.
+`owners`, `watch`, `heavy list`, quota text and Wake share the producer; peer
+edges include stable IDs, direction, counts and last-activity timestamps.
+Poll about every ten seconds, with storage scans on demand. Reading status never
+acknowledges events. A streaming diff mode awaits a reliable cross-source cursor
+protocol.
+
 ## When a worker needs you
 
 Every watch replays unacknowledged events before following live work.

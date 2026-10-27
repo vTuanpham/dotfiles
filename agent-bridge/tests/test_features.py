@@ -78,7 +78,7 @@ def test_worker_peers_are_limited_to_current_owner(monkeypatch, tmp_path, capsys
     monkeypatch.setenv("AGENT_BRIDGE_WORKER", "1")
     monkeypatch.setenv("AGENT_BRIDGE_JOB", "owner/current")
     monkeypatch.setattr(sys, "argv", ["agent-bridge", "peers"])
-    monkeypatch.setattr("agent_bridge.watch.running", lambda _: False)
+    monkeypatch.setattr("agent_bridge.status.running", lambda _: False)
     cli.main()
     output = capsys.readouterr().out
     assert "sibling\tagy\tm\tsibling\tidle" in output
@@ -108,7 +108,7 @@ def test_owners_summarizes_root_activity_and_unanswered_questions(monkeypatch, t
     monkeypatch.setattr("agent_bridge.core.JOBS", jobs)
     monkeypatch.setattr("agent_bridge.watch.JOBS", jobs)
     monkeypatch.setattr(sys, "argv", ["agent-bridge", "owners"])
-    monkeypatch.setattr("agent_bridge.watch.running", lambda _: False)
+    monkeypatch.setattr("agent_bridge.status.running", lambda _: False)
     cli.main()
     (job / "home").mkdir()
     (job / "home/real").symlink_to(tmp_path)  # a link to a big tree must not be counted
@@ -167,7 +167,6 @@ def test_long_guidance_remains_reachable(monkeypatch, capsys, topic, names):
 
 
 @pytest.mark.parametrize("argv, hint", [
-    (["status", "owner/job"], "use watch <job>, result <job>, or owners"),
     (["backends"], "use models --backend"),
     (["steer", "owner/job", "--message", "follow up"], "positional argument"),
     (["steer", "owner/job", "--message=follow up"], "positional argument"),
@@ -248,11 +247,11 @@ def test_retire_archives_report_and_keeps_job(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "ARCHIVE", archive)
     monkeypatch.delenv("AGENT_BRIDGE_WORKER", raising=False)
     monkeypatch.setattr(sys, "argv", ["agent-bridge", "retire", "owner/done"])
-    monkeypatch.setattr("agent_bridge.watch.running", lambda _: True)
+    monkeypatch.setattr("agent_bridge.status.running", lambda _: True)
     with pytest.raises(SystemExit) as error:
         cli.main()
     assert error.value.code == 1 and job.exists() and not archive.exists()
-    monkeypatch.setattr("agent_bridge.watch.running", lambda _: False)
+    monkeypatch.setattr("agent_bridge.status.running", lambda _: False)
     cli.main()
     assert "retired owner/done; purge after " in capsys.readouterr().out
     row = json.loads(archive.read_text())
@@ -273,8 +272,10 @@ def test_agy_fallback_uses_fresh_account_quota_and_resumes(monkeypatch, tmp_path
         (directory / "quota.json").write_text(
             json.dumps(
                 {
+                    "account": account,
                     "at": "2026-10-20T00:00:00+00:00",
-                    "rows": [{"group": "gemini", "remaining": 50, "resets": "2026-10-21T00:00:00+00:00"}],
+                    "rows": [{"group": "gemini", "limit": "Weekly", "remaining": 50,
+                              "resets": "2026-10-21T00:00:00+00:00"}],
                 }
             )
         )
@@ -286,8 +287,10 @@ def test_agy_fallback_uses_fresh_account_quota_and_resumes(monkeypatch, tmp_path
         (directory / "quota.json").write_text(
             json.dumps(
                 {
+                    "account": account,
                     "at": now,
-                    "rows": [{"group": "gemini", "remaining": 50, "resets": "2026-10-21T00:00:00+00:00"}],
+                    "rows": [{"group": "gemini", "limit": "Weekly", "remaining": 50,
+                              "resets": "2026-10-21T00:00:00+00:00"}],
                 }
             )
         )

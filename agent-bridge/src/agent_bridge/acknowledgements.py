@@ -9,12 +9,14 @@ from .core import URGENT_KINDS, save
 
 def urgent(event, include_info=False):
     kind = event.get("kind")
-    if kind in {"heavy_wait", "retry_wait", "retryable_error", "attempt_failed"}:
+    if kind in {"heavy_wait", "retry_wait", "retryable_error", "attempt_failed", "peer_sent"}:
         return False
     if kind in {"turn_completed", "turn_failed", "question", "question_timeout", "error",
                 "approval_declined", "permission_denied", "peer_unknown"}:
         return True
     if kind == "message":
+        if event.get("peerDirected") is True:
+            return False
         text = str(event.get("text", "")).lstrip().upper()
         if (event.get("level") in {"urgent", "blocking"} or event.get("blocking") is True
                 or text.startswith(("URGENT:", "BLOCKING:"))):

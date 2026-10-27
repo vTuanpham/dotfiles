@@ -111,6 +111,12 @@ def load_state(job):
 
 
 def log(job, kind, level=None, **fields):
+    if kind == "message" and isinstance(fields.get("text"), str):
+        head, sep, _ = fields["text"].partition(":")
+        if sep and head.upper().startswith("TO "):
+            recipients = [n.strip().lower() for n in head[3:].split(",")]
+            if not any(n in {"root", "coordinator", Path(job).parent.name.lower()} for n in recipients):
+                fields["peerDirected"] = True
     event = {"at": stamp(), "kind": kind,
              "level": level or ("urgent" if kind in URGENT_KINDS else "info"), **fields}
     attempt = retries.ATTEMPT.get()
@@ -167,7 +173,9 @@ def route_to_peers(job, text):
             available = False
         if available:
             make_steer(peer, f"[from {job.name}] {body.strip()}")
-            log(job, "peer_sent", to=name)
+            from .peers import fields
+
+            log(job, "peer_sent", **fields(job, name, body.strip()))
         else:
             log(job, "peer_unknown", level="urgent", to=name)
 

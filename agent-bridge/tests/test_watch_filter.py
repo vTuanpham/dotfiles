@@ -3,8 +3,9 @@ import sys
 
 import pytest
 
-from agent_bridge import cli, heavy, watch
+from agent_bridge import cli, status, watch
 from agent_bridge.acknowledgements import pending, urgent
+from agent_bridge.status_model import HeavyQueue, HeavyRequest, HostPressure
 
 
 @pytest.mark.parametrize("event,wakes", [
@@ -40,8 +41,8 @@ def test_routine_events_stay_visible_without_default_wake(monkeypatch, tmp_path,
     (job / "live.jsonl").write_text('{"kind":"message","text":"progress"}\n'
                                     '{"kind":"slow","level":"urgent","message":"slow notice"}\n')
     monkeypatch.setattr(watch, "JOBS", tmp_path)
-    monkeypatch.setattr(watch, "running", lambda _: True)
-    monkeypatch.setattr(watch, "tree_cpu", lambda _: None)
+    monkeypatch.setattr(watch.status, "running", lambda _: True)
+    monkeypatch.setattr(watch.status, "tree_cpu", lambda _: None)
     ticks = []
 
     def tick(_):
@@ -63,9 +64,11 @@ def test_heavy_queue_is_status_and_suppresses_stall_even_with_info(monkeypatch, 
     (job / "state.json").write_text("{}")
     (job / "live.jsonl").write_text("")
     monkeypatch.setattr(watch, "JOBS", tmp_path)
-    monkeypatch.setattr(watch, "running", lambda _: True)
-    monkeypatch.setattr(heavy, "status", lambda *_: heavy.Status("host: queued=1", "", None,
-                                                               frozenset({"owner/job"})))
+    monkeypatch.setattr(watch.status, "running", lambda _: True)
+    monkeypatch.setattr(status, "collect_host", lambda *_: (
+        HostPressure(None, None, None, None, (), "", "test host"),
+        HeavyQueue((HeavyRequest("queued", "owner/job", "pytest", 1024, False, "queued", 1, None, True),),
+                   False, None, 0, None), None))
     clock = iter([0, 2000, 4000])
     monkeypatch.setattr(watch.time, "time", lambda: next(clock))
     sleeps = []

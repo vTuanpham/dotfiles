@@ -10,11 +10,10 @@ import sys
 import time
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 
 from .core import command_env, stamp
-from .resources import MIB, Pressure, limits, memory_size, pressure, wait_reason
+from .resources import MIB, limits, memory_size, pressure, wait_reason
 
 PROC = Path("/proc")
 DEFAULT_NEED = 1024 * MIB
@@ -269,59 +268,6 @@ def entries(folder, own=None, dead=None):
     return result
 
 
-@dataclass(frozen=True)
-class Status:
-    summary: str
-    warning: str
-    sample: Pressure | None
-    queued_jobs: frozenset[str] = frozenset()
-
-
-def status(previous=None):
-    queued_jobs = frozenset()
-    try:
-        waiting = active = 0
-        rows = []
-        paused = {"reason": None}
-        if directory().exists():
-            folder = prepare()
-            with gate(folder):
-                rows = entries(folder)
-                paused = pause_state(folder)
-                active = sum(row["running"] for _, row in rows)
-                waiting = len(rows) - active
-                queued_jobs = frozenset(row["job"] for _, row in rows
-                                        if not row["running"] and row.get("job"))
-        host = pressure(previous)
-        policy = limits(host)
-        reason = wait_reason(host, policy, shared=True)
-        reserved = sum(row["need"] for _, row in rows if row["running"])
-        budget = max(0, host.shared_capacity - policy.available)
-        summary = (f"host: available={host.available / MIB:.0f}MiB load1={host.load:.2f} "
-                   f"headroom={host.shared_headroom / MIB:.0f}MiB "
-                   f"heavy_running={active} heavy_queued={waiting} "
-                   f"heavy_reserved={reserved / MIB:.0f}MiB heavy_budget={budget / MIB:.0f}MiB")
-        if paused["reason"] is not None:
-            summary += f" heavy_paused=yes (paused by root: {paused['reason']})"
-        for _, row in rows:
-            if row["running"]:
-                summary += (f" | heavy={row.get('job') or 'standalone'} need={row['need'] / MIB:g}MiB"
-                            + (" exclusive" if row["exclusive"] else ""))
-        for group in host.groups:
-            if group.path.name != "codex.slice" and group.maximum is None and group.cpus is None:
-                continue
-            memory = f"{group.current / MIB:.0f}" if group.current is not None else "unavailable"
-            maximum = f"{group.maximum / MIB:.0f}" if group.maximum is not None else "max"
-            cpu = f"{group.cpus:g}" if group.cpus is not None else "unavailable/unlimited"
-            summary += (f" | {group.path.name}: memory={memory}/{maximum}MiB oom_kill={group.oom_kill} "
-                        f"cpu_quota={cpu} usage_usec={group.usage_usec} "
-                        f"throttled_usec={group.throttled_usec}")
-        if not host.groups:
-            summary += " cgroup_v2=unavailable"
-        return Status(summary, reason, host, queued_jobs)
-    except (OSError, ValueError, KeyError, IndexError, RuntimeError) as exc:
-        return Status(f"host: pressure unavailable ({exc})",
-                      "pressure unavailable; admission fails closed", None, queued_jobs)
 
 
 def scope_prefix(memory_max):

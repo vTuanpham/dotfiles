@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 
 import pytest
 
+from agent_bridge import status
 from agent_bridge import watch as watcher
 
 
 def test_timeout_gives_up_while_a_runner_is_alive(monkeypatch, tmp_path, capsys):
     root, _ = setup_job(tmp_path)
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda state: True)
+    monkeypatch.setattr(status, "running", lambda state: True)
     clock = iter(range(0, 1000, 10))
     monkeypatch.setattr(watcher.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
@@ -36,7 +37,7 @@ def test_until_event_exits_after_urgent(monkeypatch, tmp_path, capsys):
     state["title"] = "Fix startup"
     state_path.write_text(json.dumps(state))
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda state: state.get("runnerPid") == 4321)
+    monkeypatch.setattr(status, "running", lambda state: state.get("runnerPid") == 4321)
     sleeps = 0
 
     def tick(_):
@@ -59,7 +60,7 @@ def test_resumed_job_gets_a_fresh_stall_clock(monkeypatch, tmp_path, capsys):
     os.utime(job / "live.jsonl", (0, 0))
     monkeypatch.setattr(watcher, "JOBS", root)
     alive = iter([True, True, False])
-    monkeypatch.setattr(watcher, "running", lambda state: next(alive, False))
+    monkeypatch.setattr(status, "running", lambda state: next(alive, False))
     times = iter([1000, 1001, 1002])
     monkeypatch.setattr(watcher.time, "time", lambda: next(times, 1002))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
@@ -74,7 +75,7 @@ def test_new_stall_wakes_an_until_event_watch(monkeypatch, tmp_path, capsys):
     (job / "live.jsonl").write_text("")
     os.utime(job / "live.jsonl", (0, 0))
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda state: True)
+    monkeypatch.setattr(status, "running", lambda state: True)
     times = iter([1000, 1200])
     monkeypatch.setattr(watcher.time, "time", lambda: next(times, 1200))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
@@ -90,12 +91,12 @@ def silent_busy_watch(monkeypatch, tmp_path, ticks, cpu, sockets):
     os.utime(job / "live.jsonl", (0, 0))
     monkeypatch.setattr(watcher, "JOBS", root)
     alive = iter([True] * ticks)
-    monkeypatch.setattr(watcher, "running", lambda state: next(alive, False))
+    monkeypatch.setattr(status, "running", lambda state: next(alive, False))
     clock = itertools.count(1000, 30)
     monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
-    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (cpu(), {1}))
-    monkeypatch.setattr(watcher, "socket_bytes", lambda pids: sockets())
+    monkeypatch.setattr(status, "tree_cpu", lambda pid: (cpu(), {1}))
+    monkeypatch.setattr(status, "socket_bytes", lambda pids: sockets())
     watcher.watch(["owner"], until_event=True, stall_min=1)
 
 
@@ -127,9 +128,9 @@ def steps_log(path, gaps):
 def test_pace_compares_recent_model_steps_with_the_jobs_usual(tmp_path):
     log = tmp_path / "live.jsonl"
     steps_log(log, [10] * 14)
-    assert watcher.pace(log) is None  # too few steps to judge
+    assert status.pace([json.loads(line) for line in log.read_text().splitlines()]) is None
     steps_log(log, [10] * 10 + [170, 160, 175, 180, 165])
-    assert watcher.pace(log) == (170, 10, 20)
+    assert status.pace([json.loads(line) for line in log.read_text().splitlines()]) == (170, 10, 20)
 
 
 def test_a_slow_job_is_reported_once(monkeypatch, tmp_path, capsys):
@@ -137,12 +138,12 @@ def test_a_slow_job_is_reported_once(monkeypatch, tmp_path, capsys):
     steps_log(job / "live.jsonl", [10] * 10 + [170] * 5)
     monkeypatch.setattr(watcher, "JOBS", root)
     alive = iter([True] * 4)
-    monkeypatch.setattr(watcher, "running", lambda state: next(alive, False))
+    monkeypatch.setattr(status, "running", lambda state: next(alive, False))
     clock = itertools.count(time.time(), 61)
     monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
-    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (7.0, {1}))
-    monkeypatch.setattr(watcher, "socket_bytes", lambda pids: {})
+    monkeypatch.setattr(status, "tree_cpu", lambda pid: (7.0, {1}))
+    monkeypatch.setattr(status, "socket_bytes", lambda pids: {})
     watcher.watch(["owner"], stall_min=60)
     output = capsys.readouterr().out
     assert output.count("slow, model steps take 170s (usually 10s)") == 1
@@ -158,9 +159,9 @@ def test_socket_bytes_sums_only_the_jobs_sockets(monkeypatch):
         'ESTAB 0 0 10.0.0.2:5001 1.2.3.4:443 users:(("other",pid=99,fd=3))\n'
         "\t cubic bytes_acked:7 bytes_received:7\n"
     )
-    done = watcher.subprocess.CompletedProcess([], 0, out, "")
-    monkeypatch.setattr(watcher.subprocess, "run", lambda *a, **k: done)
-    assert watcher.socket_bytes({40}) == {"10.0.0.2:5000 1.2.3.4:443": 5800}
+    done = status.subprocess.CompletedProcess([], 0, out, "")
+    monkeypatch.setattr(status.subprocess, "run", lambda *a, **k: done)
+    assert status.socket_bytes({40}) == {"10.0.0.2:5000 1.2.3.4:443": 5800}
 
 
 def test_a_silent_job_with_idle_processes_is_stalled(monkeypatch, tmp_path, capsys):
@@ -168,21 +169,21 @@ def test_a_silent_job_with_idle_processes_is_stalled(monkeypatch, tmp_path, caps
     (job / "live.jsonl").write_text("")
     os.utime(job / "live.jsonl", (0, 0))
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda state: True)
+    monkeypatch.setattr(status, "running", lambda state: True)
     clock = itertools.count(1000, 100)
     monkeypatch.setattr(watcher.time, "time", lambda: next(clock))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
-    monkeypatch.setattr(watcher, "tree_cpu", lambda pid: (7.0, {1}))  # an app-server waiting on nothing
-    monkeypatch.setattr(watcher, "socket_bytes", lambda pids: {"a b": 100})
+    monkeypatch.setattr(status, "tree_cpu", lambda pid: (7.0, {1}))  # an app-server waiting on nothing
+    monkeypatch.setattr(status, "socket_bytes", lambda pids: {"a b": 100})
     assert watcher.watch(["owner"], until_event=True, stall_min=1, timeout=10,
                          include_info=True) is True
     assert "while running (stalled?)" in capsys.readouterr().out
 
 
 def test_tree_cpu_reads_this_process():
-    cpu, pids = watcher.tree_cpu(os.getpid())
+    cpu, pids = status.tree_cpu(os.getpid())
     assert cpu >= 0 and os.getpid() in pids
-    assert watcher.tree_cpu(None) is None
+    assert status.tree_cpu(None) is None
 
 
 def test_root_wait_is_shown_without_a_stall_warning(monkeypatch, tmp_path, capsys):
@@ -191,7 +192,7 @@ def test_root_wait_is_shown_without_a_stall_warning(monkeypatch, tmp_path, capsy
     os.utime(job / "live.jsonl", (0, 0))
     monkeypatch.setattr(watcher, "JOBS", root)
     alive = iter([True, True, False])
-    monkeypatch.setattr(watcher, "running", lambda state: next(alive, False))
+    monkeypatch.setattr(status, "running", lambda state: next(alive, False))
     times = iter([1000, 1100, 1101])
     monkeypatch.setattr(watcher.time, "time", lambda: next(times, 1101))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
@@ -204,7 +205,7 @@ def test_root_wait_is_shown_without_a_stall_warning(monkeypatch, tmp_path, capsy
 def test_until_event_returns_when_no_runner_left(monkeypatch, tmp_path, capsys):
     root, _ = setup_job(tmp_path)
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda state: False)
+    monkeypatch.setattr(status, "running", lambda state: False)
     sleeps = []
     monkeypatch.setattr(watcher.time, "sleep", sleeps.append)
     watcher.watch(["owner"], until_event=True)
@@ -218,7 +219,7 @@ def test_until_event_waits_for_a_runner_starting_after_watch(monkeypatch, tmp_pa
     owner.mkdir(parents=True)
     job = owner / "worker"
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda state: state.get("runnerPid") == 4321)
+    monkeypatch.setattr(status, "running", lambda state: state.get("runnerPid") == 4321)
     ticks = 0
 
     def tick(_):
@@ -242,7 +243,7 @@ def test_acknowledged_utf8_events_stay_read_and_new_jobs_are_picked_up(monkeypat
     with (job / "live.jsonl").open("a", encoding="utf-8") as stream:
         stream.write('{"kind":"turn_completed","level":"urgent","text":"old → done"}\n')
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda state: True)
+    monkeypatch.setattr(status, "running", lambda state: True)
     from agent_bridge.acknowledgements import acknowledge, displayed
 
     displayed(job, (job / "live.jsonl").stat().st_size)
@@ -266,7 +267,7 @@ def test_valid_scalar_event_does_not_stop_watch(monkeypatch, tmp_path, capsys):
     (job / "live.jsonl").write_text("")
     monkeypatch.setattr(watcher, "JOBS", root)
     alive = iter([True, False])
-    monkeypatch.setattr(watcher, "running", lambda state: next(alive, False))
+    monkeypatch.setattr(status, "running", lambda state: next(alive, False))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: (job / "live.jsonl").write_text("null\n"))
     watcher.watch(["owner"], until_event=True)
     assert "null" not in capsys.readouterr().out
@@ -276,7 +277,7 @@ def test_truncated_log_restarts_from_byte_zero(monkeypatch, tmp_path, capsys):
     root, job = setup_job(tmp_path)
     (job / "live.jsonl").write_text("old\n" * 100)
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda state: True)
+    monkeypatch.setattr(status, "running", lambda state: True)
 
     def truncate(_):
         (job / "live.jsonl").write_text('{"kind":"error","level":"urgent","message":"new"}\n')
@@ -295,7 +296,7 @@ def test_rearmed_watch_replays_all_unacknowledged_and_summarizes_each(monkeypatc
         with (target / "live.jsonl").open("a") as stream:
             stream.write(json.dumps({"kind": kind, "at": "2026-10-25T00:00:00Z"}) + "\n")
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda _: False)
+    monkeypatch.setattr(status, "running", lambda _: False)
     for _ in range(2):
         watcher.watch(["owner"], until_event=True)
         output = capsys.readouterr().out
@@ -308,6 +309,6 @@ def test_launch_offset_cannot_hide_pending_events(monkeypatch, tmp_path, capsys)
     with (job / "live.jsonl").open("a") as stream:
         stream.write('{"kind":"turn_completed"}\n')
     monkeypatch.setattr(watcher, "JOBS", root)
-    monkeypatch.setattr(watcher, "running", lambda _: False)
+    monkeypatch.setattr(status, "running", lambda _: False)
     watcher.watch(["owner"], until_event=True, offsets={job: (job / "live.jsonl").stat().st_size})
     assert "owner/worker turn_completed" in capsys.readouterr().out

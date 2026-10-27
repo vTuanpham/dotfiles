@@ -10,7 +10,7 @@ import pytest
 import test_heavy
 from test_heavy import finish, launch, started
 
-from agent_bridge import cli, heavy, heavy_control
+from agent_bridge import cli, heavy, heavy_control, status, status_render
 
 host = test_heavy.host
 
@@ -62,7 +62,7 @@ def test_list_and_cancel_queued_without_stopping_worker_or_holder(host, tmp_path
         assert not (tmp_path / "queued").exists()
         assert holder.poll() is None and not path.exists()
         assert not heavy.control_path(path).exists()
-        assert "heavy_queued=0" in heavy.status().summary
+        assert "heavy_queued=0" in status_render.pressure(*status.collect_host()[:2])
     finally:
         finish(processes, [release])
 
@@ -81,7 +81,7 @@ def test_cancel_running_by_job_releases_need_and_admits_waiter(host, tmp_path, m
         assert holder.returncode == -signal.SIGTERM
         assert "SIGTERM" in capsys.readouterr().err
         started(tmp_path / "queued")
-        assert "heavy_running=1" in heavy.status().summary
+        assert "heavy_running=1" in status_render.pressure(*status.collect_host()[:2])
         assert all(row["job"] != "owner/holder" for _, row in rows())
     finally:
         finish(processes, [release])
@@ -116,7 +116,7 @@ def test_cancel_escalates_for_child_even_after_parent_exits(host, tmp_path, monk
             time.sleep(.01)
         else:
             pytest.fail("heavy command child survived cancellation")
-        assert "heavy_running=0" in heavy.status().summary
+        assert "heavy_running=0" in status_render.pressure(*status.collect_host()[:2])
     finally:
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
@@ -131,7 +131,8 @@ def test_pause_resume_gates_only_new_admissions(host, tmp_path, monkeypatch, cap
     try:
         started(tmp_path / "holder")
         command(monkeypatch, "pause", "--reason", "benchmark review")
-        assert "heavy_paused=yes (paused by root: benchmark review)" in heavy.status().summary
+        report = status_render.pressure(*status.collect_host()[:2])
+        assert "heavy_paused=yes (paused by root: benchmark review)" in report
         queued = launch(tmp_path / "queued", release)
         processes.append(queued)
         assert b"paused by root: benchmark review" in wait_queued(queued)
@@ -141,7 +142,7 @@ def test_pause_resume_gates_only_new_admissions(host, tmp_path, monkeypatch, cap
         command(monkeypatch, "resume")
         started(tmp_path / "queued")
         assert holder.poll() is None
-        assert "heavy_paused" not in heavy.status().summary
+        assert "heavy_paused" not in status_render.pressure(*status.collect_host()[:2])
     finally:
         finish(processes, [release])
 
