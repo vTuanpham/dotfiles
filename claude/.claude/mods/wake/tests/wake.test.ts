@@ -157,7 +157,7 @@ test('the crew legend is available on demand', async ($, on) => {
   engine(on)
   const result = await $.command.run({ command: 'wake', args: 'legend', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as never)
   expect(result.text).toContain('⌁ heavy queue')
-  expect(result.text).toContain('memory/cap')
+  expect(result.text).toContain('m▰▱ is memory against its cap')
   expect(result.text).toContain('↗/↙')
 })
 
