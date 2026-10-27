@@ -40,6 +40,22 @@ Others: Argon (Gemini 4, high) 53 / $1.62; Gemini 3.8 Flash high 41 / $3.49; Dee
 - **Large models flatten**: Sol max adds 2 points over high for 2.3x the cost; Astra max adds 2 over high for 1.9x. `high` is the usual ceiling for a large model; `xhigh`/`max` pay only for audits and hard diagnosis. Opus and Sonnet are the exceptions, still gaining at xhigh and max.
 - **A bigger class beats more effort within a family, not across families**: Sol medium (48, $0.21) outscores Luna max (38, $0.07), but Sonnet max (56) outscores Astra max (53). For the same ~50, Sol high costs $0.32, Opus medium $1.34, Astra medium $1.54.
 
+### What vendors advertise (claims, not measurements)
+Speed is the vendor's own relative rating; no independent throughput or latency was available (OpenRouter's public API returns no speed statistics and Artificial Analysis' page exposes none). Prices are list dollars per million input / output tokens from the vendors' pages and OpenRouter's model list. Sources: [OpenAI models](https://learn.chatgpt.com/docs/models.md), [Anthropic models overview](https://docs.anthropic.com/en/docs/about-claude/models/overview), [OpenRouter models](https://openrouter.ai/api/v1/models).
+
+| Model | Vendor positioning | Vendor speed | Price in / out |
+|---|---|---|---|
+| Luna | most efficient; focused high-volume tasks: summarization, extraction, focused coding (capability 3 of 5 icons) | 4 icons | $0.10 / $0.50 |
+| Terra 6.1 | fast, efficient; writing, visual understanding, computer use (capability 5 icons) | 4 icons | $1 / $5 |
+| Sol 6.1 | near-Astra performance at lower cost; repeated, long-running work (capability 5 icons) | 3 icons | $2 / $10 |
+| Astra | most capable; hardest work across code, apps and research (capability 5 icons) | 2 icons | $10 / $50 |
+| Haiku 5.5 | high-volume, latency-sensitive: classification, extraction, routing | fastest | $0.10 / $0.50 |
+| Sonnet 5.5 | best combination of speed and intelligence | fast | $2 / $10 |
+| Opus 5.5 | start here for most workloads; long-running agentic coding and knowledge work | moderate | $4 / $20 |
+| Fable 5.1 | demanding reasoning and long-horizon agentic work, or when Opus at higher effort still falls short | slower | $10 / $50 |
+
+OpenAI's icon counts have no stated maximum; read them only relative to each other. How the claims compare with the benchmark snapshot above: Astra and Fable share a price and a class, yet Opus scores above Fable from medium up, so Fable is a specialty or last resort, not an upgrade for routine work. Sol costs the same as Sonnet 5.5 and scores close to it (Sol max 52, Sonnet xhigh 52), so by price and score it sits nearer Sonnet than Opus, even though OpenAI positions it near Astra; judge it by its table row. Terra's top capability rating is generous next to its score (max 48, below Sol), but its speed rating is the highest shown. OpenAI advises starting Astra at its lightest setting (`low` in config), Luna at High, and says most tasks do not need Max or Ultra.
+
 ### How to use each model (a starting point; override for the task)
 Effort is limited to what each backend accepts (`agent-bridge start --help`). The top of a range is for audits or deep diagnosis. Small-model output always gets a spot-check. With a thin allowance, bound jobs and reserve expensive models; with a deep allowance or no short-window limit, repeat useful sweeps while checking weekly limits and live quota. [Subscriptions](subscriptions.md) maps published tiers to these conditions.
 
@@ -48,13 +64,14 @@ Effort is limited to what each backend accepts (`agent-bridge start --help`). Th
 | Luna | bulk implementation, sweeps, tests, first-pass audits | high to xhigh; max for audits | split into bounded jobs on thin allowances; repeat sweeps when the allowance is deep |
 | Sol | tricky implementation, diagnosis, second-opinion review | medium to high; xhigh for hard diagnosis | step up when Luna struggles; serialize jobs when the allowance is thin |
 | Terra 6.1 | fast visual, UI and computer-use work; writing | medium to high | compare Terra max (48, $0.40) against Sol medium (48, $0.21) for pure coding |
-| Astra | hardest audits, architecture and read-only brainstorming | medium to high | avoid routine work on thin allowances; xhigh or max only if the user asks |
+| Astra | hardest audits, architecture and read-only brainstorming | low to medium; high for the hardest tasks | the vendor advises starting at its lightest setting and the table is flat above medium (50 at medium, 53 at max); avoid routine work on thin allowances; xhigh or max only if the user asks |
+| Fable 5.1 | demanding reasoning and long-horizon agentic work; when Opus at higher effort still falls short | medium to high | slower and priced like Astra; Opus scores higher from medium up in the snapshot, so try Opus first |
 | Gemini 3.8 Flash (agy) | summaries, log triage, docs, mechanical sweeps | high | check the shared Gemini bucket before large fan-outs |
 | Opus 4.6 Thinking (agy) | taste-heavy visual work, hard design review | medium to high | check the shared Claude/GPT bucket; benchmark strength Unverified |
 | Sonnet 4.6 Thinking (agy) | mid-weight visual work | medium to high | check the same bucket; benchmark strength Unverified |
 | Haiku 5.5 | cheap exploration, summaries, quick lookups | high | 38 at $0.08 in the snapshot; prefer bounded tasks |
 | Sonnet 5.5 | UI/TUI/visual taste, live collaboration | medium to high | reserve capacity for iteration when the allowance is thin |
-| Opus 5.5 | high-value design decisions | medium to high | reserve it when the allowance is thin |
+| Opus 5.5 | the vendor's default start for most workloads; long-running agentic coding, high-value design decisions | medium to high | reserve it when the allowance is thin |
 | OpenCode free (zero-retention) | read-only exploration, summaries, mechanical edits | none | rotating availability; treat as small-model output and check retention in the subscription guide |
 
 ### Inventory coverage
