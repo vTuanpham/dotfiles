@@ -344,7 +344,7 @@ export const register: Register = on => {
   on('command.run', { command: 'wake' }, async ($, e) => {
     const [verb = '', ...rest] = e.args.trim().split(/\s+/)
     const arg = rest.join(' ')
-    if (verb === 'legend') return { text: 'Crew: ◈ Codex · ✦ agy · ◆ Claude · ○ OpenCode; the circle fills with model size, ◔ small to ◉ largest. ● running · ⌁ heavy queue · = paused · ↻ retrying · ? needs answer · ! stalled · ✓ done · ○ idle. A taller bar ▂▃▅▆▇█ is more thinking effort; the number is time since the last event; m▰▱ is memory against its cap. ↗/↙ peer direction toward the named job (a number appears past one message); links older than 15 minutes are dropped. Quota bars show remaining per account/window; ✕ marks signed-out or expired accounts, folded into one range; ? means unknown, ~ means stale numbers.' }
+    if (verb === 'legend') return { text: 'Crew: ◈ Codex · ✦ agy · ◆ Claude · ○ OpenCode; the circle fills with model size, ◔ small to ◉ largest. ● running · ⌁ heavy queue · = paused · ↻ retrying · ? needs answer · ! stalled · ✓ done · ○ idle. Signal bars ▁▃▄▆█ show thinking effort, lit steps against dots (full is max); the number is time since the last event; m▰▱ is memory against its cap. ↗/↙ peer direction toward the named job (a number appears past one message); links older than 15 minutes are dropped. Quota bars show remaining per account/window; ✕ marks signed-out or expired accounts, folded into one range; ? means unknown, ~ means stale numbers.' }
     if (verb === 'tour') {
       tour = { start: frameNo }
       return { text: `Touring ${PRESETS.length} landscapes, 12 s each, a whole day in each; your own scene comes back after.` }

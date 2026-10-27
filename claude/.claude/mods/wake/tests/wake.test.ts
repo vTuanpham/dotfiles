@@ -87,7 +87,7 @@ test('one crew job at 180 columns keeps its status and model next to the title',
   const text = flat((await bar.drawn()) as Node)
   expect(text).toContain('Photo ranking feature scan')
   expect(text).toContain('◈◔ ●')
-  expect(text).toContain('▅') // high effort
+  expect(text).toContain('▁▃▄··') // high effort
   await bar.unmount()
 })
 

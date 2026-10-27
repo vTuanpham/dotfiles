@@ -50,8 +50,13 @@ function memoryFraction(job: WakeChip): number | undefined {
 const MARK: Record<string, string> = { codex: '◈', agy: '✦', claude: '◆', opencode: '○' }
 /** Model class as a circle that fills with size (quarter to full), so a bigger model reads as more. */
 export const CLASS_GLYPH = ['◔', '◑', '◕', '◉'] as const
-/** Reasoning effort as a rising bar: taller means more thinking. */
-export const EFFORT_BAR: Record<string, string> = { low: '▂', medium: '▃', high: '▅', xhigh: '▆', max: '▇', ultra: '█' }
+/** Reasoning effort as a five-step signal meter: lit steps rise, unlit steps are dots; full means max or ultra. */
+const METER = ['▁', '▃', '▄', '▆', '█']
+const EFFORT_STEPS: Record<string, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5, ultra: 5 }
+export const effortMeter = (effort: string): string | undefined => {
+  const lit = EFFORT_STEPS[effort.toLowerCase()]
+  return lit === undefined ? undefined : METER.map((step, i) => (i < lit ? step : '·')).join('')
+}
 
 export type CrewColumn = 'effort' | 'elapsed' | 'reason' | 'memory' | 'peers'
 const RECENT_PEER_MS = 900_000 // a conversation older than the stall window is history, not a link
@@ -64,7 +69,7 @@ export function crewRows(jobs: WakeChip[], now: number, width: number): CrewRow[
   const hasReason = jobs.some(job => ['stalled', 'blocked_on_question'].includes(stateOf(job)) && job.reason)
   const candidates: [CrewColumn, number][] = [
     ...(hasReason ? [['reason', width < 60 ? 8 : 16] as [CrewColumn, number]] : []),
-    ['effort', 1], ['elapsed', 5],
+    ['effort', 5], ['elapsed', 5],
     ['memory', 5], ['peers', width >= 90 ? 24 : 12],
   ]
   // Family and state always fit once there are six cells. On narrower terminals, only the title can.
@@ -82,7 +87,7 @@ export function crewRows(jobs: WakeChip[], now: number, width: number): CrewRow[
   const titleWidth = Math.min(wanted, 56, width - used)
   return jobs.map(job => {
     const state = stateOf(job)
-    const effort = EFFORT_BAR[job.effort.toLowerCase()]
+    const effort = effortMeter(job.effort)
     const memory = memoryFraction(job)
     const age = job.lastEventAt === undefined ? undefined : Math.max(0, now - job.lastEventAt)
     const peers = [...(job.peers ?? [])].filter(p => now - p.lastAt <= RECENT_PEER_MS).sort((a, b) => b.lastAt - a.lastAt)

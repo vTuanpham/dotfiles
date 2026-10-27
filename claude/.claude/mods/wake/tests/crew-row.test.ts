@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cells, crewRows, quotaLines, quotaText, STATE_GLYPHS, stateOf } from '../hooks/crew-row'
+import { cells, crewRows, effortMeter, quotaLines, quotaText, STATE_GLYPHS, stateOf } from '../hooks/crew-row'
 import type { WakeChip } from '../types'
 
 const base: WakeChip = { name: 'worker', title: 'Inspect 長い👩‍💻 worker title', backend: 'codex', account: '01', model: 'gpt-6.1-terra', effort: 'high', running: true, isStale: false, since: 0, lastEventAt: 10_000, memoryBytes: 512 * 1024 ** 2, memoryCap: '1G' }
@@ -27,7 +27,11 @@ test('every width fits terminal cells even with wide text, emoji, links and mult
 test('known memory, freshness, effort and directed weighted peers render without fabricated values', () => {
   const row = crewRows([{ ...base, peers: [{ target: 'owner/reviewer', count: 3, lastAt: 9_000, outgoing: true }, { target: 'owner/other', count: 2, lastAt: 8_000, outgoing: false }] }], 20_000, 120)[0]!
   expect(row.family + ' ' + row.glyph).toBe('◈◑ ●')
-  expect(row.detail).toContain('▅') // high effort is a taller bar than low
+  expect(row.detail).toContain('▁▃▄··') // high effort: three of five signal steps lit
+  expect(effortMeter('low')).toBe('▁····')
+  expect(effortMeter('MAX')).toBe('▁▃▄▆█')
+  expect(effortMeter('ultra')).toBe('▁▃▄▆█')
+  expect(effortMeter('mystery')).toBeUndefined()
   expect(row.detail).toContain('▰▰▱▱')
   expect(crewRows([{ ...base, memoryBytes: 512, memoryCap: '1024' }], 20_000, 120)[0]!.detail).toContain('▰▰▱▱')
   expect(row.detail).toContain('↗reviewer:3')
