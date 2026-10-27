@@ -1,7 +1,7 @@
 import { type Canvas, hash, mix } from '../pixels'
 import { type Job, jobAccent, type Look, P } from './kit'
 
-// The crew's look: one family per harness, three tiers each that grow in size and detail.
+// The crew's look: one family per harness, four classes that grow in size and detail.
 //   codex     mechanical  drone -> big drone -> airship (a skiff -> tug -> steamship on the water)
 //   agy       celestial   spark -> comet -> constellation
 //   claude    living      sparrow -> gull -> eagle (also the subagents' birds)
@@ -13,7 +13,7 @@ import { type Job, jobAccent, type Look, P } from './kit'
 type Kind = NonNullable<Job['kind']>
 type Frames = readonly (readonly string[])[]
 
-const AIR: Record<Kind, Record<1 | 2 | 3, Frames>> = {
+const AIR: Record<Kind, Record<1 | 2 | 3 | 4, Frames>> = {
   codex: {
     1: [['a...a', '.aWa.'], ['.a.a.', '.aWa.']],
     2: [['aa...aa', '.aaaaa.', '..aWa..', '..s.s..'], ['.a...a.', '.aaaaa.', '..aWa..', '..s.s..']],
@@ -21,6 +21,7 @@ const AIR: Record<Kind, Record<1 | 2 | 3, Frames>> = {
       ['d..aaaaaaa...', '.aaaaaaaaaaa.', 'aaWaWaWaWaWaa', '.aaaaaaaaaaa.', '...aaaaaaa...', '.....dsd.....'],
       ['d..aaaaaaa...', '.aaaaaaaaaaa.', 'aWaWaWaWaWaWa', '.aaaaaaaaaaa.', '...aaaaaaa...', '.....dWd.....'],
     ],
+    4: [['d...aaaaaaaaa....', '..aaaaaaaaaaaaa..', 'aaWaWaWaWaWaWaWaa', '..aaaaaaaaaaaaa..', '....aaaaaaaaa....', '.......dsd.......']],
   },
   agy: {
     1: [['.W.', 'WmW', '.W.'], ['W.W', '.m.', 'W.W']],
@@ -29,6 +30,7 @@ const AIR: Record<Kind, Record<1 | 2 | 3, Frames>> = {
       ['.........M...', '...W....d.d..', '....d..d...d.', '.....dW.....W'],
       ['.........m...', '...a....d.d..', '....d..d...d.', '.....dW.....a'],
     ],
+    4: [['..W.......M......', '...d....d.d..W...', '....d..d...dd....', '.....dW.....W....', '....d........d...']],
   },
   claude: {
     1: [['a.a', '.a.'], ['.a.', 'a.a']],
@@ -37,6 +39,7 @@ const AIR: Record<Kind, Record<1 | 2 | 3, Frames>> = {
       ['aaa.......aaa', '.aaaaa.aaaaa.', '...aaaaaaWWs.', '.dd..aaa.....'],
       ['.............', '.aaa.....aaa.', 'aaaaaaaaaWWs.', '.dd..aaa.....'],
     ],
+    4: [['aaaa.........aaaa', '.aaaaaa.aaaaaa...', '...aaaaaaaaaWWs..', '..dd...aaaa......'], ['.................', '.aaaa.......aaaa.', 'aaaaaaaaaaaaWWs..', '..dd...aaaa......']],
   },
   opencode: {
     1: [['ala', 'ala', '.a.', '.s.', '.h.'], ['ala', 'ala', '.a.', '.W.', '.h.']],
@@ -45,13 +48,15 @@ const AIR: Record<Kind, Record<1 | 2 | 3, Frames>> = {
       ['..alala..', '.lalalal.', 'alalalala', 'ppppppppp', '.lalalal.', '..alala..', '...lal...', '...dsd...', '...hhh...'],
       ['..alala..', '.lalalal.', 'alalalala', 'ppppppppp', '.lalalal.', '..alala..', '...lal...', '...dWd...', '...hhh...'],
     ],
+    4: [['...alalala...', '.alalalalala.', 'alalalalalala', 'ppppppppppppp', 'alalalalalala', '.alalalalala.', '...alalala...', '....dsdsd....', '....hhhhh....']],
   },
 }
 
-const BOATS: Record<1 | 2 | 3, readonly string[]> = {
+const BOATS: Record<1 | 2 | 3 | 4, readonly string[]> = {
   1: ['.......', '...s...', '..aaa..', '.aWaaa.', 'hhhhhhh', '.hhhhh.'],
   2: ['.....k....', '.....k.s..', '..aaaaaa..', '..aWaWaa..', 'hhhhhhhhhh', '.hhhhhhhh.'],
   3: ['...k..k....s..', '...k..k.....a..', '.aaaaaaaaaaaa.', '.aWaWaWaWaWaa.', 'hhhhhhhhhhhhhh', '.hhhhhhhhhhhh.'],
+  4: ['...k..k.....s....', '...k..k......a...', '.aaaaaaaaaaaaaaa.', '.aWaWaWaWaWaWaaa.', 'hhhhhhhhhhhhhhhhh', '.hhhhhhhhhhhhhhh.'],
 }
 
 /** OpenCode's festival: a handful of existing inks no other family owns (Codex teal, agy mauve, Claude pink, stale
@@ -93,14 +98,14 @@ function draw(c: Canvas, look: Look, x0: number, y0: number, art: readonly strin
   })
 }
 
-/** A flyer centred on (cx, cy): its family and tier decide the sprite and which frame this beat shows. */
+/** A flyer centred on (cx, cy): its family and class decide the sprite and which frame this beat shows. */
 export function fly(c: Canvas, look: Look, cx: number, cy: number, job: Job, kind: Kind = job.kind ?? 'codex') {
   const frames = AIR[kind][job.tier ?? 1]
   const art = frames[(Math.floor(look.frame / (kind === 'claude' ? 3 : kind === 'opencode' ? 5 : 4)) + job.seed) % frames.length]!
   draw(c, look, cx - (art[0]!.length >> 1), cy - (art.length >> 1), art, paint({ ...job, kind }, look), true)
 }
 
-/** Who comes first when two want the same place: the lower seed, then kind and tier, so a tie never falls to list order. */
+/** Who comes first when two want the same place: the lower seed, then kind and class, so a tie never falls to list order. */
 const byIdentity = (a: Job, b: Job) => a.seed - b.seed || (a.kind ?? '').localeCompare(b.kind ?? '') || (a.tier ?? 1) - (b.tier ?? 1)
 
 /**
@@ -127,10 +132,10 @@ export function hover(c: Canvas, look: Look, job: Job, slot: number, count: numb
   const t = look.frame + job.seed * 97
   const tier = job.tier ?? 1
   const width = Math.max(8, right - 16) / count
-  const speed = [0, 0.07, 0.045, 0.025][tier]!
+  const speed = [0, 0.07, 0.045, 0.025, 0.02][tier]!
   const at = (slot % count) + 0.5 + (Math.floor(slot / count) % 2) * 0.5 // a stacked slot sits half a slot over
-  const x = Math.round(8 + at * width + Math.min(width * 0.3, tier === 3 ? 6 : 4) * Math.sin(t * speed + job.seed))
-  const y = [0, 7, 6, 4][tier]! + (slot % 2) * (tier === 3 ? 0 : 1) + Math.round([0, 1.5, 1, 0.5][tier]! * Math.sin(t * 0.09 + job.seed * 2))
+  const x = Math.round(8 + at * width + Math.min(width * 0.3, tier >= 3 ? 6 : 4) * Math.sin(t * speed + job.seed))
+  const y = [0, 7, 6, 4, 4][tier]! + (slot % 2) * (tier >= 3 ? 0 : 1) + Math.round([0, 1.5, 1, 0.5, 0.5][tier]! * Math.sin(t * 0.09 + job.seed * 2))
   return [x, y]
 }
 
@@ -143,7 +148,7 @@ export function airJobs(c: Canvas, look: Look, jobs: Job[], right: number) {
   }
 }
 
-/** A Codex boat of its tier standing on `y` (its top row) at `x`; returns its width for reflections and slots. */
+/** A Codex boat of its class standing on `y` (its top row) at `x`; returns its width for reflections and slots. */
 export function boat(c: Canvas, look: Look, x: number, y: number, job: Job): number {
   const art = BOATS[job.tier ?? 1]
   const pal = paint(job, look)

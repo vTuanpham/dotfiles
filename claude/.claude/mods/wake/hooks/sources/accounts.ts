@@ -12,10 +12,10 @@ export function jobLabel(backend: string, model: string, effort: string): { mode
   return { model: family, effort: effort || (m?.[2] ?? '') }
 }
 
-/** How capable a model is by family name, so new versions need no table: 1 small, 2 mid, 3 frontier; unknown is mid. Trailing effort words never count. */
-export type Tier = 1 | 2 | 3
-const FAMILY: Record<string, Tier> = { luna: 1, sol: 2, astra: 3, haiku: 1, sonnet: 2, opus: 3, flash: 1, pro: 2, argon: 3 }
-const CODEX_FAMILY = ['luna', 'sol', 'astra']
+/** Model class by family; unknown is mid. Trailing effort words never count. */
+export type Tier = 1 | 2 | 3 | 4
+const FAMILY: Record<string, Tier> = { luna: 1, terra: 2, sol: 3, astra: 4, haiku: 1, sonnet: 2, opus: 3, fable: 4, flash: 1, pro: 2, argon: 3 }
+const CODEX_FAMILY = ['luna', 'terra', 'sol', 'astra']
 // OpenCode serves any provider's models (ids like opencode/<m>, opencode-go/<m>, openrouter/<org>/<m>:free): read the size
 // word first (':free' is no size), then a known family name, else mid
 const OPEN_SIZE: Record<string, Tier> = {
@@ -25,6 +25,8 @@ const OPEN_SIZE: Record<string, Tier> = {
 }
 export function modelTier(backend: string, model: string): Tier {
   if (backend === 'opencode' || /^(opencode(-go)?|openrouter)\//.test(model)) {
+    const family = model.toLowerCase().split(/[^a-z]+/).find(n => ['luna', 'terra', 'sol', 'astra', 'haiku', 'sonnet', 'opus', 'fable'].includes(n))
+    if (family) return FAMILY[family]!
     const size = model.toLowerCase().split(/[^a-z0-9]+/).find(n => Object.hasOwn(OPEN_SIZE, n))
     if (size) return OPEN_SIZE[size]!
   }
@@ -34,7 +36,7 @@ export function modelTier(backend: string, model: string): Tier {
 }
 
 /** Whose model a job runs, when that maker has a crew family of its own: a Claude model inside agy wears Claude's pink. */
-export const makerOf = (model: string): 'claude' | undefined => (/\b(claude|opus|sonnet|haiku)\b/.test(model.toLowerCase()) ? 'claude' : undefined)
+export const makerOf = (model: string): 'claude' | undefined => (/\b(claude|fable|opus|sonnet|haiku)\b/.test(model.toLowerCase()) ? 'claude' : undefined)
 
 /** Consecutive accounts of one CLI with the same numbers fold into one group, so four idle free accounts read once. */
 export function quotaGroups(quotas: WakeQuota[]): { cli: 'codex' | 'agy'; accounts: string[]; text: string; low: boolean; bad: boolean }[] {
@@ -61,6 +63,6 @@ export async function scanQuotas($: EngineInterface, opts: { refreshAgy?: boolea
   if (!snapshot) throw new Error('Bridge quota status unavailable')
   return snapshot.quotas.filter(q => q.backend === 'codex' || q.backend === 'agy').map(q => ({
     cli: q.backend as 'codex' | 'agy', account: q.account, plan: q.plan ?? '', active: q.active,
-    parts: q.windows.map(w => ({ label: w.label, pct: w.remaining_percent })), status: q.status ?? undefined,
+    parts: q.windows.map(w => ({ label: w.label, pct: w.remaining_percent })), status: q.status ?? undefined, freshness: q.freshness,
   }))
 }

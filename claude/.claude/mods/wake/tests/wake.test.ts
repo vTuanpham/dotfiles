@@ -65,98 +65,111 @@ test('crew timing distinguishes turn age, recent events, stalled jobs and unackn
 
 test('rendered crew puts names first and includes done jobs awaiting root', async ($, on) => {
   engine(on)
-  const base: WakeChip = { name: 'worker', title: 'Review persisted worker messages', backend: 'codex', account: '01', model: 'gpt-6-sol', effort: 'high', running: true, isStale: false, since: 1, startedAt: 40_000, lastEventAt: 992_000 }
+  const base: WakeChip = { name: 'worker', title: 'Review messages', backend: 'codex', account: '01', model: 'gpt-6-sol', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 992_000 }
   let shown = [base]
   on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: shown, version: 1 } }))
-  for (const [job, timing] of [
-    [base, '8s · turn 16m'],
-    [{ ...base, isStale: true, lastEventAt: 100_000 }, 'stalled 15m'],
-    [{ ...base, running: false, awaitingRoot: true }, 'done'],
-    [{ ...base, awaitingRoot: true, waitingForRoot: true }, 'done'],
-  ] as const) {
+  for (const [job, mark] of [[base, '●'], [{ ...base, isStale: true, reason: 'silence' }, '!'], [{ ...base, running: false, awaitingRoot: true }, '✓']] as const) {
     shown = [job]
     const bar = await mount($, 'AbovePrompt')
-    const tree = (await bar.drawn()) as Node
-    const text = flat(tree)
+    const text = flat((await bar.drawn()) as Node)
     const row = text.split('\n').find(line => line.includes(base.title!))!
-    expect(row).toContain(timing)
-    expect(row.indexOf(base.title!) < row.indexOf(timing)).toBe(true)
-    expect(text).not.toContain('(worker)')
-    expect(JSON.stringify(tree)).toContain('truncate-end')
+    expect(row.indexOf(base.title!) < row.indexOf(mark)).toBe(true)
+    expect(row).toContain(mark)
     await bar.unmount()
   }
 })
 
 test('one crew job at 180 columns keeps its status and model next to the title', async ($, on) => {
   engine(on)
-  const title = 'Photo ranking feature scan'
-  const job: WakeChip = { name: 'ranking', title, backend: 'codex', account: '01', model: 'gpt-6-luna', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 985_000 }
+  const job: WakeChip = { name: 'ranking', title: 'Photo ranking feature scan', backend: 'codex', account: '01', model: 'gpt-6-luna', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 985_000 }
   on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: [job], version: 1 } }))
   const bar = await mount($, 'AbovePrompt', false, 180)
-  const tree = (await bar.drawn()) as Node
-  const slot = boxes(tree).find(node => node.type === 'Box' && typeof node.props?.width === 'number' && node.children?.length === 3 && flat(node).includes(title))!
-  expect(flat(slot).replace(/\s+/g, ' ')).toContain(`${title} 15s codex·01 luna high`)
-  expect(slot.props!.width).toBe(flat(slot).length - 2) // sized to its words (flat adds a space between its 3 parts)
-  const titleBox = slot.children![1] as Exclude<Node, string>
-  expect(titleBox.props).toMatchObject({ flexGrow: 0, flexShrink: 1, minWidth: 1 })
-  expect(flat(tree).split('codex·01').length - 1).toBe(1)
+  const text = flat((await bar.drawn()) as Node)
+  expect(text).toContain('Photo ranking feature scan')
+  expect(text).toContain('◈1 ●')
+  expect(text).toContain('•••')
   await bar.unmount()
 })
 
-test('a fitted slot keeps the turn clock, whatever backend runs the job', async ($, on) => {
+test('a fitted row keeps event age, whatever backend runs the job', async ($, on) => {
   engine(on)
-  const title = 'Face validation'
   let shown: WakeChip[] = []
   on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: shown, version: 1 } }))
-  for (const [backend, account, model, label] of [['codex', '01', 'gpt-6-luna', 'codex·01 luna high'], ['agy', 'a2', 'gemini-3.8-flash-high', 'agy·a2 flash high']] as const) {
-    shown = [{ name: 'v5', title, backend, account, model, effort: 'high', running: true, isStale: false, since: 1, startedAt: 40_000, lastEventAt: 992_000 }]
+  for (const [backend, model, mark] of [['codex', 'gpt-6-luna', '◈1'], ['agy', 'gemini-3.8-flash-high', '✦1']] as const) {
+    shown = [{ name: 'v5', title: 'Face validation', backend, account: '01', model, effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 992_000 }]
     const bar = await mount($, 'AbovePrompt', false, 120)
-    expect(flat((await bar.drawn()) as Node).replace(/\s+/g, ' ')).toContain(`${title} 8s · turn 16m ${label}`)
+    const text = flat((await bar.drawn()) as Node)
+    expect(text).toContain(mark)
+    expect(text).toContain('8s')
     await bar.unmount()
   }
 })
 
-test('the quota line leads with the CLI at work and counts unreadable accounts', async ($, on) => {
+test('the quota line leads with the CLI at work and shows unknown accounts', async ($, on) => {
   engine(on)
-  const job: WakeChip = { name: 'takeover', title: 'Face validation', backend: 'agy', account: 'a2', model: 'gemini-3.8-flash-high', effort: '', running: true, isStale: false, since: 1, lastEventAt: 995_000 }
+  const job: WakeChip = { name: 'takeover', title: 'Face validation', backend: 'agy', account: 'a2', model: 'gemini-3-flash', effort: '', running: true, isStale: false, since: 1, lastEventAt: 995_000 }
   const quotas = [
-    { cli: 'codex', account: '01', plan: 'Pro Lite', active: true, parts: [{ label: 'w', pct: 98 }] },
-    { cli: 'codex', account: '02', plan: 'Free', active: false, parts: [] }, // 401
-    { cli: 'codex', account: '03', plan: 'Free', active: false, parts: [] }, // timed out
-    { cli: 'codex', account: '05', plan: 'Free', active: false, parts: [], status: 'expired' },
-    { cli: 'agy', account: 'a1', plan: 'Pro', active: false, parts: [{ label: 'Cw', pct: 0 }, { label: 'Gw', pct: 100 }] },
-    { cli: 'agy', account: 'a2', plan: 'Pro', active: false, parts: [{ label: 'Cw', pct: 69 }, { label: 'Gw', pct: 100 }] },
+    { cli: 'codex', account: '01', plan: 'Pro', active: true, parts: [{ label: 'w', pct: 100 }] },
+    { cli: 'codex', account: '02', plan: 'Free', active: false, parts: [] },
+    { cli: 'agy', account: 'a1', plan: 'Pro', active: false, parts: [{ label: 'Cw', pct: 0 }] },
   ]
   on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: [job], version: 1 } }))
   on('state.get', { plugin: 'wake', key: 'quotas' }, () => ({ value: { value: quotas, version: 1 } }))
   const bar = await mount($, 'AbovePrompt')
-  const line = flat((await bar.drawn()) as Node).split('\n').find(row => row.startsWith('agy a1'))!
-  expect(line).toBe('agy a1 C w0 · G w100 · a2 C w69 · G w100 │ codex 01* w98 · 3 offline') // no earlier numbers to keep
+  const text = flat((await bar.drawn()) as Node)
+  expect(text).toContain('✦a1 Cw▱▱▱▱  ◈01* w▰▰▰▰  ◈02 ?')
   await bar.unmount()
 })
 
-test('two crew jobs share the width and identical model details appear once', async ($, on) => {
+test('two crew jobs get separate compact rows', async ($, on) => {
   engine(on)
-  const base: WakeChip = { name: 'review', title: 'Review persisted worker messages', backend: 'codex', account: '01', model: 'gpt-6-sol', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 989_000 }
-  const jobs = [base, { ...base, name: 'provider', title: 'Check provider responses', lastEventAt: 977_000 }]
+  const base: WakeChip = { name: 'review', title: 'Review messages', backend: 'codex', account: '01', model: 'gpt-6-sol', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 989_000 }
+  const jobs = [base, { ...base, name: 'provider', title: 'Check responses', lastEventAt: 977_000 }]
   on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: jobs, version: 1 } }))
   for (const width of [60, 100]) {
     const bar = await mount($, 'AbovePrompt', false, width)
-    const tree = (await bar.drawn()) as Node
-    const text = flat(tree)
-    expect(text.indexOf(base.title!) < text.indexOf('11s')).toBe(true)
-    expect(text.indexOf('Check provider') < text.indexOf('23s')).toBe(true)
-    expect(text).not.toContain('turn ?')
-    expect(text).not.toContain('(review)')
-    expect(text).not.toContain('(provider)')
-    expect(text.split('codex·01').length - 1).toBe(width === 100 ? 1 : 0)
-    const slots = boxes(tree).filter(node => node.type === 'Box' && typeof node.props?.width === 'number' && node.props.width < width && node.children?.length === 3)
-    expect(slots).toHaveLength(2)
-    // each slot is as wide as its words, or as its share when those do not fit
-    for (const slot of slots) expect(slot.props!.width as number).toBeLessThanOrEqual(Math.max(flat(slot).length, 1))
-    expect(slots.reduce((sum, slot) => sum + (slot.props!.width as number), 0)).toBeLessThanOrEqual(width - 3)
+    const text = flat((await bar.drawn()) as Node)
+    const lines = text.split('\n')
+    expect(lines.find(line => line.includes('Review messages'))).toContain('11s')
+    expect(lines.find(line => line.includes('Check responses'))).toContain('23s')
+    expect(lines.find(line => line.includes('Review messages'))).not.toContain('Check responses')
     await bar.unmount()
   }
+})
+
+test('mixed model rows keep their own marks in the same columns at each width', async ($, on) => {
+  engine(on)
+  const base: WakeChip = { name: 'a', title: 'Review messages', backend: 'codex', account: '01', model: 'gpt-6.1-terra', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 989_000 }
+  const jobs = [base, { ...base, name: 'b', title: 'Pairwise research', model: 'gpt-6-sol' }, { ...base, name: 'c', title: 'Unified status', backend: 'agy', model: 'fable' }]
+  on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: jobs, version: 1 } }))
+  for (const width of [32, 60, 100]) {
+    const bar = await mount($, 'AbovePrompt', false, width)
+    const lines = flat((await bar.drawn()) as Node).split('\n')
+    const rows = ['◈2', '◈3', '✦4'].map(mark => lines.find(line => line.includes(mark))!)
+    expect(rows.every(Boolean)).toBe(true)
+    expect(rows.map((line, i) => line.indexOf(['◈2', '◈3', '✦4'][i]!))).toEqual([rows[0]!.indexOf('◈2'), rows[0]!.indexOf('◈2'), rows[0]!.indexOf('◈2')])
+    expect(rows.every(line => line.includes('●'))).toBe(true)
+    await bar.unmount()
+  }
+})
+
+test('the crew legend is available on demand', async ($, on) => {
+  engine(on)
+  const result = await $.command.run({ command: 'wake', args: 'legend', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as never)
+  expect(result.text).toContain('⌁ heavy queue')
+  expect(result.text).toContain('memory/cap')
+  expect(result.text).toContain('↗/↙')
+})
+
+test('a larger crew gets the available rows when the scene would hide workers', async ($, on) => {
+  engine(on)
+  const jobs: WakeChip[] = Array.from({ length: 8 }, (_, i) => ({ name: `job${i}`, title: `Worker ${i}`, backend: 'codex', account: '01', model: 'sol', effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 995_000 }))
+  on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: jobs, version: 1 } }))
+  const bar = await mount($, 'AbovePrompt', false, 80)
+  const text = flat((await bar.drawn()) as Node)
+  for (const job of jobs) expect(text).toContain(job.title!)
+  expect(text).not.toContain('<mochi>')
+  await bar.unmount()
 })
 
 test('the plan rides in the spinner; the dock says what is happening now', async ($, on) => {

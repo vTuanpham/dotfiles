@@ -65,8 +65,8 @@ export type Building = {
 }
 
 /** A crew member: the seed is who it is (its place, lane and motion come from it, never from its place in the list); the harness picks
- *  the family (kind), the model the tier, and a maker with its own family (Claude inside agy) lends one mark its colour. */
-export type Job = { isStale: boolean; seed: number; kind?: 'codex' | 'agy' | 'claude' | 'opencode'; tier?: 1 | 2 | 3; maker?: 'claude' }
+ *  the family (kind), the model the class, and a maker with its own family (Claude inside agy) lends one mark its colour. */
+export type Job = { isStale: boolean; seed: number; kind?: 'codex' | 'agy' | 'claude' | 'opencode'; tier?: 1 | 2 | 3 | 4; maker?: 'claude' }
 
 /** Each backend keeps a distinct accent; agy's mauve reads on day and night skies, unlike blue; OpenCode's green, unlike the sky's own blues. */
 export const jobAccent = (job: Job, codex: number): number => (job.kind === 'agy' ? P.mauve : job.kind === 'claude' ? P.pink : job.kind === 'opencode' ? P.green : codex)

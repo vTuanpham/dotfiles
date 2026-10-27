@@ -7,10 +7,11 @@ type Job = {
   running: boolean; state: string; reason: string; stall: { state: string; reason: string }
   last_event_at: string | null; started_at: string | null; finished_at: string | null
   awaiting_root: boolean; last_message: string | null; retired_at: string | null; log_identity: string
+  memory_bytes: number | null; memory_cap: string
 }
 type Quota = {
   backend: string; account: string; plan: string | null; active: boolean; status: string | null
-  freshness: string; windows: { label: string; remaining_percent: number }[]
+  freshness: 'fresh' | 'stale' | 'unknown'; windows: { label: string; remaining_percent: number }[]
 }
 type TidyItem = { kind: string; path: string; owner: string; name: string; bytes: number; age_days: number; is_dirty: boolean | null }
 export type BridgeSnapshot = {
@@ -40,7 +41,8 @@ export function readSnapshot(text: string): BridgeSnapshot | undefined {
       || typeof s.retention.scanned !== 'boolean' || !(s.retention.reclaim_bytes === null || number(s.retention.reclaim_bytes))
       || !object(s.peers) || !Array.isArray(s.peers.nodes) || !Array.isArray(s.peers.edges) || !Array.isArray(s.peers.recent_messages)) return undefined
     if (s.jobs.some(j => !object(j)
-      || !['id', 'owner', 'name', 'title', 'directory', 'state', 'reason', 'log_identity'].every(k => str(j[k]))
+      || !['id', 'owner', 'name', 'title', 'directory', 'state', 'reason', 'log_identity', 'memory_cap'].every(k => str(j[k]))
+      || !(j.memory_bytes === null || Number.isSafeInteger(j.memory_bytes) && number(j.memory_bytes))
       || !['backend', 'account', 'model', 'effort', 'cwd', 'last_message'].every(k => nullable(j[k]))
       || !['last_event_at', 'started_at', 'finished_at', 'retired_at'].every(k => maybeDate(j[k]))
       || typeof j.running !== 'boolean' || typeof j.awaiting_root !== 'boolean'
@@ -48,7 +50,7 @@ export function readSnapshot(text: string): BridgeSnapshot | undefined {
     if (s.events.some(e => !object(e) || !['id', 'job', 'kind', 'text'].every(k => str(e[k]))
       || !Number.isSafeInteger(e.offset) || !number(e.offset) || !maybeDate(e.at) || typeof e.wakes !== 'boolean')) return undefined
     if (s.quotas.some(q => !object(q) || !str(q.backend) || !str(q.account) || !nullable(q.plan)
-      || !nullable(q.status) || !str(q.freshness) || typeof q.active !== 'boolean' || !Array.isArray(q.windows)
+      || !nullable(q.status) || !['fresh', 'stale', 'unknown'].includes(q.freshness as string) || typeof q.active !== 'boolean' || !Array.isArray(q.windows)
       || q.windows.some(w => !object(w) || !str(w.label) || !Number.isSafeInteger(w.remaining_percent)
         || !number(w.remaining_percent) || (w.remaining_percent as number) > 100))) return undefined
     if (s.retention.items.some(i => !object(i) || !['kind', 'path', 'owner', 'name'].every(k => str(i[k]))

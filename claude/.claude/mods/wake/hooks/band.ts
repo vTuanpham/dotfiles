@@ -16,7 +16,7 @@ export type BandState = {
   plan: WakeStep[]
   mood: WakeMood
   chips: WakeChip[]
-  subagents: { id: string; tier: 1 | 2 | 3 }[] // running subagents: who (the scene keeps each bird's place by it) and their model's tier
+  subagents: { id: string; tier: 1 | 2 | 3 | 4 }[] // running subagents: identity and model class
 }
 
 const SYNODIC_DAYS = 29.530588853

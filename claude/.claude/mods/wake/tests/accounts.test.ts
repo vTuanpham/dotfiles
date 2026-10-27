@@ -22,13 +22,13 @@ test('quota numbers come only from the snapshot; refresh does not parse its text
     freshness: 'stale', windows: [{ label: 'Gh', remaining_percent: 42 }] }]
   const w = engine(s)
   const result = await scanQuotas(w.$, { refreshAgy: true })
-  expect(result[0]).toMatchObject({ cli: 'agy', account: 'a1', parts: [{ label: 'Gh', pct: 42 }] })
+  expect(result[0]).toMatchObject({ cli: 'agy', account: 'a1', freshness: 'stale', parts: [{ label: 'Gh', pct: 42 }] })
   expect(w.calls).toEqual([['agent-bridge', 'quota', '--backend', 'agy'], ['agent-bridge', 'status', '--json']])
 })
 
 test('modelTier reads the family, not the version or the effort', () => {
-  expect(['gpt-6-luna', 'gpt-7-sol', 'gpt-6-astra', 'gpt-6-mini'].map(m => modelTier('codex', m))).toEqual([1, 2, 3, 2])
-  expect(['claude-haiku-5', 'claude-sonnet-5-5-high', 'opus', 'gemini-3-flash', 'gemini-3-pro-low', 'argon-high', '', 'mystery'].map(m => modelTier('agy', m))).toEqual([1, 2, 3, 1, 2, 3, 2, 2])
+  expect(['gpt-6-luna', 'gpt-6.1-terra', 'gpt-7-sol', 'gpt-6-astra', 'gpt-6-mini'].map(m => modelTier('codex', m))).toEqual([1, 2, 3, 4, 2])
+  expect(['claude-haiku-5', 'claude-sonnet-5-5-high', 'opus', 'claude-fable-5', 'gemini-3-flash', 'gemini-3-pro-low', 'argon-high', '', 'mystery'].map(m => modelTier('agy', m))).toEqual([1, 2, 3, 4, 1, 2, 3, 2, 2])
   expect(['claude-opus-5-5-medium', 'claude-sonnet-5', 'gemini-4-argon', 'gemini-3-flash'].map(makerOf)).toEqual(['claude', 'claude', undefined, undefined]) // Claude inside agy wears its pink
 })
 
@@ -36,6 +36,7 @@ test('modelTier reads an OpenCode model by its size word; free never counts, unk
   const ids = ['opencode/nemotron-3-ultra-free', 'opencode/glm-5.3-flash-free', 'openrouter/google/gemma-4-31b-it:free', 'openrouter/meta-llama/llama-4-405b-instruct', 'opencode-go/qwen4-coder-plus', 'opencode/mistral-small-4', 'opencode/claude-opus-5', 'opencode-go/minimax-m3']
   expect(ids.map(m => modelTier('opencode', m))).toEqual([3, 1, 2, 3, 2, 1, 3, 2])
   expect(['opencode/nemotron-3-super', 'opencode/nemotron-3-super-free', 'openrouter/x/nemotron-3-super:free'].map(m => modelTier('opencode', m))).toEqual([2, 2, 2])
+  expect(modelTier('opencode', 'openrouter/vendor/claude-fable-pro')).toBe(4)
   expect(modelTier('agy', 'openrouter/x/kimi-k3-pro')).toBe(3) // the id alone marks it, whichever backend
   expect(jobLabel('opencode', 'openrouter/google/gemma-4-31b-it:free', '')).toEqual({ model: 'gemma-4-31b-it', effort: '' })
 })

@@ -84,8 +84,8 @@ test('words on the scene floor stay readable: text 4.5:1, accents 3:1, light flo
 
 test('a crew member keeps its place by who it is: the same jobs and birds in another order draw the same frame', () => {
   const kinds = ['codex', 'agy', 'claude', 'opencode'] as const
-  const jobs = Array.from({ length: 7 }, (_, i) => ({ isStale: i === 5, seed: hash(i + 40), kind: kinds[i % 4], tier: ((i % 3) + 1) as 1 | 2 | 3, maker: i === 1 ? ('claude' as const) : undefined }))
-  const agents = Array.from({ length: 6 }, (_, i) => ({ seed: hash(i + 90), tier: ((i % 3) + 1) as 1 | 2 | 3 }))
+  const jobs = Array.from({ length: 8 }, (_, i) => ({ isStale: i === 5, seed: hash(i + 40), kind: kinds[i % 4], tier: ((i % 4) + 1) as 1 | 2 | 3 | 4, maker: i === 1 ? ('claude' as const) : undefined }))
+  const agents = Array.from({ length: 6 }, (_, i) => ({ seed: hash(i + 90), tier: ((i % 4) + 1) as 1 | 2 | 3 | 4 }))
   const shuffled = <T,>(list: T[]) => [...list.slice(3), ...list.slice(0, 3)].reverse()
   for (const preset of ['city', 'harbor', 'beach'] as const) {
     for (const frame of [0, 137.5]) {

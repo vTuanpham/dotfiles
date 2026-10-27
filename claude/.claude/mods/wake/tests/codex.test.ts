@@ -49,8 +49,18 @@ test('additive fields are accepted; malformed fields and unknown versions are re
   expect(readSnapshot(JSON.stringify({ ...s, schema_version: 2 }))).toBeUndefined()
   expect(readSnapshot(JSON.stringify({ ...s, generated_at: '2026-10-27T00:00:00' }))).toBeUndefined()
   expect(readSnapshot(JSON.stringify({ ...s, jobs: [{ ...job(), running: 'true' }] }))).toBeUndefined()
+  expect(readSnapshot(JSON.stringify({ ...s, quotas: [{ backend: 'codex', account: '01', plan: null, active: true, status: null, freshness: 'future', windows: [] }] }))).toBeUndefined()
   expect(readSnapshot('null')).toBeUndefined()
   expect(readSnapshot('{broken')).toBeUndefined()
+})
+
+test('snapshot memory, reason and peer edges reach each job', async () => {
+  const s = snapshot()
+  s.jobs = [job({ memory_bytes: 1024, memory_cap: '1G', state: 'blocked_on_question', reason: 'answer needed' })]
+  s.peers = { nodes: ['owner/a', 'owner/b'], edges: [{ id: 'owner/a->owner/b', source: 'owner/a', target: 'owner/b', count: 3, last_at: NOW, last_kind: 'steer' }], recent_messages: [] }
+  const result = await scanCodex(engine(s).$, {})
+  expect(result.jobs[0]).toMatchObject({ state: 'blocked_on_question', reason: 'answer needed', memoryBytes: 1024, memoryCap: '1G', peers: [{ target: 'owner/b', count: 3, outgoing: true, lastAt: Date.parse(NOW) }] })
+  expect(readSnapshot(JSON.stringify({ ...s, jobs: [{ ...s.jobs[0], memory_bytes: -1 }] }))).toBeUndefined()
 })
 
 test('ownersIn reads only the job owners a command names', () => {
