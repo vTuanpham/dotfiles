@@ -6,6 +6,7 @@ the packaged JSON Schema 2020-12 contract is `agent_bridge/status.schema.json`.
 `status_render.py` owns human views. Read JSON directly, never parse text views.
 
 V1 evolves additively: existing fields retain their types, units and meanings.
+`schema_minor: 1` adds completion wake groups; older V1 readers ignore those fields.
 Readers ignore unknown fields at every level and reject unsupported
 `schema_version` values. Incompatible changes require another version. Unknown
 readings are `null`, not guessed zeroes. `errors` identifies unavailable/rejected
@@ -32,7 +33,7 @@ separate protocol. Polling keeps that protocol out of every harness.
 | `generated_at` | UTC observation timestamp. Ages are seconds, memory bytes, CPU seconds or explicitly named microseconds. All timestamps include timezones. |
 | `jobs` | Stable `id = owner/name`, identity/model/effort/account, live runner, state/reason, event time/age, stall assessment, configured caps, observed memory/CPU and OOMs, retry counts, current stage, completion visibility and retirement dates. Retired jobs remain in JSON; human views omit them. |
 | `owners` | Active/running/unanswered counts and last root command; sizes with `--storage`. |
-| `wake_events` | Every unacknowledged default wake event, stable event ID and byte offset. Reading status never marks it displayed. |
+| `wake_events` | Native critical events and unseen completion digests. Successful native completions remain in `events` and unread counters. Reading status never marks a wake displayed. |
 | `events` | Pending default/informational events plus the last 100 events per job. Pending events are never truncated. `wakes` and `informational` encode default and opt-in wake policy. |
 | `heavy` | Requests with stable ID, owning job or null, executable basename (no arguments), declared need/exclusivity, state, wait/elapsed seconds, kernel-lock liveness, reserved/budget bytes, pause flag/reason and source errors. Wait time excludes pauses. |
 | `pressure` | Host availability/load/shared headroom, cgroup memory/CPU/throttling, historical OOM totals, deltas and attribution when known. |
@@ -112,3 +113,46 @@ Unknown-peer failures and explicit root messages retain their wake behavior.
 
 Runtime dependencies remain empty. The locked development-only `jsonschema`
 dependency validates actual collector/CLI snapshots against the shipped schema.
+
+## Completion groups (V1.1)
+
+`jobs[].group` is a root-owned label. `groups[]` exposes `id`, `owner`, `name`
+(null for the ungrouped bucket), `policy`, `members`, `done`, `total`,
+`held_completions` (event IDs), `next_reminder_at`, `settle_due_at`, and
+`max_wait_due_at`. `unacknowledged_completions` and
+`oldest_unacknowledged_completion_age_seconds` are top-level unread counters.
+
+`group_events[]` contains durable completion batches, partial batches, reminders
+and observed OOM notices. Wake-eligible notices also appear in `wake_events`.
+They retain the Event shape with offset zero (owner-ledger events, not byte
+cursors), plus `owner`, `group`, `jobs`, `missing`, `completion_ids`, and `seen`.
+No renderer changes are needed to consume the new fields additively.
+
+The default `each` policy opens a fixed 60-second settle window at the first
+unread completion; later results inside it share one digest. `--settle 0s`
+restores immediate completion wakes. `all` emits once when every current member
+turn finishes, counting failures; `--max-wait` emits a partial list and missing
+members instead. Root launch/resume and subsequent native turns define new
+batches. Predeclare `--members` before launching fast workers to avoid an early
+one-member batch. `quiet` never wakes for successful completions. Critical
+events always bypass policies and flush held completions into that wake.
+
+Root commands: `group set OWNER NAME --wake all --members a b --max-wait 30m`,
+`start ... --group NAME`, `resume JOB --group NAME`, `group assign JOB NAME`,
+`group unassign JOB`, `group list OWNER`, `group clear OWNER NAME`.
+Clearing resets policy defaults while retaining labels. Policies and membership
+live in private, atomically replaced `OWNER/groups.json`; worker state writes
+cannot overwrite them. Missing/corrupt policies use `each`. A separate locked
+`group-wakes.json` stores notification IDs/cursors, so a crash cannot append a
+duplicate batch. Display marks a digest delivered once; explicit result/ack
+still controls unread status. A malformed notification ledger fails open to
+immediate native completion wakes rather than hiding work.
+
+Reminders default to 15 minutes and never wake, even with `--include-info`.
+They are generated when status/watch observes the owner and appear in the next
+watch and status text; no observer means no background push. `--remind off`
+disables them; `--repeat-reminders` opts into doubling backoff, capped at a year. Acknowledging
+results clears their reminders. `owners[].active_watch` uses kernel locks, not
+PID guesses; `root_backend` and `root_session_id` identify the owning session.
+Claude's optional repository Stop hook uses these fields to catch an unarmed
+watch at a turn boundary; Codex/agy roots should arm a watch or poll the JSON.

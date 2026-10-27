@@ -3,7 +3,8 @@ import stat
 
 import pytest
 
-from agent_bridge import core
+from agent_bridge import core, groups
+from agent_bridge.status_model import WakePolicy
 
 
 @pytest.fixture(autouse=True)
@@ -13,6 +14,8 @@ def isolated_bridge_environment(monkeypatch, tmp_path):
     monkeypatch.delenv("AGENT_BRIDGE_JOB", raising=False)
     monkeypatch.setenv("AGENT_BRIDGE_HEAVY_DIR", str(tmp_path / "heavy"))
     monkeypatch.setattr(core, "JOBS", tmp_path / "jobs")
+    # Existing lifecycle tests use immediate completions; policy tests exercise the production settle window.
+    monkeypatch.setattr(groups, "DEFAULT_POLICY", WakePolicy(settle_seconds=0))
 
 
 @pytest.fixture(autouse=True)

@@ -9,6 +9,7 @@ Claude Code configuration under `~/.claude`. Each part has its own kind:
 | `settings.json`, status lines (`statusline-starship.sh` runs `statusline.py`; `subagent_statusline.py` draws the subagent rows) | Snapshot: holds this machine's paths | `install.sh --apply snapshots` copies what is missing on a new machine |
 | `CLAUDE.md` (`~/.claude/CLAUDE.md` links here; it imports the shared `~/.config/agents/AGENTS.md`), Bridge/Baton and the [pstack skills](../agents/README.md#engineering-skills) | Live link | `install.sh --apply links` |
 | Hook and plugin entries | Merged into the live `settings.json` | `install.sh --apply hooks` |
+| [Root stop safety net](.claude/hooks/README.md) | Script is a live link; entries merge into settings | `install.sh --apply links`, then `install.sh --apply hooks` |
 | [Wake mod](#wake-mod-live) | Live link; reloads as its files change | `install.sh --apply links` |
 
 ## Hooks
@@ -27,6 +28,10 @@ is out. Claude also loads the `ponytail` plugin (`enabledPlugins` and `extraKnow
 `settings.json`; see "Plugin: ponytail" in the top-level README), which ships hooks of its own.
 
 ## Remote questions and notifications
+
+The [root Stop hook](.claude/hooks/README.md) reminds the root once to arm a
+Bridge watch or acknowledge unread work before ending a turn. It allows user
+questions and fails open on errors. Disable with `AGENT_BRIDGE_STOP_GUARD=0 claude`.
 
 The settings snapshot enables `remoteControlAtStartup`, `inputNeededNotifEnabled`
 and `agentPushNotifEnabled`. Remote Control provides the native phone/browser

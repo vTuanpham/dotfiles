@@ -50,7 +50,7 @@ def test_schema_validates_produced_cli_snapshots_and_additive_fields(world, monk
     value = json.loads(capsys.readouterr().out)
     VALIDATE.validate(value)
     assert value["schema_version"] == 1
-    assert value["wake_events"][0]["kind"] == "turn_completed"
+    assert value["wake_events"][0]["kind"] == "completion_batch"
     value["future"] = {"unrecognized": True}
     value["jobs"][0]["future"] = 1
     VALIDATE.validate(value)
@@ -284,9 +284,10 @@ def test_renderer_parity_and_ack_semantics(world):
     snapshot = collector.collect(storage=True)
     j = snapshot.jobs[0]
     assert list(status_render.peers(snapshot)) == ["a\tcodex\tgpt-6-sol\tCheck status\tidle"]
-    assert status_render.event(j, snapshot.wake_events[0]) == "a (Check status): turn_completed completed"
+    completion = next(e for e in snapshot.events if e.kind == "turn_completed")
+    assert status_render.event(j, completion) == "a (Check status): turn_completed completed"
     assert "jobs=1 running=0 unanswered_urgent=0 size=" in next(status_render.owners(snapshot))
-    displayed(job, snapshot.wake_events[0].offset)
+    displayed(job, completion.offset)
     assert collector.collect().wake_events
     acknowledge(job)
     assert not collector.collect().wake_events

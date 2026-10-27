@@ -1,9 +1,12 @@
 """Watch lifecycle and acknowledgement; status owns observation and assessment."""
 
+import fcntl
+import os
 import time
+from contextlib import ExitStack
 from pathlib import Path
 
-from . import status, status_render
+from . import groups, status, status_render
 from .acknowledgements import displayed
 from .core import JOBS, load_state, log
 
@@ -24,6 +27,22 @@ def job_dirs(owners):
 
 
 def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None, include_info=False):
+    if os.environ.get("AGENT_BRIDGE_WORKER"):
+        return follow(owners, until_event, stall_min, timeout, offsets, include_info)
+    with ExitStack() as stack:
+        for owner in {value.split("/")[0] for value in owners}:
+            from .core import resolve_job
+
+            resolve_job(f"{owner}/placeholder")
+            folder = JOBS / owner
+            folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+            fd = os.open(folder / "watch.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            stack.callback(os.close, fd)
+            fcntl.flock(fd, fcntl.LOCK_SH)
+        return follow(owners, until_event, stall_min, timeout, offsets, include_info)
+
+
+def follow(owners, until_event=False, stall_min=15, timeout=None, offsets=None, include_info=False):
     """Printing records display, never acknowledgement. Launch offsets cannot hide pending events."""
     deadline = time.monotonic() + timeout if timeout else None
     collector = status.Collector(JOBS, warmup=True)
@@ -92,6 +111,18 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None, i
                 elif assessment.state in {"known", "inactive", "ok"}:
                     notices.pop(job.id, None)
         fired = []
+        group_fired = []
+        for notice in snapshot.group_events:
+            if not notice.seen:
+                if not os.environ.get("AGENT_BRIDGE_WORKER"):
+                    if not groups.seen(JOBS / notice.owner, notice.id):
+                        continue
+                print(status_render.group_notice(notice), flush=True)
+                for event in snapshot.events:
+                    if event.id in notice.completion_ids:
+                        displayed(Path(jobs[event.job].directory), event.offset)
+                if notice.wakes:
+                    group_fired.append(notice)
         peer_messages = {m.id: m for m in snapshot.peers.recent_messages}
         for event in sorted(snapshot.events, key=lambda e: (e.job, e.offset)):
             job = jobs.get(event.job)
@@ -107,7 +138,7 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None, i
                 displayed(Path(job.directory), event.offset)
                 if event.wakes or include_info:
                     fired.append(event)
-        if until_event and fired:
+        if until_event and (fired or group_fired):
             print("watch: wake events (unacknowledged until result <job> or ack <owner/job>):", flush=True)
             outstanding = {
                 e.id: e
@@ -120,11 +151,14 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None, i
             for event in ({e.id: e for e in fired} | outstanding).values():
                 print(f"  {event.job} {event.kind} {event.at or 'time unknown'} [unacknowledged]", flush=True)
                 displayed(Path(jobs[event.job].directory), event.offset)
+            for notice in group_fired:
+                print(f"  {notice.owner} {notice.kind} {notice.at} [unacknowledged]", flush=True)
             return True
         if deadline and time.monotonic() >= deadline:
             print(f"watch: {timeout}s passed with jobs still running", flush=True)
             return False
-        if not any(j.running for j in jobs.values()):
+        awaiting_batch = any(g.held_completions and g.policy.wake != "quiet" for g in snapshot.groups)
+        if not any(j.running for j in jobs.values()) and not awaiting_batch:
             idle_ticks += 1
             if idle_ticks >= 5:
                 print("status: no running jobs", flush=True)

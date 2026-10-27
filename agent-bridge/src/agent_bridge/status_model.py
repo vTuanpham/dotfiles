@@ -166,6 +166,7 @@ class Job:
     log_identity: str
     acknowledged_through: int
     completed_through: int
+    group: str | None = None
 
 
 @dataclass(frozen=True)
@@ -176,6 +177,43 @@ class Owner:
     unanswered_urgent: int
     size_bytes: int | None
     last_root_command: str | None
+    root_backend: str | None = None
+    root_session_id: str | None = None
+    active_watch: bool = False
+
+
+@dataclass(frozen=True)
+class WakePolicy:
+    wake: str = "each"
+    settle_seconds: int = 60
+    remind_seconds: int | None = 900
+    max_wait_seconds: int | None = None
+    repeat_reminders: bool = False
+
+
+@dataclass(frozen=True)
+class GroupNotice(Event):
+    owner: str
+    group: str | None
+    jobs: tuple[str, ...]
+    missing: tuple[str, ...]
+    completion_ids: tuple[str, ...]
+    seen: bool
+
+
+@dataclass(frozen=True)
+class WakeGroup:
+    id: str
+    owner: str
+    name: str | None
+    policy: WakePolicy
+    members: tuple[str, ...]
+    done: int
+    total: int
+    held_completions: tuple[str, ...]
+    next_reminder_at: str | None
+    settle_due_at: str | None
+    max_wait_due_at: str | None
 
 
 @dataclass(frozen=True)
@@ -223,6 +261,11 @@ class Snapshot:
     peers: Peers
     dependencies: tuple[Dependency, ...]
     errors: tuple[str, ...]
+    schema_minor: int = 1
+    groups: tuple[WakeGroup, ...] = ()
+    group_events: tuple[GroupNotice, ...] = ()
+    unacknowledged_completions: int = 0
+    oldest_unacknowledged_completion_age_seconds: int | None = None
 
     def to_dict(self):
         return asdict(self)

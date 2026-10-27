@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import core, heavy, peers, resources, status_observations, status_resources
+from . import core, groups, heavy, peers, resources, status_observations, status_resources
 from .acknowledgements import cursor_for, read_owner
 from .core import job_caps, tree_size
 from .status_activity import (
@@ -167,6 +167,7 @@ class Collector:
         self.observed_at = now
         errors, jobs, wake, recent, messages, retired_items = [], [], [], [], [], []
         retired = expired = 0
+        all_events = []
         scope_jobs, job_scopes = {}, {}
         if self.host_at is None or now - self.host_at >= 10:
             self.host, self.queue, self.host_sample = collect_host(self.host_sample)
@@ -206,6 +207,8 @@ class Collector:
                 cached.read(job, errors)
                 evs = [raw for raw, _ in cached.rows]
                 events = [e for _, e in cached.rows]
+                if not state.get("retiredAt"):
+                    all_events.extend(events)
                 pending = [
                     e
                     for e in events
@@ -389,7 +392,7 @@ class Collector:
                     scope_jobs.clear()
                     break
         metrics = {}
-        groups = list(host.groups)
+        pressure_groups = list(host.groups)
         for scope, identifiers in scope_jobs.items():
             if len(identifiers) != 1 or caller:
                 continue  # a shared scope cannot attribute an OOM to one job
@@ -397,17 +400,17 @@ class Collector:
             try:
                 memory, oom = status_resources.scope_memory(scope)
                 metrics.setdefault(identifier, []).append(memory)
-                groups.append(
+                pressure_groups.append(
                     GroupPressure(
                         str(scope), memory, None, oom, None, identifier, None, None, None, None, False
                     )
                 )
             except (OSError, ValueError, KeyError):
                 errors.append(f"{identifier}: scope counters unavailable")
-        groups = tuple({g.id: g for g in groups}.values())
+        pressure_groups = tuple({g.id: g for g in pressure_groups}.values())
         try:
-            groups, totals, changes = status_observations.observe(
-                self.root.parent / "status", groups, retained_jobs
+            pressure_groups, totals, changes = status_observations.observe(
+                self.root.parent / "status", pressure_groups, retained_jobs
             )
         except (OSError, ValueError, TypeError):
             errors.append("OOM observations unavailable")
@@ -421,7 +424,7 @@ class Collector:
             )
             for j in jobs
         ]
-        host = replace(host, groups=groups)
+        host = replace(host, groups=pressure_groups)
         nodes = {j.id for j in jobs}
         messages = [m for m in messages if m.source in nodes and m.target in nodes]
         messages.sort(key=lambda m: (timestamp(m.at), m.source, int(m.id.rsplit(":", 1)[-1])))
@@ -431,8 +434,11 @@ class Collector:
             count = edges[key].count + 1 if key in edges else 1
             edges[key] = PeerEdge(f"{m.source}->{m.target}", m.source, m.target, count, m.at, m.kind)
         owner_rows = []
-        owner_names = {p.name for p in self.root.iterdir() if p.is_dir() and not p.is_symlink()} \
-            if self.root.is_dir() else set()
+        owner_names = (
+            {p.name for p in self.root.iterdir() if p.is_dir() and not p.is_symlink()}
+            if self.root.is_dir()
+            else set()
+        )
         if caller:
             owner_names &= {caller.split("/")[0]}
         if owners:
@@ -440,11 +446,13 @@ class Collector:
         for owner in sorted(owner_names):
             active = [j for j in jobs if j.owner == owner and not j.retired_at]
             try:
-                root_at = json.loads((self.root / owner / "root.json").read_text()).get("at")
+                root_data = json.loads((self.root / owner / "root.json").read_text())
+                root_at = root_data.get("at")
                 if root_at is not None:
                     timestamp(root_at)
             except (OSError, ValueError, TypeError, AttributeError):
                 root_at = None
+                root_data = {}
             size = None
             if storage:
                 try:
@@ -459,6 +467,9 @@ class Collector:
                     sum(j.unanswered_urgent for j in active),
                     size,
                     root_at,
+                    root_data.get("backend") if isinstance(root_data.get("backend"), str) else None,
+                    root_data.get("session_id") if isinstance(root_data.get("session_id"), str) else None,
+                    active_watch(self.root / owner),
                 )
             )
         eligible = [i for i in retired_items if i.kind == "job"]
@@ -482,6 +493,33 @@ class Collector:
             for holder in queue.requests
             if holder.state == "running" and (holder.exclusive or request.exclusive)
         )
+        group_views, group_events, replacements = [], [], {}
+        for owner in sorted({j.owner for j in jobs}):
+            selected = [j for j in jobs if j.owner == owner]
+            selected_ids = {j.id for j in selected}
+            try:
+                grouped_jobs, native, views, notices = groups.evaluate(
+                    self.root / owner, selected, [e for e in all_events if e.job in selected_ids], now, errors
+                )
+                replacements.update((e.id, e) for e in native)
+                group_views.extend(views)
+                group_events.extend(notices)
+                job_replacements = {j.id: j for j in grouped_jobs}
+                jobs = [job_replacements.get(j.id, j) for j in jobs]
+            except (OSError, ValueError, TypeError, KeyError):
+                errors.append(f"{owner}: group policy observation unavailable; using each")
+        recent = [replacements.get(e.id, e) for e in recent]
+        wake = [replacements.get(e.id, e) for e in wake if replacements.get(e.id, e).wakes]
+        wake.extend(n for n in group_events if n.wakes)
+        unread = [
+            e
+            for e in all_events
+            if e.kind == "turn_completed"
+            and any(
+                j.id == e.job and e.offset > max(j.acknowledged_through, j.completed_through) for j in jobs
+            )
+        ]
+        oldest = max((max(0, int(now - timestamp(e.at))) for e in unread if e.at), default=None)
         return Snapshot(
             1,
             datetime.fromtimestamp(now, timezone.utc).isoformat(),
@@ -496,6 +534,10 @@ class Collector:
             Peers(tuple(sorted(nodes)), tuple(edges.values()), tuple(messages[-100:])),
             dependencies,
             tuple(errors),
+            groups=tuple(group_views),
+            group_events=tuple(group_events),
+            unacknowledged_completions=len(unread),
+            oldest_unacknowledged_completion_age_seconds=oldest,
         )
 
 
@@ -504,3 +546,21 @@ def refreshed_quota(data):
     from .status_inputs import agy_quota
 
     return replace(Collector().collect(include_quotas=False), quotas=(agy_quota(data, time.time()),))
+
+
+def active_watch(owner):
+    import fcntl
+
+    path = owner / "watch.lock"
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return False
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        return False
+    finally:
+        os.close(fd)

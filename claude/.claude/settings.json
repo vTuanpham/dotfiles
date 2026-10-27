@@ -7,6 +7,12 @@
     "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/wake"
   },
   "hooks": {
+    "SessionStart": [
+      {"matcher": "", "hooks": [{"type": "command", "command": "python3 -I ~/.claude/hooks/bridge-stop.py", "timeout": 10}]}
+    ],
+    "Stop": [
+      {"matcher": "", "hooks": [{"type": "command", "command": "python3 -I ~/.claude/hooks/bridge-stop.py", "timeout": 10}]}
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",

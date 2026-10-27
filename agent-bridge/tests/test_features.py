@@ -116,7 +116,7 @@ def test_owners_summarizes_root_activity_and_unanswered_questions(monkeypatch, t
     cli.main()
     assert "jobs=1 running=0 unanswered_urgent=1 size=" in capsys.readouterr().out.splitlines()[-1]
     assert tree_size(job) < 10_000 and human(3000) == "2.9K"
-    assert set(json.loads((owner / "root.json").read_text())) == {"at", "harness"}
+    assert {"at", "harness"} <= set(json.loads((owner / "root.json").read_text()))
     (job / "steer").mkdir()
     (job / "steer/001.md").write_text("answer")
     assert cli.unanswered_urgent(job) == 0

@@ -136,3 +136,7 @@ def event(job, value):
         + (f" error={value.error[:200]}" if value.error else "")
         + (f" | {value.text.replace(chr(10), ' ')[:600]}" if value.text else "")
     )
+
+
+def group_notice(notice):
+    return f"{notice.owner}/{notice.group or '@ungrouped'}: {notice.kind} | {notice.text}"
