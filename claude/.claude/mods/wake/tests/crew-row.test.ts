@@ -26,8 +26,8 @@ test('every width fits terminal cells even with wide text, emoji, links and mult
 
 test('known memory, freshness, effort and directed weighted peers render without fabricated values', () => {
   const row = crewRows([{ ...base, peers: [{ target: 'owner/reviewer', count: 3, lastAt: 9_000, outgoing: true }, { target: 'owner/other', count: 2, lastAt: 8_000, outgoing: false }] }], 20_000, 120)[0]!
-  expect(row.family + ' ' + row.glyph).toBe('◈2 ●')
-  expect(row.detail).toContain('•••')
+  expect(row.family + ' ' + row.glyph).toBe('◈◑ ●')
+  expect(row.detail).toContain('▅') // high effort is a taller bar than low
   expect(row.detail).toContain('▰▰▱▱')
   expect(crewRows([{ ...base, memoryBytes: 512, memoryCap: '1024' }], 20_000, 120)[0]!.detail).toContain('▰▰▱▱')
   expect(row.detail).toContain('↗reviewer:3')
@@ -59,7 +59,7 @@ test('mixed workers share fixed columns and shrink names first at every width', 
   const jobs = [base, { ...base, name: 'research', title: 'Pairwise research', model: 'gpt-6-sol' }, { ...base, name: 'status', title: 'Unified status', backend: 'agy', model: 'claude-fable' }]
   for (const width of [24, 36, 60, 90, 140]) {
     const rows = crewRows(jobs, 20_000, width)
-    expect(rows.map(row => row.family)).toEqual(['◈2', '◈3', '✦4'])
+    expect(rows.map(row => row.family)).toEqual(['◈◑', '◈◕', '✦◉'])
     expect(rows.every(row => JSON.stringify(row.columns) === JSON.stringify(rows[0]!.columns))).toBe(true)
     expect(rows.every(row => cells(row.title) === cells(rows[0]!.title))).toBe(true)
     expect(rows.every(row => cells(row.title + ' ' + row.family + ' ' + row.glyph + row.detail) <= width)).toBe(true)

@@ -48,7 +48,10 @@ function memoryFraction(job: WakeChip): number | undefined {
   return cap > 0 ? job.memoryBytes / cap : undefined
 }
 const MARK: Record<string, string> = { codex: '◈', agy: '✦', claude: '◆', opencode: '○' }
-const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+/** Model class as a circle that fills with size (quarter to full), so a bigger model reads as more. */
+export const CLASS_GLYPH = ['◔', '◑', '◕', '◉'] as const
+/** Reasoning effort as a rising bar: taller means more thinking. */
+export const EFFORT_BAR: Record<string, string> = { low: '▂', medium: '▃', high: '▅', xhigh: '▆', max: '▇', ultra: '█' }
 
 export type CrewColumn = 'effort' | 'elapsed' | 'reason' | 'memory' | 'peers'
 const RECENT_PEER_MS = 900_000 // a conversation older than the stall window is history, not a link
@@ -61,12 +64,12 @@ export function crewRows(jobs: WakeChip[], now: number, width: number): CrewRow[
   const hasReason = jobs.some(job => ['stalled', 'blocked_on_question'].includes(stateOf(job)) && job.reason)
   const candidates: [CrewColumn, number][] = [
     ...(hasReason ? [['reason', width < 60 ? 8 : 16] as [CrewColumn, number]] : []),
-    ['effort', 6], ['elapsed', 5],
+    ['effort', 1], ['elapsed', 5],
     ['memory', 5], ['peers', width >= 90 ? 24 : 12],
   ]
-  // Family and state always fit once there are six cells. On narrower terminals, only the name can fit.
+  // Family and state always fit once there are six cells. On narrower terminals, only the title can.
   if (width < 6) return jobs.map(job => ({ title: truncate(job.title || job.name, width), family: '', state: stateOf(job), glyph: '', detail: '', columns: [] }))
-  let used = 5 // space + two-cell family/class + space + state
+  let used = 5 // space + harness mark and class circle + space + state
   const minimumTitle = Math.min(24, Math.max(6, Math.floor(width * 0.35)))
   const selected: [CrewColumn, number][] = []
   for (const candidate of candidates) {
@@ -79,13 +82,13 @@ export function crewRows(jobs: WakeChip[], now: number, width: number): CrewRow[
   const titleWidth = Math.min(wanted, 56, width - used)
   return jobs.map(job => {
     const state = stateOf(job)
-    const effort = EFFORT.indexOf(job.effort.toLowerCase())
+    const effort = EFFORT_BAR[job.effort.toLowerCase()]
     const memory = memoryFraction(job)
     const age = job.lastEventAt === undefined ? undefined : Math.max(0, now - job.lastEventAt)
     const peers = [...(job.peers ?? [])].filter(p => now - p.lastAt <= RECENT_PEER_MS).sort((a, b) => b.lastAt - a.lastAt)
       .map(p => `${p.outgoing ? '↗' : '↙'}${clean(p.target.split('/').at(-1) ?? '')}${p.count > 1 ? ':' + p.count : ''}`).join(',')
     const values: Record<CrewColumn, string> = {
-      effort: effort < 0 ? '?' : '•'.repeat(effort + 1) + '·'.repeat(5 - effort),
+      effort: effort ?? '?',
       elapsed: age === undefined ? '?' : span(age),
       reason: state === 'stalled' || state === 'blocked_on_question' ? job.reason ?? '' : '',
       memory: memory === undefined ? '?' : 'm' + bar(memory),
@@ -94,7 +97,7 @@ export function crewRows(jobs: WakeChip[], now: number, width: number): CrewRow[
     const detail = selected.map(([name, size]) => ' ' + pad(truncate(values[name], size), size)).join('')
     return {
       title: pad(truncate(job.title || job.name, titleWidth), titleWidth),
-      family: `${MARK[job.backend] ?? '◇'}${modelTier(job.backend, job.model)}`,
+      family: `${MARK[job.backend] ?? '◇'}${CLASS_GLYPH[modelTier(job.backend, job.model) - 1] ?? CLASS_GLYPH[1]}`,
       state, glyph: STATE_GLYPHS[state] ?? '?', detail, columns: selected.map(([name]) => name),
     }
   })

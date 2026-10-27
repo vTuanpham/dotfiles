@@ -86,8 +86,8 @@ test('one crew job at 180 columns keeps its status and model next to the title',
   const bar = await mount($, 'AbovePrompt', false, 180)
   const text = flat((await bar.drawn()) as Node)
   expect(text).toContain('Photo ranking feature scan')
-  expect(text).toContain('◈1 ●')
-  expect(text).toContain('•••')
+  expect(text).toContain('◈◔ ●')
+  expect(text).toContain('▅') // high effort
   await bar.unmount()
 })
 
@@ -95,7 +95,7 @@ test('a fitted row keeps event age, whatever backend runs the job', async ($, on
   engine(on)
   let shown: WakeChip[] = []
   on('state.get', { plugin: 'wake', key: 'chips' }, () => ({ value: { value: shown, version: 1 } }))
-  for (const [backend, model, mark] of [['codex', 'gpt-6-luna', '◈1'], ['agy', 'gemini-3.8-flash-high', '✦1']] as const) {
+  for (const [backend, model, mark] of [['codex', 'gpt-6-luna', '◈◔'], ['agy', 'gemini-3.8-flash-high', '✦◔']] as const) {
     shown = [{ name: 'v5', title: 'Face validation', backend, account: '01', model, effort: 'high', running: true, isStale: false, since: 1, lastEventAt: 992_000 }]
     const bar = await mount($, 'AbovePrompt', false, 120)
     const text = flat((await bar.drawn()) as Node)
@@ -145,9 +145,10 @@ test('mixed model rows keep their own marks in the same columns at each width', 
   for (const width of [32, 60, 100]) {
     const bar = await mount($, 'AbovePrompt', false, width)
     const lines = flat((await bar.drawn()) as Node).split('\n')
-    const rows = ['◈2', '◈3', '✦4'].map(mark => lines.find(line => line.includes(mark))!)
+    const marks = ['◈◑', '◈◕', '✦◉']
+    const rows = marks.map(mark => lines.find(line => line.includes(mark))!)
     expect(rows.every(Boolean)).toBe(true)
-    expect(rows.map((line, i) => line.indexOf(['◈2', '◈3', '✦4'][i]!))).toEqual([rows[0]!.indexOf('◈2'), rows[0]!.indexOf('◈2'), rows[0]!.indexOf('◈2')])
+    expect(rows.map((line, i) => line.indexOf(marks[i]!))).toEqual([rows[0]!.indexOf('◈◑'), rows[0]!.indexOf('◈◑'), rows[0]!.indexOf('◈◑')])
     expect(rows.every(line => line.includes('●'))).toBe(true)
     await bar.unmount()
   }
