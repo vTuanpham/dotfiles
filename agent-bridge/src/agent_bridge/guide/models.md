@@ -3,6 +3,11 @@ Checked 2026-10-27. `agent-bridge guide plans` remains the entry point for this 
 
 Read [the subscription guide](subscriptions.md) (`agent-bridge guide subscriptions`) only when the choice depends on a plan, allowance or retention policy. Use live commands for account state; this document records no account balances or subscriptions.
 
+### Three separate things: do not infer one from another
+1. **Class** is where a model sits in its vendor's lineup. It is a naming and positioning rank, not a score. Equivalent classes across vendors: small = Luna, Haiku 5.5, Gemini Flash; mid = Terra, Sonnet; high = Sol, Opus; top = Astra, Fable, Argon. Mapping Sol to Opus and Terra to Sonnet is a positioning convention; Gemini placements are Unverified.
+2. **Measured performance** is the benchmark table below. Class does not predict it: in this snapshot Opus 5.5 (class high) scores above Fable 5.1 (class top) at medium and up, Sonnet 5.5 max (56) beats Astra max (53), and Terra 6.1 max (48) equals Sol medium. Choose a model by its row in the table, not by its class.
+3. **Usage guidance** (how freely to spend a model) depends on the account's allowance, not on class or score. The same model is routine on a deep allowance and reserved on a thin one. The advice below is conditional on that; the [subscription guide](subscriptions.md) lists what each tier allows.
+
 ### Effort and model strength
 Artificial Analysis Intelligence Index and average API cost per task (general reasoning, not coding-specific; dollars are API prices, not plan quota, so read them as relative cost). Sources: [model leaderboard](https://artificialanalysis.ai/leaderboards/models), [Coding Agent Index](https://artificialanalysis.ai/agents/coding-agents) (harness plus model). Each cell is index / $ per task. These are the existing benchmark snapshot, not new measurements.
 
@@ -21,7 +26,7 @@ Artificial Analysis Intelligence Index and average API cost per task (general re
 Others: Argon (Gemini 4, high) 53 / $1.62; Gemini 3.8 Flash high 41 / $3.49; DeepSeek V4.1 Flash max 45 / $0.26; GLM 5.3 max 45 / $2.01. Opus, Sonnet and Fable rows are "with fallback".
 - **Small models need effort**: Luna gains 16 points from low to max for $0.0655 more.
 - **Large models flatten**: Sol max adds 2 points over high for 2.3x the cost; Astra max adds 2 over high for 1.9x. `high` is the usual ceiling for a large model; `xhigh`/`max` pay only for audits and hard diagnosis. Opus and Sonnet are the exceptions, still gaining at xhigh and max.
-- **Size beats effort**: Sol medium (48, $0.21) outscores Luna max (38, $0.07) and beats Sonnet high (47, $0.88). For the same ~50, Sol high costs $0.32, Opus medium $1.34, Astra medium $1.54.
+- **A bigger class beats more effort within a family, not across families**: Sol medium (48, $0.21) outscores Luna max (38, $0.07), but Sonnet max (56) outscores Astra max (53). For the same ~50, Sol high costs $0.32, Opus medium $1.34, Astra medium $1.54.
 
 ### How to use each model (a starting point; override for the task)
 Effort is limited to what each backend accepts (`agent-bridge start --help`). The top of a range is for audits or deep diagnosis. Small-model output always gets a spot-check. With a thin allowance, bound jobs and reserve expensive models; with a deep allowance or no short-window limit, repeat useful sweeps while checking weekly limits and live quota. [Subscriptions](subscriptions.md) maps published tiers to these conditions.
