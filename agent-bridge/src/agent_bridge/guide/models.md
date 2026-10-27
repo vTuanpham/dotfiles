@@ -3,10 +3,11 @@ Checked 2026-10-27. `agent-bridge guide plans` remains the entry point for this 
 
 Read [the subscription guide](subscriptions.md) (`agent-bridge guide subscriptions`) only when the choice depends on a plan, allowance or retention policy. Use live commands for account state; this document records no account balances or subscriptions.
 
-### Three separate things: do not infer one from another
+### Four separate things: do not infer one from another
 1. **Class** is where a model sits in its vendor's lineup. It is a naming and positioning rank, not a score. Equivalent classes across vendors: small = Luna, Haiku 5.5, Gemini Flash; mid = Terra, Sonnet; high = Sol, Opus; top = Astra, Fable, Argon. Mapping Sol to Opus and Terra to Sonnet is a positioning convention; Gemini placements are Unverified.
 2. **Measured performance** is the benchmark table below. Class does not predict it: in this snapshot Opus 5.5 (class high) scores above Fable 5.1 (class top) at medium and up, Sonnet 5.5 max (56) beats Astra max (53), and Terra 6.1 max (48) equals Sol medium. Choose a model by its row in the table, not by its class.
-3. **Usage guidance** (how freely to spend a model) depends on the account's allowance, not on class or score. The same model is routine on a deep allowance and reserved on a thin one. The advice below is conditional on that; the [subscription guide](subscriptions.md) lists what each tier allows.
+3. **Effort** is a per-job setting that moves a model along its own row in the table: it changes score, cost and latency, and its effect differs by model (small models gain a lot from it, large ones flatten, see below). It is chosen per task and is independent of class and of the allowance; a high-class model at low effort can score below a lower-class model at high effort. Each backend accepts only some levels (`agent-bridge start --help`).
+4. **Usage guidance** (how freely to spend a model) depends on the account's allowance, not on class, score or effort. The same model at the same effort is routine on a deep allowance and reserved on a thin one. The advice below is conditional on that; the [subscription guide](subscriptions.md) lists what each tier allows.
 
 ### Effort and model strength
 Artificial Analysis Intelligence Index and average API cost per task (general reasoning, not coding-specific; dollars are API prices, not plan quota, so read them as relative cost). Sources: [model leaderboard](https://artificialanalysis.ai/leaderboards/models), [Coding Agent Index](https://artificialanalysis.ai/agents/coding-agents) (harness plus model). Each cell is index / $ per task. These are the existing benchmark snapshot, not new measurements.
