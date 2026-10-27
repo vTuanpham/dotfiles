@@ -75,7 +75,7 @@ def test_native_previews_do_not_expose_paths_or_fetch_remote_urls(tmp_path):
 def test_busy_image_input_uses_same_turn_and_stable_client_id(monkeypatch):
     rpc = SteeringRpc([[{"id": "current", "status": "inProgress"}]])
     use_rpc(monkeypatch, rpc)
-    message = Outgoing(submission()["id"], "What is this?", [raster(image_bytes())])
+    message = Outgoing(submission()["id"], "What is this?", [raster(image_bytes())], "steer")
     assert codex.Codex().send(codex_target(), message) == "steered"
     params = rpc.calls[-1][1]
     assert params["clientUserMessageId"] == message.id

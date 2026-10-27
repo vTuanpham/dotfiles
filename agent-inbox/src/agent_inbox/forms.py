@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass, field
 
 from .commands import Choice
-from .models import DeliveryRejected
+from .models import DeliveryRejected, NoLongerPending
 
 Value = str | int | float | bool | list[str]
 
@@ -99,8 +99,10 @@ class Forms:
 
     def selected(self, identifier):
         found = [form for form in self.forms if form.id == identifier]
+        if not found:
+            raise NoLongerPending("Question is no longer pending in this session")
         if len(found) != 1:
-            raise DeliveryRejected("Question is no longer pending in this session")
+            raise DeliveryRejected("Ambiguous native question identity")
         return found[0]
 
 

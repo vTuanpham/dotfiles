@@ -4,6 +4,7 @@ import time
 from urllib.parse import quote, urlencode
 
 from . import opencode_commands, opencode_context, opencode_forms, opencode_history, opencode_permissions
+from .capabilities import AdapterCapabilities
 from .forms import Forms
 from .models import DeliveryRejected, RootInfo, Snapshot, fields, text
 from .opencode_http import ApiRejected, Connection
@@ -40,6 +41,12 @@ def active(api):
 
 
 class OpenCode:
+    capabilities = AdapterCapabilities(
+        queued_messages=True, mid_turn_steering=True, approvals_survive_restart=True,
+        history_while_unloaded=True, images=True, interrupt=True, commands=True, questions=True,
+        reply_mode="direct",
+    )
+
     def context(self, target):
         api = Connection(target)
         return opencode_context.context(api, root(api, target.session_id), active(api))
@@ -74,6 +81,11 @@ class OpenCode:
         try:
             api.call("POST", operation, payload)
         except ApiRejected as error:
+            if error.status in (404, 409):
+                # A withdrawal can race the last read. Only the native pending list proves it gone.
+                (opencode_permissions if permission else opencode_forms).read(
+                    api, path, target.session_id,
+                ).selected(identifier)
             if error.status in (400, 401, 404, 409):
                 raise DeliveryRejected("Native question reply rejected") from error
             raise
@@ -112,7 +124,9 @@ class OpenCode:
                                        saved=info["id"] not in running))
             if cursor is None:
                 return result
-            if time.monotonic() > deadline or query.get("cursor") == cursor:
+            if time.monotonic() > deadline:
+                raise TimeoutError("Native discovery timed out")
+            if query.get("cursor") == cursor:
                 raise ValueError("Native discovery did not complete")
             query = {"parentID": "null", "limit": "100", "cursor": cursor}
 
@@ -144,10 +158,14 @@ class OpenCode:
                         catching_up=bool(since and len(rows) == 100), activity=activity, timeline=timeline)
 
     def send(self, target, message):
+        if message.delivery not in ("queue", "steer"):
+            raise DeliveryRejected("Unsupported delivery mode")
         api = Connection(target)
         root(api, target.session_id)
+        if message.delivery == "steer" and target.session_id not in active(api):
+            raise DeliveryRejected("This root has no active turn to steer")
         identifier = "msg_" + message.id.replace("-", "")
-        payload = {"id": identifier, "text": message.text, "delivery": "steer",
+        payload = {"id": identifier, "text": message.text, "delivery": message.delivery,
                    "files": [{"uri": url} for url in message.images]}
         try:
             value = api.call("POST", session_path(target.session_id) + "/prompt", payload)
@@ -158,7 +176,7 @@ class OpenCode:
         fields(value, ("data",))
         receipt = value["data"]
         if (receipt["id"] != identifier or receipt["sessionID"] != target.session_id
-                or receipt["type"] != "user" or receipt["delivery"] != "steer"
+                or receipt["type"] != "user" or receipt["delivery"] != message.delivery
                 or receipt["payload"]["text"] != message.text):
             raise RuntimeError("Unrecognized native input receipt")
-        return "queued"  # Admission is durable; consumption happens at the next safe boundary.
+        return "steered" if message.delivery == "steer" else "queued"

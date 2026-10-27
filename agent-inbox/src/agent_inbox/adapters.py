@@ -1,4 +1,5 @@
 from .acp import ACP
+from .capabilities import AdapterCapabilities
 from .claude import Claude
 from .codex import Codex
 from .models import Snapshot, fields, https_url
@@ -6,6 +7,12 @@ from .opencode import OpenCode
 
 
 class NativeLink:
+    capabilities = AdapterCapabilities(
+        queued_messages=False, mid_turn_steering=False, approvals_survive_restart=False,
+        history_while_unloaded=False, images=False, interrupt=False, commands=False, questions=False,
+        reply_mode="none",
+    )
+
     def discover(self, seed):
         return None
 

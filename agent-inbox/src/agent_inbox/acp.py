@@ -1,6 +1,7 @@
 """Root-only Antigravity ACP adapter."""
 
 from .acp_runtime import RuntimePool
+from .capabilities import AdapterCapabilities
 from .commands import Choice, Command, Commands
 from .context import Metric, SessionContext
 from .forms import Forms
@@ -42,6 +43,12 @@ def _commands(state):
 
 
 class ACP:
+    capabilities = AdapterCapabilities(
+        queued_messages=False, mid_turn_steering=False, approvals_survive_restart=False,
+        history_while_unloaded=False, images=True, interrupt=True, commands=True, questions=False,
+        reply_mode="direct",
+    )
+
     def __init__(self, runtimes=None):
         self.runtimes = runtimes if runtimes is not None else RuntimePool()
 
@@ -54,6 +61,8 @@ class ACP:
         return Snapshot(**value)
 
     def send(self, target: Target, message: Outgoing):
+        if message.delivery != "queue":
+            raise DeliveryRejected("ACP does not support mid-turn steering")
         text_value = message.text
         images = decode_images(message.images)
         if not images or text_value:
@@ -70,7 +79,7 @@ class ACP:
         reason = self.runtimes.call(target, "send", prompt)
         if reason not in ("end_turn", "max_tokens", "max_turn_requests", "refusal", "cancelled"):
             raise RuntimeError("ACP did not confirm the prompt result")
-        return "forwarded"
+        return "completed"
 
     def commands(self, target: Target):
         return _commands(self.runtimes.call(target, "controls"))

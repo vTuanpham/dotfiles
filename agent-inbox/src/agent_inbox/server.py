@@ -13,7 +13,7 @@ from .commands import catalog
 from .context import context
 from .forms import forms
 from .media import MediaCache, decode_images
-from .models import DeliveryRejected, Outgoing, PairingError, decode_json, fields, text
+from .models import DeliveryRejected, NoLongerPending, Outgoing, PairingError, decode_json, fields, text
 from .presentation import render_forms, render_snapshot
 
 ASSETS = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
@@ -29,12 +29,16 @@ class App:
         self.catalog = Catalog(store)
         self.media = MediaCache()
 
-    def dispatch(self, data, fingerprint, prepare, successes, operation="send"):
+    def dispatch(self, data, fingerprint, prepare, successes, operation="send", subject=None,
+                 legacy_fingerprint=None):
         identifier = text(data["target"], "root id", 200)
-        fresh, state = self.store.reserve(data["id"], identifier, fingerprint, operation)
+        fresh, state = self.store.reserve(data["id"], identifier, fingerprint, operation, subject,
+                                         legacy_fingerprint)
         if fresh:
             try:
                 perform = prepare(self.catalog.target(identifier))
+            except NoLongerPending:
+                state = "no_longer_pending"
             except Exception:
                 state = "failed"
             else:
@@ -42,6 +46,8 @@ class App:
                     state = perform()
                     if state not in successes:
                         raise RuntimeError("Unrecognized native receipt")
+                except NoLongerPending:
+                    state = "no_longer_pending"
                 except DeliveryRejected:
                     state = "failed"
                 except Exception:  # Native dispatch may have succeeded before a connection failed.
@@ -50,21 +56,32 @@ class App:
         return {"id": data["id"], "status": state}
 
     def send(self, data):
-        fields(data, ("id", "target", "text"), ("images",))
+        fields(data, ("id", "target", "text"), ("images", "delivery"))
+        delivery = data.get("delivery", "queue")
+        if type(delivery) is not str or delivery not in ("queue", "steer"):
+            raise ValueError("Invalid delivery mode")
         images = decode_images(data.get("images", []))
         body = data["text"]
         if not images or body != "":
             text(body, "message")
-        message = Outgoing(data["id"], body, images)
-        fingerprint = json.dumps([body, images], separators=(",", ":")) if images else body
+        message = Outgoing(data["id"], body, images, delivery)
+        legacy = json.dumps([body, images], separators=(",", ":")) if images else body
+        if delivery == "steer":
+            legacy = None
+        fingerprint = json.dumps(["send", body, images, delivery], separators=(",", ":"))
 
         def prepare(target):
             provider = adapter(target)
+            if delivery == "steer" and not provider.capabilities.mid_turn_steering:
+                raise DeliveryRejected("This connection does not support mid-turn steering")
+            if images and not provider.capabilities.images:
+                raise DeliveryRejected("This connection does not support images")
             if not provider.snapshot(target).can_send:
                 raise DeliveryRejected("This session is not accepting input")
             return lambda: provider.send(target, message)
 
-        return self.dispatch(data, fingerprint, prepare, ("queued", "steered", "forwarded"))
+        return self.dispatch(data, fingerprint, prepare, ("queued", "steered", "forwarded", "completed"),
+                             legacy_fingerprint=legacy)
 
     def command(self, data):
         fields(data, ("id", "target", "command", "value"))
@@ -91,12 +108,14 @@ class App:
 
         def prepare(target):
             provider = adapter(target)
+            if not provider.capabilities.questions:
+                raise DeliveryRejected("This connection cannot answer native requests")
             question = forms(provider, target).selected(identifier)
             if not cancel:
                 question.validate(data["answer"])
             return lambda: provider.answer(target, identifier, data["answer"], cancel)
 
-        return self.dispatch(data, fingerprint, prepare, ("applied",), "answer")
+        return self.dispatch(data, fingerprint, prepare, ("applied",), "answer", identifier)
 
 
 class Server(ThreadingHTTPServer):

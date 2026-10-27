@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from . import claude_history
+from .capabilities import AdapterCapabilities
 from .claude_channel import channel_call
 from .context import SessionContext, Worker
 from .models import DeliveryRejected, RootInfo, Snapshot, decode_json, fields, text
@@ -79,6 +80,12 @@ def activity(info):
 
 
 class Claude:
+    capabilities = AdapterCapabilities(
+        queued_messages=False, mid_turn_steering=False, approvals_survive_restart=False,
+        history_while_unloaded=False, images=True, interrupt=False, commands=False, questions=False,
+        reply_mode="opt_in_next_turn",
+    )
+
     def discover(self, seed):
         result = []
         for row in sessions(seed):

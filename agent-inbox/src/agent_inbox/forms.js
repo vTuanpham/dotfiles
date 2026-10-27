@@ -95,6 +95,7 @@ class FormsPanel {
   reset() { this.request++; this.loading=false; this.render(); }
   async load() {
     const root=this.current(); if(!root || this.loading) return;
+    if(!root.capabilities.questions) { this.accept(root.id,[]); this.render(); return; }
     const version=++this.request; this.loading=true;
     try {
       const result=decodeForms(await this.api('/api/forms?id='+encodeURIComponent(root.id)));
@@ -280,7 +281,9 @@ class FormsPanel {
     pending.sending=true; state.sync();
     try {
       const result=await this.api('/api/answer',pending.payload); pending.status=result.status;
-      if(result.status==='applied') { this.rootData(rootId).states.delete(state.form.id); state.pending=null; }
+      if(['applied','already_answered','no_longer_pending'].includes(result.status)) {
+        this.rootData(rootId).states.delete(state.form.id); state.pending=null;
+      }
       else if(result.status==='failed') { state.pending=null; state.message='Not accepted. Review your answer; the question may have changed.'; }
     } catch(error) { pending.status='unconfirmed'; }
     finally {

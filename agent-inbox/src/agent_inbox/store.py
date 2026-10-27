@@ -10,8 +10,20 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
+from typing import Literal, get_args
 
 from .models import PairingError, Target, decode_json, text
+
+ReceiptStatus = Literal[
+    "sending", "queued", "steered", "forwarded", "completed", "applied", "unknown", "failed",
+    "already_answered", "no_longer_pending",
+]
+
+
+def receipt_status(value) -> ReceiptStatus:
+    if type(value) is not str or value not in get_args(ReceiptStatus):
+        raise ValueError("Invalid submission status")
+    return value
 
 
 def digest(value):
@@ -34,7 +46,7 @@ class Store:
         self.path.chmod(0o600)
         with self.connection() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2):
+            if version not in (0, 1, 2, 3):
                 raise ValueError("Unsupported inbox database version")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS targets
@@ -51,7 +63,15 @@ class Store:
             db.execute("BEGIN IMMEDIATE")
             if "operation" not in {row[1] for row in db.execute("PRAGMA table_info(receipts)")}:
                 db.execute("ALTER TABLE receipts ADD COLUMN operation TEXT NOT NULL DEFAULT 'send'")
-            db.execute("PRAGMA user_version=2")
+            columns = {row[1] for row in db.execute("PRAGMA table_info(receipts)")}
+            for column in ("subject", "original"):
+                if column not in columns:
+                    db.execute(f"ALTER TABLE receipts ADD COLUMN {column} TEXT")
+            if "encoding" not in columns:
+                db.execute("ALTER TABLE receipts ADD COLUMN encoding INTEGER NOT NULL DEFAULT 1")
+            db.execute("CREATE INDEX IF NOT EXISTS receipt_subject ON receipts(target,subject) "
+                       "WHERE operation='answer' AND original IS NULL")
+            db.execute("PRAGMA user_version=3")
 
     @contextmanager
     def connection(self):
@@ -132,9 +152,13 @@ class Store:
         with self.connection() as db:
             db.execute("UPDATE receipts SET status='unknown' WHERE status='sending'")
 
-    def reserve(self, message_id, target_id, message, operation="send"):
+    def reserve(self, message_id, target_id, message, operation="send", subject=None, legacy_message=None):
         if operation not in ("send", "command", "answer"):
             raise ValueError("Unknown receipt operation")
+        if subject is not None:
+            if operation != "answer":
+                raise ValueError("Only answers can claim a pending request")
+            text(subject, "question id", 200)
         try:
             if str(uuid.UUID(message_id)) != message_id:
                 raise ValueError
@@ -143,19 +167,55 @@ class Store:
         fingerprint = digest(message)
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT target, hash, status, operation FROM receipts WHERE id=?",
+            row = db.execute("SELECT target, hash, status, operation, subject, original, encoding "
+                             "FROM receipts WHERE id=?",
                              (message_id,)).fetchone()
             if row:
-                if row[:2] != (target_id, fingerprint) or row[3] != operation:
+                if type(row[6]) is not int or row[6] not in (1, 2):
+                    raise ValueError("Invalid receipt encoding")
+                matches = row[1] == fingerprint or (
+                    row[6] == 1 and legacy_message is not None and row[1] == digest(legacy_message)
+                )
+                if (row[0] != target_id or not matches or row[3] != operation
+                        or row[4] is not None and row[4] != subject):
                     raise ValueError("Message id was used for different content or a different root")
-                return False, row[2]
-            db.execute("INSERT INTO receipts (id,target,hash,status,created,operation) "
-                       "VALUES (?, ?, ?, 'sending', ?, ?)",
-                       (message_id, target_id, fingerprint, time.time(), operation))
+                if row[6] == 1 and legacy_message is not None:
+                    db.execute("UPDATE receipts SET hash=?, encoding=2 WHERE id=?", (fingerprint, message_id))
+                if operation == "answer" and row[4] is None and subject is not None:
+                    # Old receipts contain the form in their hash; bind it on an exact replay only.
+                    db.execute("UPDATE receipts SET subject=? WHERE id=?", (subject, message_id))
+                if row[5] is not None:
+                    original = db.execute(
+                        "SELECT status FROM receipts WHERE id=? AND original IS NULL "
+                        "AND operation='answer' AND target=? AND subject=?",
+                        (row[5], target_id, subject),
+                    ).fetchone()
+                    if original is None:
+                        raise ValueError("Missing original answer receipt")
+                    state = receipt_status(original[0])
+                    return False, "already_answered" if state == "applied" else state
+                return False, receipt_status(row[2])
+            original, state = None, "sending"
+            if subject is not None:
+                previous = db.execute(
+                    "SELECT id, status FROM receipts WHERE target=? AND subject=? "
+                    "AND operation='answer' AND original IS NULL AND status!='failed' "
+                    "ORDER BY created LIMIT 1", (target_id, subject),
+                ).fetchone()
+                if previous:
+                    original, state = previous[0], receipt_status(previous[1])
+            db.execute("INSERT INTO receipts "
+                       "(id,target,hash,status,created,operation,subject,original,encoding) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 2)",
+                       (message_id, target_id, fingerprint, state, time.time(), operation,
+                        subject, original))
+            if original is not None:
+                return False, "already_answered" if state == "applied" else state
         return True, "sending"
 
     def finish(self, message_id, status):
-        if status not in ("queued", "steered", "forwarded", "applied", "unknown", "failed"):
+        receipt_status(status)
+        if status in ("sending", "already_answered"):
             raise ValueError("Invalid submission status")
         with self.connection() as db:
             db.execute("UPDATE receipts SET status=? WHERE id=?", (status, message_id))

@@ -23,7 +23,10 @@ agent-inbox serve
 ```
 
 Each connection exposes only what its native API provides; the harnesses do not
-share one feature set.
+share one feature set. `/api/roots` includes a typed capability record for every
+connection kind. Controls use that record plus the current native session state;
+an adapter's image support still requires the selected provider to accept images.
+New adapters must decide every capability explicitly, including unsupported ones.
 
 | Connection | Read and reply | Composer controls | Session details |
 | --- | --- | --- | --- |
@@ -41,7 +44,9 @@ only the exact HTTPS session URL you supply.
 Registration verifies an existing root on its already-running daemon.
 Its [native APIs](https://learn.chatgpt.com/docs/app-server) provide discovery,
 history, `turn/steer` with the authoritative active turn ID, and the experimental
-`thread/queue/add` while idle. Reading never resumes or clones a conversation.
+`thread/queue/add`. Messages queue by default, including during an active turn.
+Choose **Steer** explicitly to steer the current turn; a finished turn rejects that
+choice rather than silently queueing it. Reading never resumes or clones a conversation.
 Model and reasoning changes affect subsequent turns.
 
 When a server reports that paginated history is unsupported, Inbox uses the
@@ -86,6 +91,11 @@ selected session before replying; cancelling the question denies it.
 Unsupported terminal menus and external-auth forms stay native.
 Its unarchived list includes saved idle roots: idle does not prove a terminal
 is attached. Provider account identity and allowance are not exposed here.
+Messages use native `delivery: queue` by default; explicit steering uses
+`delivery: steer`. Both receipts confirm admission, not consumption.
+The [published API](https://dev.opencode.ai/v2/docs/api) documents these delivery
+values. Its newer permission payload uses `decision`; the checked 2.0.3 service
+uses `reply`, so Inbox keeps that version's contract.
 
 </details>
 
@@ -106,7 +116,8 @@ on registration. Its agent must advertise list, load and resume capabilities.
 A selected root uses one persistent SDK connection for history updates, prompts
 and cancellation. Discovery also reuses a connection; the pool permits four
 runtimes total, with five-minute idle cleanup. Prompts
-return a receipt at turn completion, not an invented admission acknowledgement.
+return a **Completed** receipt at turn completion, not an invented admission acknowledgement.
+ACP has no Inbox queue or mid-turn steering; input waits until its current turn ends.
 The current client declines permission/elicitation requests; approvals need its
 native client. Live provider turns remain unverified here.
 The reference service keeps the rest of the filesystem read-only. An ACP agent
@@ -180,6 +191,11 @@ agent-inbox revoke DEVICE_ID
 ```
 
 Codes allow eight attempts; devices expire after 30 days or immediately on revoke.
+Codes travel only in the pairing POST body; the session token is an HttpOnly,
+SameSite=Strict cookie (Secure on HTTPS), never a query parameter. Browser API
+requests refuse redirects and use only the current origin. A failing route is
+not retried against another host. OpenCode credentials likewise go only to its
+validated loopback address, and its client refuses redirects.
 Do not use a public tunnel. [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve)
 stays inside the tailnet; Funnel is a separate feature.
 
@@ -206,19 +222,44 @@ Native history is never archived or deleted. A selected offline root keeps its
 draft and receipt and never silently redirects a reply. Codex can retain a loaded
 root after its terminal disconnects. Claude lists only live processes; OpenCode
 also lists unarchived saved roots. Idle is not treated as closed.
+For Codex, OpenCode and ACP, transient discovery timeouts retain previously seen
+roots with unknown status and a connection warning. An authoritative empty list
+still removes them. Reading failures retain the visible transcript and disable input.
 
 | Receipt | Meaning |
 | --- | --- |
 | Queued | Native API admitted the input; the agent may not have consumed it |
-| Steered | Native API accepted input for the identified active turn |
+| Steered | Native API admitted input for steering; consumption is not confirmed |
 | Forwarded | Claude channel write completed; no consumption acknowledgement |
+| Completed | ACP returned a native prompt stop reason; its turn has ended |
 | Applied | Native command or question API accepted the operation |
+| Already answered | A recorded answer already claimed this native request; no new delivery |
+| No longer pending | The native request was withdrawn or expired; no answer delivered |
 | Unknown | Dispatch may have happened; check the native chat before sending anew |
 
 Delivery checks reuse the same request ID and payload. Unknown outcomes are never
 automatically resent, including after restart. Chat, commands and answers have
 separate receipt identities. Drafts, images and retry IDs live in tab memory:
 they survive root switching, but reloading discards them.
+
+`/api/send`, `/api/command` and `/api/answer` require a client UUID (`id`). Forms
+and permissions both use the answer route with their native request ID (`form`).
+The receipt is persisted before dispatch: **Sending** means intent recorded,
+not native acceptance. Retries return its recorded outcome without redispatch.
+Answer receipts also claim the root/request pair transactionally, so another
+browser's new UUID cannot answer or cancel the same request twice. Concurrent
+receipt checks follow the original answer's eventual result, including Unknown.
+Pre-upgrade answers acquire this request claim on an exact replay; their old
+content hashes cannot reveal native request IDs without that replay.
+
+OpenCode owns pending forms/permissions across Inbox restarts: Inbox re-reads its
+native pending list before answering and rechecks a raced withdrawal after a
+native conflict. There is no cached pending flag to hang after restart.
+The capability `approvals_survive_restart` refers to an **Inbox** restart; it does
+not promise a provider survives its own restart. Codex questions/approvals stay
+with their owning client, ACP requests are declined immediately, and Claude's
+native behavior is unchanged. In-flight receipts recover as Unknown, never as
+fresh work. Choices always carry native values; labels need not be unique.
 
 State: `${XDG_STATE_HOME:-~/.local/state}/agent-inbox`, configurable with `--state`
 or `AGENT_INBOX_HOME`. Directory mode 0700, database mode 0600. Credentials are

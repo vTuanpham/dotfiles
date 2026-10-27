@@ -7,6 +7,7 @@ from pathlib import Path
 from websockets.sync.client import unix_connect
 
 from . import codex_commands, codex_context
+from .capabilities import AdapterCapabilities
 from .codex_history import history, turns
 from .codex_rpc import Rpc, RpcRejected, validate_root
 from .models import DeliveryRejected, RootInfo, Snapshot, fields, text
@@ -70,6 +71,12 @@ def active_turn(page):
 
 
 class Codex:
+    capabilities = AdapterCapabilities(
+        queued_messages=True, mid_turn_steering=True, approvals_survive_restart=False,
+        history_while_unloaded=True, images=True, interrupt=True, commands=True, questions=False,
+        reply_mode="direct",
+    )
+
     def context(self, target):
         with connection(target) as rpc:
             return codex_context.context(rpc, root(rpc, target))
@@ -137,13 +144,16 @@ class Codex:
                         activity=page.activity, timeline=page.timeline)
 
     def send(self, target, message):
+        if message.delivery not in ("queue", "steer"):
+            raise DeliveryRejected("Unsupported delivery mode")
         inputs = ([{"type": "text", "text": message.text}] if message.text else [])
         inputs.extend({"type": "image", "url": url} for url in message.images)
         with connection(target) as rpc:
             info = root(rpc, target)
             if not info["canAcceptDirectInput"]:
                 raise DeliveryRejected("This root is not accepting direct input")
-            for _ in range(2):
+            attempts = 2 if message.delivery == "steer" else 0
+            for _ in range(attempts):
                 if info["status"]["type"] != "active":
                     break
                 page = turns(rpc, target.session_id)
@@ -162,8 +172,10 @@ class Codex:
                         raise RuntimeError("Harness did not confirm the selected turn")
                     return "steered"
                 info = root(rpc, target)
-            if info["status"]["type"] != "idle":
+            if message.delivery == "steer":
                 raise DeliveryRejected("No authoritative active turn is available yet")
+            if info["status"]["type"] not in ("idle", "active"):
+                raise DeliveryRejected("This root is not accepting queued input")
             result = rpc.call("thread/queue/add", {
                 "threadId": target.session_id, "clientUserMessageId": message.id, "input": inputs,
             })

@@ -4,12 +4,18 @@ from dataclasses import asdict, dataclass
 from typing import Literal, Protocol
 from urllib.parse import urlsplit
 
+from .capabilities import AdapterCapabilities
+
 
 class PairingError(PermissionError):
     pass
 
 
 class DeliveryRejected(ValueError):
+    pass
+
+
+class NoLongerPending(DeliveryRejected):
     pass
 
 
@@ -100,6 +106,7 @@ class Outgoing:
     id: str
     text: str
     images: list[str]
+    delivery: Literal["queue", "steer"] = "queue"
 
 
 @dataclass(frozen=True)
@@ -136,8 +143,12 @@ class Snapshot:
 
 
 class Adapter(Protocol):
+    capabilities: AdapterCapabilities
+
     def discover(self, seed: Target) -> list[RootInfo] | None: ...
 
     def snapshot(self, target: Target, cursor: str | None = None, since: str | None = None) -> Snapshot: ...
 
-    def send(self, target: Target, message: Outgoing) -> Literal["queued", "steered", "forwarded"]: ...
+    def send(self, target: Target, message: Outgoing) -> Literal[
+        "queued", "steered", "forwarded", "completed",
+    ]: ...

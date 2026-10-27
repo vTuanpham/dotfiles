@@ -31,7 +31,7 @@ from agent_inbox.models import (
 )
 from agent_inbox.presentation import render_forms, render_snapshot
 from agent_inbox.server import App, Server
-from agent_inbox.store import Store
+from agent_inbox.store import Store, digest
 
 
 @pytest.fixture
@@ -44,6 +44,8 @@ def target(identifier="first"):
 
 
 class FixtureAdapter:
+    capabilities = adapters.ADAPTERS["opencode"].capabilities
+
     def __init__(self):
         self.sent = []
         self.ready = True
@@ -136,7 +138,8 @@ def test_unknown_delivery_is_not_repeated_and_crashes_recover(store, provider):
     assert app.send(data)["status"] == "unknown"
     assert len(provider.sent) == 1
     interrupted = submission()
-    store.reserve(interrupted["id"], interrupted["target"], interrupted["text"])
+    store.reserve(interrupted["id"], interrupted["target"],
+                  json.dumps(["send", interrupted["text"], [], "queue"], separators=(",", ":")))
     store.recover()
     assert app.send(interrupted)["status"] == "unknown"
     assert len(provider.sent) == 1
@@ -160,6 +163,37 @@ def test_image_submission_is_bound_to_root_and_receipt(store, provider):
         with pytest.raises(ValueError):
             app.send({**submission(), key: "/etc/passwd"})
     assert url.encode() not in store.path.read_bytes()
+
+
+def test_text_cannot_reuse_an_image_or_steering_payload_fingerprint(store, provider):
+    store.register(target())
+    raw = io.BytesIO()
+    Image.new("RGB", (2, 2)).save(raw, format="PNG")
+    url = raster(raw.getvalue())
+    app, data = App(store), {**submission(body=""), "images": [url]}
+    assert app.send(data)["status"] == "queued"
+    with pytest.raises(ValueError):
+        app.send({"id": data["id"], "target": data["target"],
+                  "text": json.dumps(["", [url]], separators=(",", ":"))})
+    steer = {**submission(), "delivery": "steer"}
+    assert app.send(steer)["status"] == "queued"
+    with pytest.raises(ValueError):
+        app.send({**steer, "delivery": "queue", "text":
+                  json.dumps(["send", steer["text"], [], "steer"], separators=(",", ":"))})
+
+
+def test_legacy_send_receipt_promotes_its_hash_on_replay_without_delivery(store, provider):
+    store.register(target())
+    data = submission()
+    with store.connection() as db:
+        db.execute("INSERT INTO receipts (id,target,hash,status,created,operation,encoding) "
+                   "VALUES (?,?,?,'unknown',1,'send',1)",
+                   (data["id"], data["target"], digest(data["text"])))
+    app = App(store)
+    assert app.send(data)["status"] == app.send(data)["status"] == "unknown"
+    assert not provider.sent
+    with store.connection() as db:
+        assert db.execute("SELECT encoding FROM receipts WHERE id=?", (data["id"],)).fetchone() == (2,)
 
 
 @pytest.mark.parametrize("raw", ['{"id":1,"id":2}', '{"nested":{"a":1,"a":2}}', '{"n":NaN}', '{"n":1e999}'])
@@ -231,7 +265,8 @@ def test_http_pair_auth_origin_and_isolation(http_server, store, provider):
     cookie = headers["Set-Cookie"].split(";")[0]
     status, _, result = request(server, "GET", "/api/roots", cookie=cookie)
     assert status == 200
-    assert all(set(root) == {"id", "harness", "label", "status"} for root in result["roots"])
+    assert all(set(root) == {"id", "harness", "label", "status", "capabilities"}
+               for root in result["roots"])
     view = request(server, "GET", "/api/view?id=second", cookie=cookie)[2]
     assert view["messages"][0]["text"].endswith("second")
     assert request(server, "GET", "/api/roots", cookie=cookie, host="attacker.test")[0] == 403
@@ -373,14 +408,15 @@ def test_codex_only_exposes_chat_and_preserves_cursor():
         codex_history.decode_page(page)
 
 
-def test_codex_queues_exact_selected_existing_root(monkeypatch):
+@pytest.mark.parametrize("status", ["idle", "active"])
+def test_codex_queues_exact_selected_existing_root(monkeypatch, status):
     calls = []
 
     class QueueRpc:
         def call(self, method, params):
             calls.append((method, params))
             if method == "thread/read":
-                return {"thread": codex_root()}
+                return {"thread": {**codex_root(), "status": {"type": status}}}
             assert method == "thread/queue/add"
             return {"queuedSubmission": {"id": "q", "clientUserMessageId": params["clientUserMessageId"],
                                          "input": params["input"]}}
@@ -390,10 +426,64 @@ def test_codex_queues_exact_selected_existing_root(monkeypatch):
         yield QueueRpc()
 
     monkeypatch.setattr(codex, "connection", connection)
-    message = outgoing("literal $(message)\nsecond line")
+    message = replace(outgoing("literal $(message)\nsecond line"), delivery="queue")
     assert codex.Codex().send(codex_target(), message) == "queued"
     assert calls[-1] == ("thread/queue/add", {"threadId": "root-id", "clientUserMessageId": message.id,
                                             "input": [{"type": "text", "text": message.text}]})
+
+
+def test_send_mode_is_validated_capability_gated_and_bound_to_receipt(store, provider, monkeypatch):
+    store.register(target())
+    app, data = App(store), {**submission(), "delivery": "steer"}
+    assert app.send(data)["status"] == "queued"
+    with pytest.raises(ValueError):
+        app.send({**data, "delivery": "queue"})
+    for mode in (None, True, [], "invented"):
+        with pytest.raises(ValueError):
+            app.send({**submission(), "delivery": mode})
+    monkeypatch.setattr(provider, "capabilities", replace(provider.capabilities, mid_turn_steering=False))
+    assert app.send({**data, "id": str(uuid.uuid4())})["status"] == "failed"
+    assert len(provider.sent) == 1
+
+
+def test_transient_discovery_failure_retains_live_roots_until_authoritative_removal(
+        store, provider, monkeypatch):
+    store.register(target())
+    now, failure = [0], [None]
+    monkeypatch.setattr("agent_inbox.catalog.time.monotonic", lambda: now[0])
+
+    def discover(seed):
+        if failure[0]:
+            raise failure[0]
+        return [RootInfo("first", "Existing", "active")]
+
+    monkeypatch.setattr(provider, "discover", discover)
+    catalog = Catalog(store)
+    before = catalog.listing()["roots"]
+    for error in (TimeoutError(), ConnectionError()):
+        failure[0] = error
+        now[0] += 11
+        result = catalog.listing()
+        assert result["roots"] == [{**before[0], "status": "unknown", "stale": True}]
+        assert result["warnings"] == ["Fixture connection unavailable"]
+        assert catalog.target("first").session_id == "first"
+    failure[0] = None
+    now[0] += 11
+    assert catalog.listing()["roots"] == before
+    monkeypatch.setattr(provider, "discover", lambda seed: [])
+    now[0] += 11
+    assert catalog.listing()["roots"] == []
+
+
+def test_phone_pairing_never_reads_a_code_from_a_url_and_server_stays_loopback(http_server, store):
+    assert http_server.server_address[0] == "127.0.0.1"
+    code = store.pair_code()
+    assert request(http_server, "GET", "/api/pair?code=" + code)[0] == 401
+    # A rejected origin/host cannot redeem a code or create a device.
+    assert request(http_server, "POST", "/api/pair", {"code": code, "name": "Phone"},
+                   host="other.example.test")[0] == 403
+    assert store.devices() == []
+    assert request(http_server, "POST", "/api/pair", {"code": code, "name": "Phone"})[0] == 200
 
 
 def test_discovery_disappearance_and_reconnect_leave_no_registry_rows(store, provider, monkeypatch):
@@ -493,7 +583,7 @@ def use_rpc(monkeypatch, rpc):
 
 
 def outgoing(body="Change direction", images=None):
-    return Outgoing("62c72a25-46ab-48ac-8aac-250cb6e1882d", body, images or [])
+    return Outgoing("62c72a25-46ab-48ac-8aac-250cb6e1882d", body, images or [], "steer")
 
 
 def test_busy_root_steers_the_authoritative_turn_without_queueing(monkeypatch):

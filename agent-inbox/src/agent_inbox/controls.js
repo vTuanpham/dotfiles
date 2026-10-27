@@ -30,11 +30,13 @@ class CommandPanel {
   }
   async load() {
     const root=this.current(); if(!root) return;
+    if(!root.capabilities.commands) { this.reset(); return; }
     const version=++this.request; this.loading=true;
     try {
       const result=await this.api('/api/commands?id='+encodeURIComponent(root.id));
       if(this.current()?.id!==root.id || version!==this.request) return;
-      this.controls=result.controls; this.unavailable=result.unavailable || ''; this.loaded=true;
+      this.controls=result.controls.filter(row=>row.id!=='interrupt' || root.capabilities.interrupt);
+      this.unavailable=result.unavailable || ''; this.loaded=true;
       if(this.view?.command) {  // keep an open picker on the refreshed native values, or close it if the control is gone
         const next=this.controls.find(row=>row.id===this.view.command.id);
         this.view=next ? {...this.view,command:next} : null;
