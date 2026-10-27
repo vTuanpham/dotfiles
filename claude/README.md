@@ -72,7 +72,8 @@ It is Claude-only; [Agent Bridge](../agent-bridge/README.md) and
 ### Crew and quota rows
 
 Bridge crew has one line per job: title, harness and model class, state, effort,
-event freshness and age, memory/cap, and recent peer links. Color distinguishes
+time since the last event, memory against its cap, and peer links from the last
+15 minutes. Dead quota accounts fold into one range. Color distinguishes
 families and states; short marks replace repeated model and status words. All
 rows use the same columns, so each worker keeps its own harness and class. Narrow
 layouts shrink titles and omit the same lower-priority columns for every row;

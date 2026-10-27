@@ -344,7 +344,7 @@ export const register: Register = on => {
   on('command.run', { command: 'wake' }, async ($, e) => {
     const [verb = '', ...rest] = e.args.trim().split(/\s+/)
     const arg = rest.join(' ')
-    if (verb === 'legend') return { text: 'Crew: ◈ Codex · ✦ agy · ◆ Claude · ○ OpenCode; number is model class 1–4. ● running · ⌁ heavy queue · = paused · ↻ retrying · ? needs answer · ! stalled · ✓ done · ○ idle. Dots show effort; bars show event freshness and memory/cap. ↗/↙ peer direction, number is messages, · is older than 15 minutes. Quota bars show remaining per account/window; ? means unknown, ~ means stale or freshness unknown.' }
+    if (verb === 'legend') return { text: 'Crew: ◈ Codex · ✦ agy · ◆ Claude · ○ OpenCode; number is model class 1–4. ● running · ⌁ heavy queue · = paused · ↻ retrying · ? needs answer · ! stalled · ✓ done · ○ idle. Dots show effort; the number is time since the last event; m▰▱ is memory against its cap. ↗/↙ peer direction toward the named job (a number appears past one message); links older than 15 minutes are dropped. Quota bars show remaining per account/window; ✕ marks signed-out or expired accounts, folded into one range; ? means unknown, ~ means stale numbers.' }
     if (verb === 'tour') {
       tour = { start: frameNo }
       return { text: `Touring ${PRESETS.length} landscapes, 12 s each, a whole day in each; your own scene comes back after.` }

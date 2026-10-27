@@ -50,7 +50,8 @@ function memoryFraction(job: WakeChip): number | undefined {
 const MARK: Record<string, string> = { codex: '◈', agy: '✦', claude: '◆', opencode: '○' }
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
-export type CrewColumn = 'effort' | 'freshness' | 'elapsed' | 'reason' | 'memory' | 'peers'
+export type CrewColumn = 'effort' | 'elapsed' | 'reason' | 'memory' | 'peers'
+const RECENT_PEER_MS = 900_000 // a conversation older than the stall window is history, not a link
 export type CrewRow = { title: string; family: string; state: string; glyph: string; detail: string; columns: CrewColumn[] }
 const pad = (s: string, width: number) => s + ' '.repeat(Math.max(0, width - cells(s)))
 
@@ -60,8 +61,8 @@ export function crewRows(jobs: WakeChip[], now: number, width: number): CrewRow[
   const hasReason = jobs.some(job => ['stalled', 'blocked_on_question'].includes(stateOf(job)) && job.reason)
   const candidates: [CrewColumn, number][] = [
     ...(hasReason ? [['reason', width < 60 ? 8 : 16] as [CrewColumn, number]] : []),
-    ['effort', 6], ['freshness', 4], ['elapsed', 5],
-    ['memory', 4], ['peers', width >= 90 ? 24 : 12],
+    ['effort', 6], ['elapsed', 5],
+    ['memory', 5], ['peers', width >= 90 ? 24 : 12],
   ]
   // Family and state always fit once there are six cells. On narrower terminals, only the name can fit.
   if (width < 6) return jobs.map(job => ({ title: truncate(job.title || job.name, width), family: '', state: stateOf(job), glyph: '', detail: '', columns: [] }))
@@ -73,20 +74,21 @@ export function crewRows(jobs: WakeChip[], now: number, width: number): CrewRow[
     selected.push(candidate)
     used += candidate[1] + 1
   }
-  const titleWidth = Math.min(32, width - used)
+  // Names take what they need (up to 56 cells) so a wide terminal never truncates a title beside empty space.
+  const wanted = Math.max(...jobs.map(job => cells(clean(job.title || job.name))), 1)
+  const titleWidth = Math.min(wanted, 56, width - used)
   return jobs.map(job => {
     const state = stateOf(job)
     const effort = EFFORT.indexOf(job.effort.toLowerCase())
     const memory = memoryFraction(job)
     const age = job.lastEventAt === undefined ? undefined : Math.max(0, now - job.lastEventAt)
-    const peers = [...(job.peers ?? [])].sort((a, b) => b.lastAt - a.lastAt)
-      .map(p => `${p.outgoing ? '↗' : '↙'}${clean(p.target.split('/').at(-1) ?? '')}:${p.count}${now - p.lastAt > 900_000 ? '·' : ''}`).join(',')
+    const peers = [...(job.peers ?? [])].filter(p => now - p.lastAt <= RECENT_PEER_MS).sort((a, b) => b.lastAt - a.lastAt)
+      .map(p => `${p.outgoing ? '↗' : '↙'}${clean(p.target.split('/').at(-1) ?? '')}${p.count > 1 ? ':' + p.count : ''}`).join(',')
     const values: Record<CrewColumn, string> = {
       effort: effort < 0 ? '?' : '•'.repeat(effort + 1) + '·'.repeat(5 - effort),
-      freshness: age === undefined ? '?' : bar(1 - age / 900_000),
       elapsed: age === undefined ? '?' : span(age),
       reason: state === 'stalled' || state === 'blocked_on_question' ? job.reason ?? '' : '',
-      memory: memory === undefined ? '?' : bar(memory),
+      memory: memory === undefined ? '?' : 'm' + bar(memory),
       peers,
     }
     const detail = selected.map(([name, size]) => ' ' + pad(truncate(values[name], size), size)).join('')
@@ -98,15 +100,35 @@ export function crewRows(jobs: WakeChip[], now: number, width: number): CrewRow[
   })
 }
 
+const mark = (quota: WakeQuota) => (quota.cli === 'agy' ? '✦' : '◈')
+
 export function quotaText(quota: WakeQuota): string {
-  return `${quota.cli === 'agy' ? '✦' : '◈'}${quota.account}${quota.active ? '*' : ''}${quota.freshness && quota.freshness !== 'fresh' ? '~' : ''} ${quota.status ?? (quota.parts.length ? quota.parts.map(p => `${p.label}${bar(p.pct / 100)}`).join(' ') : '?')}`
+  // The stale-cache '~' only means something beside numbers; a dead account has none to be stale.
+  const stale = !quota.status && quota.freshness && quota.freshness !== 'fresh' ? '~' : ''
+  return `${mark(quota)}${quota.account}${quota.active ? '*' : ''}${stale} ${quota.status ?? (quota.parts.length ? quota.parts.map(p => `${p.label}${bar(p.pct / 100)}`).join(' ') : '?')}`
+}
+
+/** Neighbouring accounts of one CLI in the same dead state read once: '◈03–06 ✕ expired', not four times. */
+function foldDead(quotas: WakeQuota[]): string[] {
+  const parts: string[] = []
+  for (let i = 0; i < quotas.length; i++) {
+    const quota = quotas[i]!
+    let j = i
+    while (quota.status && quotas[j + 1]?.cli === quota.cli && quotas[j + 1]?.status === quota.status) j++
+    if (j === i) { parts.push(quotaText(quota)); continue }
+    const group = quotas.slice(i, j + 1)
+    const names = group.map(q => q.account)
+    parts.push(`${mark(quota)}${names[0]}–${names.at(-1)} ✕ ${quota.status}`)
+    i = j
+  }
+  return parts
 }
 
 /** Keep each account together where possible, wrapping at the available terminal width. */
 export function quotaLines(quotas: WakeQuota[], width: number): string[] {
   const lines: string[] = []
-  for (const quota of quotas) {
-    const part = truncate(quotaText(quota), width)
+  for (const text of foldDead(quotas)) {
+    const part = truncate(text, width)
     const last = lines.at(-1)
     if (last && cells(last) + 2 + cells(part) <= width) lines[lines.length - 1] = last + '  ' + part
     else if (part) lines.push(part)
