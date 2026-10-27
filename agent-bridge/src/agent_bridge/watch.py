@@ -6,8 +6,9 @@ import time
 from contextlib import ExitStack
 from pathlib import Path
 
-from . import groups, status, status_render
-from .acknowledgements import displayed
+from . import groups, status, status_render, waiting
+from .acknowledgements import INFORMATIONAL_ONLY_KINDS, displayed
+from .assessment import SILENCE_SECONDS
 from .core import JOBS, load_state, log
 
 
@@ -26,7 +27,8 @@ def job_dirs(owners):
                 continue
 
 
-def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None, include_info=False):
+def watch(owners, until_event=False, stall_min=SILENCE_SECONDS // 60, timeout=None,
+          offsets=None, include_info=False):
     if os.environ.get("AGENT_BRIDGE_WORKER"):
         return follow(owners, until_event, stall_min, timeout, offsets, include_info)
     with ExitStack() as stack:
@@ -42,7 +44,8 @@ def watch(owners, until_event=False, stall_min=15, timeout=None, offsets=None, i
         return follow(owners, until_event, stall_min, timeout, offsets, include_info)
 
 
-def follow(owners, until_event=False, stall_min=15, timeout=None, offsets=None, include_info=False):
+def follow(owners, until_event=False, stall_min=SILENCE_SECONDS // 60, timeout=None,
+           offsets=None, include_info=False):
     """Printing records display, never acknowledgement. Launch offsets cannot hide pending events."""
     deadline = time.monotonic() + timeout if timeout else None
     collector = status.Collector(JOBS, warmup=True)
@@ -86,6 +89,11 @@ def follow(owners, until_event=False, stall_min=15, timeout=None, offsets=None, 
                         log(path, "heavy_wait", level="info", message=job.reason)
                 waits[job.id] = job.state
                 assessment = job.stall
+                if assessment.state in {"long-command", "overdue-wait"} and assessment.notice_id:
+                    try:
+                        waiting.notice(path, assessment)
+                    except (OSError, ValueError):
+                        pass  # the assessment remains visible if the notice ledger is unavailable
                 if assessment.state in {"slow", "stalled"} and notices.get(job.id) != assessment.state:
                     print(status_render.notice(job), flush=True)
                     if assessment.state == "slow":
@@ -136,7 +144,7 @@ def follow(owners, until_event=False, stall_min=15, timeout=None, offsets=None, 
             if event.informational and event.offset > job.acknowledged_through:
                 print(status_render.event(job, event), flush=True)
                 displayed(Path(job.directory), event.offset)
-                if event.wakes or include_info:
+                if event.wakes or include_info and event.kind not in INFORMATIONAL_ONLY_KINDS:
                     fired.append(event)
         if until_event and (fired or group_fired):
             print("watch: wake events (unacknowledged until result <job> or ack <owner/job>):", flush=True)
@@ -144,7 +152,8 @@ def follow(owners, until_event=False, stall_min=15, timeout=None, offsets=None, 
                 e.id: e
                 for e in snapshot.events
                 if e.job in jobs
-                and (e.wakes or include_info and e.informational)
+                and (e.wakes or include_info and e.informational
+                     and e.kind not in INFORMATIONAL_ONLY_KINDS)
                 and e.offset > jobs[e.job].acknowledged_through
                 and not (e.kind == "turn_completed" and e.offset <= jobs[e.job].completed_through)
             }

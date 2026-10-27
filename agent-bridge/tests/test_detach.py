@@ -1,9 +1,10 @@
 import json
 import sys
+from contextlib import nullcontext
 
 import pytest
 
-from agent_bridge import cli
+from agent_bridge import cli, core
 
 
 def args(monkeypatch, job):
@@ -123,6 +124,8 @@ def test_detach_handshake_fails_fast_when_child_exits(monkeypatch, tmp_path, cap
 def test_detached_prestart_failure_is_logged(monkeypatch, tmp_path):
     job = tmp_path / "job"
     args(monkeypatch, job)
+    # This test replaces process-wide os.open for detached stdio, not state-lock behavior.
+    monkeypatch.setattr(core, "state_lock", lambda _: nullcontext())
     monkeypatch.setattr(cli, "lock_runner", lambda _: 55)
     monkeypatch.setattr(cli.os, "fork", lambda: 0)
     monkeypatch.setattr(cli.os, "setsid", lambda: None)

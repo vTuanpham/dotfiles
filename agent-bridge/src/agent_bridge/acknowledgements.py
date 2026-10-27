@@ -6,10 +6,13 @@ from contextlib import contextmanager
 
 from .core import URGENT_KINDS, save
 
+INFORMATIONAL_ONLY_KINDS = {"long_command", "overdue_wait"}
+
 
 def urgent(event, include_info=False):
     kind = event.get("kind")
-    if kind in {"heavy_wait", "retry_wait", "retryable_error", "attempt_failed", "peer_sent"}:
+    if kind in ({"heavy_wait", "retry_wait", "retryable_error", "attempt_failed", "peer_sent"}
+                | INFORMATIONAL_ONLY_KINDS):
         return False
     if kind in {"turn_completed", "turn_failed", "question", "question_timeout", "error",
                 "approval_declined", "permission_denied", "peer_unknown"}:

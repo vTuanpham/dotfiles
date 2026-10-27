@@ -195,11 +195,13 @@ def process(ev, state, job, send, texts=None):
                 log(
                     job,
                     "command_start",
+                    stepId=str(body["step_index"]) if body.get("step_index") is not None else None,
                     tool=body.get("tool_name"),
                     command=params.get("CommandLine") or params,
                 )
             elif st == "DONE":
-                log(job, "command_end", tool=body.get("tool_name"))
+                log(job, "command_end", tool=body.get("tool_name"),
+                    stepId=str(body["step_index"]) if body.get("step_index") is not None else None)
     elif kind == "result":
         state["turnsDone"] = state.get("turnsDone", 0) + 1
         inflight = state.get("inflight")

@@ -15,7 +15,9 @@
             "stalled",
             "known",
             "inactive",
-            "unknown"
+            "unknown",
+            "long-command",
+            "overdue-wait"
           ]
         },
         "reason": {
@@ -45,6 +47,37 @@
             {
               "type": "integer",
               "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "activity_age_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "waiting_on_job": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notice_id": {
+          "anyOf": [
+            {
+              "type": "string"
             },
             {
               "type": "null"
@@ -964,6 +997,26 @@
               "type": "null"
             }
           ]
+        },
+        "waiting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeclaredWait"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "in_flight": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InFlight"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1569,6 +1622,75 @@
         "max_wait_due_at"
       ],
       "additionalProperties": true
+    },
+    "DeclaredWait": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "command",
+            "peer",
+            "root",
+            "external",
+            "dependency"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "declared_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expected_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 7200
+        },
+        "peer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "note",
+        "declared_at",
+        "expected_seconds",
+        "peer"
+      ]
+    },
+    "InFlight": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "age_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "started_at",
+        "age_seconds"
+      ]
     }
   }
 }

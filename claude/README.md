@@ -82,7 +82,8 @@ It is Claude-only; [Agent Bridge](../agent-bridge/README.md) and
 
 Bridge crew rows put names first, each within an equal share of the width.
 `12s` means time since the last event; `stalled 16m` marks silence past Bridge's
-15-minute default (waiting for root is exempt). Known, longer turn times appear
+shared [stall classifier](../agent-bridge/src/agent_bridge/guide/status.md#bounded-waits-and-one-stall-classifier-v12)
+(known waits have their own reasons). Known, longer turn times appear
 only when space allows; unknown turn times are omitted. Finished jobs stay as
 `done` until Bridge's `result` or explicit `ack` acknowledges their completion.
 Identical account/model details appear once when there is room.

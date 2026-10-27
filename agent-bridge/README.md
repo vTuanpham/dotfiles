@@ -73,7 +73,7 @@ events arriving after display stay pending. Use a unique owner per root; its
 versioned `jobs/<owner>/ack.json` stores per-job byte cursors, with locked atomic
 updates. Missing cursors replay old urgent history; old jobs need no migration.
 See `agent-bridge guide workflow` for the cursor format and watch lifecycle.
-Wake shows names first with compact event ages, marks 15-minute silence as
+Wake shows names first with compact event ages, marks classifier-assessed silence as
 `stalled`, and keeps unacknowledged completions visible as `done`. Known turn
 times appear only when useful and space allows.
 

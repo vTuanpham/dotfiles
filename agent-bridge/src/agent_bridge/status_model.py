@@ -11,6 +11,26 @@ class Assessment:
     threshold_seconds: int
     recent_step_seconds: int | None = None
     usual_step_seconds: int | None = None
+    activity_age_seconds: int | None = None
+    waiting_on_job: str | None = None
+    notice_id: str | None = None
+
+
+@dataclass(frozen=True)
+class DeclaredWait:
+    kind: str
+    note: str
+    declared_at: str
+    expected_seconds: int
+    peer: str | None = None
+
+
+@dataclass(frozen=True)
+class InFlight:
+    id: str
+    kind: str
+    started_at: str
+    age_seconds: int
 
 
 @dataclass(frozen=True)
@@ -167,6 +187,8 @@ class Job:
     acknowledged_through: int
     completed_through: int
     group: str | None = None
+    waiting: DeclaredWait | None = None
+    in_flight: InFlight | None = None
 
 
 @dataclass(frozen=True)
@@ -261,7 +283,7 @@ class Snapshot:
     peers: Peers
     dependencies: tuple[Dependency, ...]
     errors: tuple[str, ...]
-    schema_minor: int = 1
+    schema_minor: int = 2
     groups: tuple[WakeGroup, ...] = ()
     group_events: tuple[GroupNotice, ...] = ()
     unacknowledged_completions: int = 0

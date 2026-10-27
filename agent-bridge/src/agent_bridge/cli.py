@@ -20,8 +20,10 @@ from . import (
     retries,
     status,
     status_render,
+    waiting,
 )
 from .acknowledgements import acknowledge, event_lines
+from .assessment import DEFAULT_DECLARED_WAIT_SECONDS, SILENCE_SECONDS
 from .core import (
     ARCHIVE,
     JOBS,
@@ -288,6 +290,14 @@ def main():
     snapshot.add_argument("--storage", action="store_true", help="scan sizes and expired retirement safety")
     snapshot.add_argument("--no-quotas", action="store_true",
                           help="skip account caches for a bounded status probe")
+    wait = sub.add_parser("waiting", help="declare a bounded silent wait for this worker")
+    action = wait.add_mutually_exclusive_group(required=True)
+    action.add_argument("--on", choices=waiting.KINDS)
+    action.add_argument("--clear", action="store_true")
+    wait.add_argument("--for", dest="duration", type=groups.duration,
+                      default=DEFAULT_DECLARED_WAIT_SECONDS, help="expected duration, at most 2h")
+    wait.add_argument("--note", default="", help="short reason, at most 80 printable characters")
+    wait.add_argument("--peer", help="sibling job name for a peer/dependency wait")
     s = sub.add_parser(
         "start",
         help="create a job and run its first turn",
@@ -437,8 +447,8 @@ def main():
     w.add_argument(
         "--stall-min",
         type=int,
-        default=15,
-        help="minutes of silence before reporting a running job as stalled (default: 15)",
+        default=SILENCE_SECONDS // 60,
+        help="override the snapshot classifier's silence threshold, in minutes",
     )
     w.add_argument(
         "--timeout",
@@ -512,6 +522,27 @@ def main():
                     )
     runner_fd = None
     try:
+        if a.command == "waiting":
+            from .status_model import DeclaredWait
+
+            identity = os.environ.get("AGENT_BRIDGE_JOB")
+            if not os.environ.get(WORKER_FLAG) or not identity:
+                raise ValueError("waiting requires the worker's AGENT_BRIDGE_JOB environment")
+            job = resolve_job(identity)
+            if a.clear:
+                if a.peer or a.note or any(arg.split("=", 1)[0] == "--for" for arg in sys.argv):
+                    raise ValueError("--clear cannot be combined with declaration fields")
+                waiting.write(job, None)
+                print("waiting: cleared")
+            else:
+                peer = f"{job.parent.name}/{a.peer}" if a.peer else None
+                if peer and (peer == identity or not (resolve_job(peer) / "state.json").is_file()):
+                    raise ValueError("peer must be another existing sibling job")
+                value = DeclaredWait(a.on, a.note, stamp(), a.duration, peer)
+                waiting.write(job, value)
+                log(job, "waiting_declared")
+                print(f"waiting: {a.on} for {a.duration}s")
+            return
         if a.command == "group":
             groups.require_root()
             if a.group_action in {"assign", "unassign"}:

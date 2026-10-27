@@ -9,16 +9,13 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import core, groups, heavy, peers, resources, status_observations, status_resources
+from . import core, groups, heavy, peers, resources, status_observations, status_resources, waiting
 from .acknowledgements import cursor_for, read_owner
+from .assessment import BUSY_WINDOW, SILENCE_SECONDS, assess
 from .core import job_caps, tree_size
 from .status_activity import (
-    BUSY_STALL_FACTOR,
-    BUSY_WINDOW,
-    PACE_FLOOR,
-    PACE_RECENT,
-    PACE_SLOW,
     busy,
+    in_flight,
     pace,
     running,
     socket_bytes,
@@ -26,7 +23,6 @@ from .status_activity import (
 )
 from .status_inputs import EventLog, quotas, read_job, tidy, timestamp, unanswered
 from .status_model import (
-    Assessment,
     Dependency,
     GroupPressure,
     HeavyQueue,
@@ -39,28 +35,6 @@ from .status_model import (
     Retention,
     Snapshot,
 )
-
-
-def assess(state, reason, quiet, threshold, working=False, steps=None):
-    """Known waits take precedence over both model pace and silence."""
-    limit = threshold * (BUSY_STALL_FACTOR if working else 1)
-    if state != "running":
-        return Assessment(
-            "known"
-            if state in {"waiting_for_heavy", "paused", "retrying", "blocked_on_question", "waiting_for_root"}
-            else "inactive",
-            reason,
-            quiet,
-            limit,
-        )
-    if quiet >= limit:
-        return Assessment("stalled", "processes busy" if working else "silence past threshold", quiet, limit)
-    if steps and steps[0] >= max(PACE_FLOOR, PACE_SLOW * steps[1]) and steps[2] >= PACE_RECENT:
-        recent, usual = round(steps[0]), round(steps[1])
-        return Assessment(
-            "slow", f"model steps take {recent}s, usually {usual}s", quiet, limit, recent, usual
-        )
-    return Assessment("ok", "processes busy" if working else "within silence threshold", quiet, limit)
 
 
 def collect_host(previous=None):
@@ -162,7 +136,7 @@ class Collector:
         self.host_at = None
         self.host = self.queue = None
 
-    def collect(self, owners=None, stall_min=15, include_quotas=True, storage=False):
+    def collect(self, owners=None, stall_min=SILENCE_SECONDS // 60, include_quotas=True, storage=False):
         now = time.time()
         self.observed_at = now
         errors, jobs, wake, recent, messages, retired_items = [], [], [], [], [], []
@@ -191,10 +165,12 @@ class Collector:
             except (OSError, ValueError, RuntimeError):
                 errors.append(f"{identifier}: invalid or unreadable state")
         nodes = {f"{j.parent.name}/{j.name}" for j, _ in states}
+        live = {f"{j.parent.name}/{j.name}": running(s) for j, s in states}
+        running_jobs = {identifier for identifier, alive in live.items() if alive}
         for job, state in states:
             identifier = f"{job.parent.name}/{job.name}"
             try:
-                alive = running(state)
+                alive = live[identifier]
                 if (job.parent / "ack.json").is_symlink():
                     raise ValueError("unsafe acknowledgement file")
                 cursor = cursor_for(job, read_owner(job.parent))
@@ -233,7 +209,8 @@ class Collector:
                     (
                         e
                         for e in reversed(evs)
-                        if e["kind"] not in {"slow", "stalled", "heavy_wait", "peer_sent"}
+                        if e["kind"] not in {"slow", "stalled", "heavy_wait", "peer_sent",
+                                             "waiting_declared", "long_command", "overdue_wait"}
                     ),
                     {},
                 )
@@ -303,7 +280,23 @@ class Collector:
                     for scope in job_scopes[identifier]:
                         scope_jobs.setdefault(scope, set()).add(identifier)
                 working = now - self.busy_at.get(identifier, -math.inf) <= 2 * BUSY_WINDOW
-                assessment = assess(mode, reason, quiet, stall_min * 60, working, pace(evs))
+                declaration = None
+                if "waiting" in state:
+                    try:
+                        declaration = waiting.decode(state["waiting"], job.parent.name, now)
+                    except (ValueError, TypeError):
+                        errors.append(f"{identifier}: invalid waiting declaration")
+                flight = in_flight(cached.rows, now) if alive else None
+                reported = {e.get("noticeId") for e in evs
+                            if e["kind"] in {"long_command", "overdue_wait"}}
+                critical = any(e.wakes and e.kind != "turn_completed" or e.error
+                               or e.status.lower() == "failed" for e in pending)
+                assessment = assess(
+                    mode, reason, quiet, stall_min * 60, working, pace(evs), waiting=declaration,
+                    in_flight=flight, now=now,
+                    declared_at=timestamp(declaration.declared_at) if declaration else None,
+                    peer_running=bool(declaration and declaration.peer in running_jobs),
+                    critical=critical, reported=reported)
                 if queue.error and mode == "running":
                     assessment = replace(
                         assessment,
@@ -369,6 +362,8 @@ class Collector:
                         identity,
                         cursor["through"],
                         cursor["completed"],
+                        waiting=declaration,
+                        in_flight=flight,
                     )
                 )
             except (OSError, ValueError, TypeError, KeyError, RuntimeError, subprocess.SubprocessError):
@@ -492,7 +487,8 @@ class Collector:
             if request.job == j.id and request.state == "queued"
             for holder in queue.requests
             if holder.state == "running" and (holder.exclusive or request.exclusive)
-        )
+        ) + tuple(Dependency(j.id, j.waiting.peer, "declared wait") for j in jobs
+                  if j.running and j.waiting and j.waiting.peer)
         group_views, group_events, replacements = [], [], {}
         for owner in sorted({j.owner for j in jobs}):
             selected = [j for j in jobs if j.owner == owner]
