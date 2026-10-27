@@ -11,6 +11,8 @@ One CLI with four backends: `codex`, `agy`, `claude` and `opencode`.
 ## Keeping the reference current
 `agent-bridge refresh --check` is read-only JSON: new/gone model IDs per backend, lock date/age and stale guide filenames. `agent-bridge stale` renders the same data as text and caches warnings for `start`. A missing/signed-out backend is not evidence that its models disappeared.
 
+Read `agent-bridge guide sources` before reviewing sources yourself: it lists the pages that work, how to read each (for example the `.md` form of OpenAI's model page), and the ones that return nothing useful (OpenRouter speed statistics, Antigravity's model page).
+
 Choose either source-review path:
 
 - **Worker proposal:** `agent-bridge refresh --force` stages both guides in one sandboxed job. The weekly timer uses the same path. It never applies or records a proposal, even when nothing changed. When one is waiting you are the reviewer:

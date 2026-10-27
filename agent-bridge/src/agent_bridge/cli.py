@@ -292,7 +292,7 @@ def main():
     )
     sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
     g = sub.add_parser("guide", help="read workflow, model or subscription guidance")
-    g.add_argument("topic", nargs="?", choices=("workflow", "plans", "subscriptions", "heavy"),
+    g.add_argument("topic", nargs="?", choices=("workflow", "plans", "subscriptions", "sources", "heavy"),
                    help="omit to read workflow and plans")
     sub.add_parser(
         "sessions", help="export native job identities as JSON (no transcripts)",
@@ -509,7 +509,7 @@ def main():
             return
         if a.command == "guide":
             names = {"workflow": ("overview",), "plans": ("models",),
-                     "subscriptions": ("subscriptions",), "heavy": ("heavy",)}
+                     "subscriptions": ("subscriptions",), "sources": ("sources",), "heavy": ("heavy",)}
             print(guide(*names.get(a.topic, ("overview", "models"))))
             return
         if a.command == "sessions":

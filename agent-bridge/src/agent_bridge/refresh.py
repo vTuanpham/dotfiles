@@ -23,6 +23,9 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 BIG_MOVE = 8  # index points; a bigger jump is shown to the user, not rejected
 SOURCES = (
     "https://artificialanalysis.ai/leaderboards/models (Intelligence Index, cost per task, a row per effort)",
+    "https://learn.chatgpt.com/docs/models.md (OpenAI positioning and Capability/Speed ratings)",
+    "https://docs.anthropic.com/en/docs/about-claude/models/overview (Claude positioning, latency, prices)",
+    "https://openrouter.ai/api/v1/models (list prices per model)",
     "https://learn.chatgpt.com/docs/pricing.md (Codex plans, models and limits)",
     "https://opencode.ai/docs/zen (OpenCode free models and their data policies)",
     "https://opencode.ai/docs/go (OpenCode Go plan)",
@@ -35,6 +38,7 @@ SOURCES = (
 )
 BRIEF = """You are refreshing two vendor reference documents. Work only in this directory.
 
+Read sources.md first: it records how each source is reached, which are unusable and what each may support.
 Files: current-models.md and current-subscriptions.md (reviewed documents), proposed-models.md and
 proposed-subscriptions.md (copies: edit these), drift.txt and live.txt (model inventory, not entitlement).
 
@@ -231,6 +235,7 @@ def run(force=False):
     for name, text in current.items():
         (work / f"current-{name}").write_text(text, encoding="utf-8")
         (work / f"proposed-{name}").write_text(text, encoding="utf-8")
+    (work / "sources.md").write_text((Path(__file__).with_name("guide") / "sources.md").read_text(encoding="utf-8"), encoding="utf-8")
     live = "".join(f"{n} {i}\n" for n, ids in sorted(reference.live().items()) for i in sorted(ids))
     for name, text in (
         ("drift.txt", "\n".join(reference.drift()) + "\n"),
