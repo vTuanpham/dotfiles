@@ -13,11 +13,23 @@ const details = new Sheet($('details'), $('details-toggle'), $('scrim'));
 const rootButtons=()=>[...$('roots').children,...$('saved-roots').children];
 const STATUS_LABELS = record({active:'Working', idle:'Ready', 'input-needed':'Needs you', native:'Native',
   offline:'Offline',unknown:'Status not reported'});
-const DELIVERY_LABELS = record({queued:'Accepted into the session queue.', steered:'Accepted for the current turn.',
+const DELIVERY_LABELS = record({queued:'Accepted into the session queue.', steered:'Accepted for steering at the native turn boundary.',
+  completed:'The native prompt turn completed.',
   forwarded:'Forwarded to the session. The native app has not confirmed receipt.',
   sending:'Submission is still in progress.',
   unknown:'Delivery could not be confirmed. Check the native conversation before sending again.',
   failed:'Not sent. Refresh the session and try again.'});
+const CAPABILITY_FLAGS=['queued_messages','mid_turn_steering','approvals_survive_restart','history_while_unloaded',
+  'images','interrupt','commands','questions'];
+function decodeRoots(value) {
+  if(!value || !Array.isArray(value.roots) || !value.roots.every(root=>{
+    const caps=root?.capabilities;
+    return isText(root.id) && isText(root.label) && isText(root.harness) && caps &&
+      Object.keys(caps).length===CAPABILITY_FLAGS.length+1 && CAPABILITY_FLAGS.every(key=>typeof caps[key]==='boolean') &&
+      ['direct','opt_in_next_turn','none'].includes(caps.reply_mode);
+  })) throw new Error('Connections were not in a recognized format.');
+  return value;
+}
 
 for(const [id,name] of [['sessions-close','close'],['switcher','menu'],['native','external'],['details-toggle','info'],
   ['details-close','close'],['latest','down'],['attach','image'],['send','up']]) $(id).append(icon(name));
@@ -39,7 +51,7 @@ $('theme-toggle').addEventListener('click',()=>{
 showTheme();
 
 function composeState(id=selected.id) {
-  if(!outbox.has(id)) outbox.set(id,{draft:'',images:[],pending:null,delivery:'',sending:false,uploading:false,receipt:''});
+  if(!outbox.has(id)) outbox.set(id,{draft:'',images:[],pending:null,delivery:'',sending:false,uploading:false,receipt:'',steer:false});
   return outbox.get(id);
 }
 function messageId() {
@@ -60,7 +72,8 @@ function syncComposer() {
   const state=composeState(), open=canSend;
   $('message').disabled=!open;
   $('send').disabled=!open || state.sending || state.uploading;
-  $('image-file').disabled=!open || state.sending || state.uploading || !!state.pending;
+  $('attach').hidden=!selected.capabilities.images;
+  $('image-file').disabled=!open || !selected.capabilities.images || state.sending || state.uploading || !!state.pending;
   $('attach').dataset.disabled=$('image-file').disabled ? '1' : '';
   $('resolve').hidden=!state.pending || state.sending || state.receipt!=='unknown';
   $('resolve').disabled=state.sending;
@@ -68,6 +81,11 @@ function syncComposer() {
   $('check').disabled=state.sending;
   $('receipt').hidden=$('resolve').hidden && $('check').hidden;
   $('send').dataset.busy=state.sending ? '1' : '';
+  $('steer').hidden=!selected.capabilities.mid_turn_steering || status!=='active';
+  $('steer').disabled=!open || state.sending || !!state.pending;
+  $('steer').setAttribute('aria-pressed',String(state.steer));
+  $('send').setAttribute('aria-label',state.steer && status==='active' ? 'Steer current turn' :
+    status==='active' && selected.capabilities.queued_messages ? 'Queue message' : 'Send');
 }
 function renderAttachments() {
   const box=$('attachments'), state=composeState(); box.textContent='';
@@ -80,7 +98,8 @@ function renderAttachments() {
   syncComposer();
 }
 async function api(path, data) {
-  const options = data ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)} : {};
+  const options = {credentials:'same-origin',mode:'same-origin',redirect:'error',
+    ...(data ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)} : {})};
   const response = await fetch(path, options);
   const result = await response.json();
   if (response.status === 401) { $('pairing').hidden=false; $('inbox').hidden=true; }
@@ -312,7 +331,7 @@ async function load() {
   if(loading) return;
   loading=true;
   try {
-    const result=await api('/api/roots'); roots=result.roots;
+    const result=decodeRoots(await api('/api/roots')); roots=result.roots;
     discoveryWarning=(result.warnings || []).join(' · ');
     $('pairing').hidden=true; $('inbox').hidden=false;
     setConnection(discoveryWarning || (roots.length?'Connected':'No online sessions'));
@@ -320,7 +339,7 @@ async function load() {
     if(signature!==rootSignature) { rootSignature=signature; renderRoots(); }
     if(!selected && roots.length) choose(roots[0]);
     const current=selected && roots.find(root=>root.id===selected.id);
-    if(current) { selected=current; rootHeading(current); }
+    if(current) { selected=current; rootHeading(current); syncComposer(); }
     if(selected && !roots.some(root=>root.id===selected.id)) {
       canSend=false; setStatus('offline');
       $('delivery').textContent='This session is offline. Its conversation history is preserved.';
@@ -346,10 +365,11 @@ async function deliver(target,state,payload) {
   try {
     const result=await api('/api/send',payload); state.receipt=result.status;
     state.delivery=DELIVERY_LABELS[result.status] || 'Unrecognized submission status.';
-    if(['queued','steered','forwarded'].includes(result.status)) {
+    if(['queued','steered','forwarded','completed'].includes(result.status)) {
       if(state.draft===body) state.draft='';
       if(JSON.stringify(state.images)===JSON.stringify(images)) state.images=[];
       state.pending=null;
+      state.steer=false;
     }
     if(result.status==='failed') state.pending=null;
   } catch(error) {
@@ -380,7 +400,8 @@ $('compose').addEventListener('submit',async event=>{
     state.delivery='A previous submission is unconfirmed. Check its delivery before sending this new draft.';
     $('delivery').textContent=state.delivery; renderAttachments(); return;
   }
-  if(!state.pending) state.pending={id:messageId(),target,text:body,...(images.length?{images}:{})};
+  if(!state.pending) state.pending={id:messageId(),target,text:body,...(images.length?{images}:{}),
+    ...(state.steer && status==='active' && selected.capabilities.mid_turn_steering ? {delivery:'steer'} : {})};
   state.draft=body; await deliver(target,state,state.pending);
 });
 $('check').addEventListener('click',()=>{
@@ -398,7 +419,7 @@ $('message').addEventListener('keydown',event=>{
 $('image-file').addEventListener('change',async event=>{
   if(!selected) return;
   const target=selected.id, state=composeState(target), files=Array.from(event.target.files);
-  if(state.uploading || state.pending) return;
+  if(state.uploading || state.pending || !selected.capabilities.images) return;
   state.uploading=true; syncComposer();
   try {
     if(files.some(file=>!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type))) throw new Error('Choose PNG, JPEG, WebP or GIF images.');
@@ -413,6 +434,10 @@ $('image-file').addEventListener('change',async event=>{
     state.uploading=false; event.target.value='';
     if(selected.id===target) { renderAttachments(); $('delivery').textContent=state.delivery; }
   }
+});
+$('steer').addEventListener('click',()=>{
+  if(!selected?.capabilities.mid_turn_steering || status!=='active' || composeState().pending) return;
+  composeState().steer=!composeState().steer; syncComposer();
 });
 $('resolve').addEventListener('click',()=>{
   if(composeState().sending || composeState().receipt!=='unknown') return;

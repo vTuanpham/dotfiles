@@ -7,6 +7,9 @@ import vm from 'node:vm';
 const read = name => readFileSync(new URL('../src/agent_inbox/'+name, import.meta.url), 'utf8');
 const scripts = ['kit.js', 'controls.js', 'context.js', 'forms.js', 'app.js'].map(name => [name, read(name)]);
 const roots = [{id:'a',label:'First root',harness:'One'}, {id:'b',label:'Second root',harness:'Two'}];
+const capabilities={queued_messages:true,mid_turn_steering:true,approvals_survive_restart:true,
+  history_while_unloaded:true,images:true,interrupt:true,commands:true,questions:true,reply_mode:'direct'};
+const withCapabilities=root=>({capabilities:{...capabilities},...root});
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const modelControl = (current, values) => ({id:'model',label:'Model',kind:'select',current,description:'Next turns',
   choices:values.map(value => ({value,label:value.toUpperCase()}))});
@@ -46,8 +49,8 @@ async function boot(options={}) {
     if(!elements.has(id)) { const created = new Element(); created.id = id; elements.set(id, created); }
     return elements.get(id);
   };
-  const requests = [], commandRequests = [], answerRequests = [], paths = [], timers = [], readers = [], contextCalls = [];
-  let liveRoots = (options.roots || roots).slice();
+  const requests = [], commandRequests = [], answerRequests = [], paths = [], timers = [], readers = [], contextCalls = [], fetches=[];
+  let liveRoots = (options.roots || roots).map(withCapabilities);
   const document = {
     hidden:false, body:{scrollHeight:0}, documentElement:new Element(), getElementById:element,
     createElement:() => new Element(), querySelector:() => element('compose-label'),
@@ -63,9 +66,11 @@ async function boot(options={}) {
     },
     fetch:async (path, request) => {
       paths.push(path);
+      fetches.push({path,request});
       const response = (data, status=200) => ({status,ok:status===200,json:async () => data});
       const id = new URL(path, 'http://localhost').searchParams.get('id');
       if(path === '/api/roots') return response({roots:liveRoots});
+      if(path === '/api/pair') return response({device:'fixture'});
       if(path.startsWith('/api/view')) {
         if(view) return response(view(path));
         return response({status:'idle',can_send:true,older_cursor:null,native_url:null,
@@ -102,7 +107,7 @@ async function boot(options={}) {
   for(const [name, source] of scripts) new vm.Script(source, {filename:name}).runInContext(context);
   await tick();
   const ui = {
-    element, document, focused:() => Element.focused, requests, commandRequests, answerRequests, paths, readers, contextCalls, run:code => vm.runInContext(code, context),
+    element, document, focused:() => Element.focused, requests, commandRequests, answerRequests, paths, readers, contextCalls, fetches, run:code => vm.runInContext(code, context),
     addFiles(files) { return element('image-file').listeners.change({target:{files,value:'images'}}); },
     // A browser-like click: the propagation path is fixed at dispatch, the target's own handler may re-render (detaching it),
     // and only afterwards do ancestors and `document` see the event.
@@ -124,7 +129,7 @@ async function boot(options={}) {
       option.listeners.click(); await tick();
     },
     async refresh(nextRoots) {
-      liveRoots=nextRoots;
+      liveRoots=nextRoots.map(withCapabilities);
       timers.find(timer=>timer.delay===10000).handler(); await tick();
       timers.find(timer=>timer.delay===4000).handler(); await tick();
     },
@@ -134,6 +139,48 @@ async function boot(options={}) {
   };
   return ui;
 }
+
+test('capabilities hide unavailable controls without guessing from harness names', async () => {
+  const ui=await boot({roots:[{...roots[0],harness:'Codex',capabilities:{...capabilities,
+    images:false,interrupt:false,commands:false,questions:false,mid_turn_steering:false}}]});
+  assert.equal(ui.element('attach').hidden,true);
+  assert.equal(ui.element('image-file').disabled,true);
+  assert.equal(ui.element('steer').hidden,true);
+  assert.equal(ui.element('command-menu-button').hidden,true);
+  assert.equal(ui.paths.some(path=>path.startsWith('/api/commands') || path.startsWith('/api/forms')),false);
+  const missing={...capabilities}; delete missing.images;
+  assert.throws(()=>ui.run('decodeRoots')({roots:[{...roots[0],capabilities:missing}]}),/recognized format/);
+});
+
+test('active turns queue by default and steering requires an explicit supported choice', async () => {
+  const ui=await boot({view:()=>({status:'active',can_send:true,messages:[]})});
+  assert.equal(ui.element('steer').hidden,false);
+  ui.type('Queue me');
+  let sending=ui.submit(); await tick();
+  assert.equal(ui.requests[0].data.delivery,undefined);
+  ui.requests[0].finish('queued'); await sending;
+  ui.element('steer').listeners.click();
+  assert.equal(ui.element('steer').attributes['aria-pressed'],'true');
+  ui.type('Steer me'); sending=ui.submit(); await tick();
+  assert.equal(ui.requests[1].data.delivery,'steer');
+  ui.requests[1].finish('steered'); await sending;
+  assert.equal(ui.element('steer').attributes['aria-pressed'],'false');
+});
+
+test('pairing and authenticated requests refuse redirects and keep credentials on their origin', async () => {
+  const ui=await boot();
+  ui.element('pair-code').value='FIXTURE';
+  await ui.element('pair-form').listeners.submit({preventDefault(){}});
+  const pairing=ui.fetches.find(call=>call.path==='/api/pair');
+  assert.ok(pairing);
+  assert.equal(pairing.path.includes('FIXTURE'),false);
+  assert.equal(JSON.parse(pairing.request.body).code,'FIXTURE');
+  for(const {request} of ui.fetches) {
+    assert.equal(request.redirect,'error');
+    assert.equal(request.mode,'same-origin');
+    assert.equal(request.credentials,'same-origin');
+  }
+});
 
 test('theme follows system by default and cycles through persistent night and day choices', async () => {
   const saved=[];
@@ -248,7 +295,7 @@ test('confirmed steering clears only its own draft and displays a steering recei
   ui.requests[0].finish('steered');
   await sending;
   assert.equal(ui.element('message').value, '');
-  assert.equal(ui.element('delivery').textContent, 'Accepted for the current turn.');
+  assert.equal(ui.element('delivery').textContent, 'Accepted for steering at the native turn boundary.');
 });
 
 test('a forwarded message is labelled as not natively confirmed and is not resent', async () => {
@@ -704,6 +751,33 @@ test('a pending question renders in the chat, keeps typed answers across polls a
   answered=true; ui.answerRequests[0].finish('applied'); await sending; await tick();
   assert.equal(ui.element('forms').children.length,0,'an applied answer leaves the stream');
 });
+
+test('duplicate and reordered choice labels submit the exact native value', async () => {
+  for(const options of [
+    [{value:'native-b',label:'Same'},{value:'native-a',label:'Same'}],
+    [{value:'native-a',label:'Same'},{value:'native-b',label:'Same'}],
+  ]) {
+    const ui=await boot({forms:()=>({forms:[{id:'f',title:'Choose',unavailable:'',fields:[
+      field('pick','string',{required:true,choices:options}),
+    ]}],unavailable:''})});
+    formUi(ui).radios().find(radio=>radio.value==='native-a').listeners.change();
+    const sending=formUi(ui).submit(); await tick();
+    assert.equal(ui.answerRequests[0].data.answer.pick,'native-a');
+    ui.answerRequests[0].finish('failed'); await sending;
+  }
+});
+
+for(const outcome of ['already_answered','no_longer_pending']) {
+  test('a '+outcome+' receipt releases a withdrawn question without a second delivery', async () => {
+    let pending=true;
+    const ui=await boot({forms:()=>({forms:pending ? [pickForm] : [],unavailable:''})});
+    formUi(ui).radios()[0].listeners.change();
+    const sending=formUi(ui).submit(); await tick();
+    pending=false; ui.answerRequests[0].finish(outcome); await sending; await tick();
+    assert.equal(ui.element('forms').children.length,0);
+    assert.equal(ui.answerRequests.length,1);
+  });
+}
 
 test('an unconfirmed answer keeps its ID, locks the form, survives a root switch and is only re-checked with the same payload', async () => {
   const ui=await boot({forms:id=>({forms:id==='a' ? [pickForm] : [],unavailable:''})});

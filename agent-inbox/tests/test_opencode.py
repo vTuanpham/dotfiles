@@ -51,7 +51,7 @@ class NativeApi:
                 raise self.error
             if parsed.path.endswith("/prompt"):
                 return {"data": {"id": body["id"], "sessionID": "ses_root", "type": "user",
-                                 "delivery": "steer", "payload": {"text": body["text"]}}}
+                                 "delivery": body["delivery"], "payload": {"text": body["text"]}}}
             return None
         if parsed.path == "/api/session/active":
             return {"data": {"ses_root": {"type": "running"}}}
@@ -135,7 +135,7 @@ def test_image_input_uses_native_admission_with_stable_root_and_id(api):
     assert opencode.OpenCode().send(target(), message) == "queued"
     method, path, payload = api.calls[-1]
     assert (method, path) == ("POST", "/api/session/ses_root/prompt")
-    assert payload == {"id": "msg_62c72a2546ab48ac8aac250cb6e1882d", "text": "", "delivery": "steer",
+    assert payload == {"id": "msg_62c72a2546ab48ac8aac250cb6e1882d", "text": "", "delivery": "queue",
                        "files": [{"uri": image}]}
     api.error = ApiRejected(409)
     with pytest.raises(DeliveryRejected):
@@ -323,3 +323,108 @@ def test_unconfirmed_permission_reply_keeps_its_receipt_and_is_never_repeated(ap
     api.permissions = []
     assert app.answer(data)["status"] == "unknown"
     assert len([call for call in api.calls if call[0] == "POST"]) == 1
+
+
+@pytest.mark.parametrize("identifier", ["per_one", "frm_one"])
+def test_request_withdrawn_across_inbox_restart_returns_durable_typed_outcome(api, tmp_path, identifier):
+    api.permissions = [permission()]
+    api.forms = [{"id": "frm_one", "sessionID": "ses_root", "title": "Choose", "fields": [
+        {"key": "choice", "type": "boolean", "required": True},
+    ]}]
+    store = Store(tmp_path)
+    store.register(target())
+    App(store).catalog.listing()
+    opencode.OpenCode().forms(target()).selected(identifier)
+    api.permissions, api.forms = [], []
+    data = {"id": str(uuid.uuid4()), "target": target().id, "form": identifier,
+            "answer": {"decision": "once"} if identifier.startswith("per_") else {"choice": False}}
+    app = App(Store(tmp_path))
+    assert app.answer(data)["status"] == "no_longer_pending"
+    assert app.answer(data)["status"] == "no_longer_pending"
+    assert app.answer({**data, "id": str(uuid.uuid4())})["status"] == "no_longer_pending"
+    assert not any(method == "POST" for method, *_ in api.calls)
+
+
+@pytest.mark.parametrize("identifier", ["per_one", "frm_one"])
+def test_native_pending_request_can_be_answered_after_inbox_restart_only_once(api, tmp_path, identifier):
+    api.permissions = [permission()]
+    api.forms = [{"id": "frm_one", "sessionID": "ses_root", "title": "Choose", "fields": [
+        {"key": "choice", "type": "boolean", "required": True},
+    ]}]
+    store = Store(tmp_path)
+    store.register(target())
+    opencode.OpenCode().forms(target()).selected(identifier)
+    data = {"id": str(uuid.uuid4()), "target": target().id, "form": identifier,
+            "answer": {"decision": "once"} if identifier.startswith("per_") else {"choice": False}}
+    assert App(Store(tmp_path)).answer(data)["status"] == "applied"
+    assert App(Store(tmp_path)).answer({**data, "id": str(uuid.uuid4())})["status"] == "already_answered"
+    assert len([call for call in api.calls if call[0] == "POST"]) == 1
+
+
+def test_permission_withdrawal_racing_dispatch_is_rechecked_without_second_post(api, tmp_path):
+    api.permissions = [permission()]
+    native = api.call
+
+    def withdrawn(method, path, body=None):
+        if method == "POST":
+            api.permissions = []
+            api.error = ApiRejected(409)
+        return native(method, path, body)
+
+    api.call = withdrawn
+    store = Store(tmp_path)
+    store.register(target())
+    data = {"id": str(uuid.uuid4()), "target": target().id, "form": "per_one",
+            "answer": {"decision": "once"}}
+    assert App(store).answer(data)["status"] == "no_longer_pending"
+    assert len([call for call in api.calls if call[0] == "POST"]) == 1
+
+
+def test_explicit_steering_uses_native_delivery_and_reports_it_without_implying_consumption(api):
+    message = Outgoing(str(uuid.uuid4()), "Steer", [], "steer")
+    assert opencode.OpenCode().send(target(), message) == "steered"
+    assert api.calls[-1][2]["delivery"] == "steer"
+
+
+def test_steering_rechecks_that_opencode_is_active_without_falling_back_to_queue(api):
+    native = api.call
+
+    def idle(method, path, body=None):
+        return {"data": {}} if path == "/api/session/active" else native(method, path, body)
+
+    api.call = idle
+    with pytest.raises(DeliveryRejected, match="no active turn"):
+        opencode.OpenCode().send(target(), Outgoing(str(uuid.uuid4()), "Steer", [], "steer"))
+    assert not any(method == "POST" for method, *_ in api.calls)
+
+
+def test_service_redirect_never_replays_credentials_to_another_host(tmp_path, monkeypatch):
+    calls = []
+
+    class Redirect:
+        status = 307
+
+        def getheader(self, name, default=None):
+            return "http://other.example.test/" if name.lower() == "location" else default
+
+    class Socket:
+        def __init__(self, host, port, timeout):
+            assert host == "127.0.0.1"
+
+        def request(self, method, path, body, headers):
+            calls.append((method, path, headers))
+
+        def getresponse(self):
+            return Redirect()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("agent_inbox.opencode_http.http.client.HTTPConnection", Socket)
+    path = tmp_path / "service.json"
+    path.write_text(json.dumps({"url": "http://127.0.0.1:12345", "password": "fixture",
+                                "version": "2.0.3", "pid": 123, "id": "fixture"}))
+    with pytest.raises(ApiRejected) as error:
+        Connection(replace(target(), settings={"service": str(path)}))
+    assert error.value.status == 307
+    assert len(calls) == 1 and calls[0][1] == "/api/health"

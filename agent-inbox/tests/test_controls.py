@@ -22,6 +22,8 @@ from agent_inbox.store import Store, digest
 
 
 class Controls:
+    capabilities = adapters.ADAPTERS["opencode"].capabilities
+
     def __init__(self):
         self.calls = []
         self.raise_after_dispatch = False
@@ -103,14 +105,87 @@ def test_legacy_receipts_and_device_pairing_survive_operation_migration(tmp_path
 def test_question_answers_require_current_form_in_selected_root(controls):
     app, provider = controls
     data = {"id": str(uuid.uuid4()), "target": "second", "form": "first", "answer": {"choice": False}}
-    assert app.answer(data)["status"] == "failed"
+    assert app.answer(data)["status"] == "no_longer_pending"
     assert not provider.calls
     data.update(id=str(uuid.uuid4()), form="second")
     assert app.answer(data)["status"] == app.answer(data)["status"] == "applied"
     assert provider.calls == [("second", "second", {"choice": False}, False)]
-    assert app.answer({**data, "id": str(uuid.uuid4()), "answer": {}, "cancel": True})["status"] == "applied"
+    assert app.answer({**data, "id": str(uuid.uuid4()), "answer": {}, "cancel": True})[
+        "status"] == "already_answered"
+    assert len(provider.calls) == 1
     with pytest.raises(ValueError):
         app.answer({**data, "cancel": True})
+
+
+def test_concurrent_answers_with_different_ids_claim_one_question_and_replay_receipts(controls):
+    app, provider = controls
+    base = {"target": "second", "form": "second", "answer": {"choice": False}}
+    requests = [{**base, "id": str(uuid.uuid4())} for _ in range(8)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        states = list(pool.map(lambda data: app.answer(data)["status"], requests))
+    assert states.count("applied") == 1
+    assert set(states) <= {"applied", "already_answered", "sending"}
+    assert provider.calls == [("second", "second", {"choice": False}, False)]
+    for data, state in zip(requests, states, strict=True):
+        assert app.answer(data)["status"] == ("applied" if state == "applied" else "already_answered")
+        with pytest.raises(ValueError):
+            app.answer({**data, "answer": {"choice": True}})
+    # Receipts and question claims survive an Inbox restart, even if native still lists the request.
+    restarted = App(Store(app.store.home))
+    assert restarted.answer({**base, "id": str(uuid.uuid4())})["status"] == "already_answered"
+    assert len(provider.calls) == 1
+
+
+def test_inflight_answer_alias_tracks_its_original_across_restart_and_unknown_outcomes(controls):
+    app, provider = controls
+    data = {"id": str(uuid.uuid4()), "target": "second", "form": "second",
+            "answer": {"choice": False}}
+    fingerprint = json.dumps(["answer", "second", data["answer"], False],
+                             sort_keys=True, separators=(",", ":"))
+    app.store.reserve(data["id"], "second", fingerprint, "answer", "second")
+    alias = {**data, "id": str(uuid.uuid4())}
+    assert app.answer(alias)["status"] == "sending"
+    app.store.recover()
+    restarted = App(Store(app.store.home))
+    for request in (data, alias, {**alias, "id": str(uuid.uuid4())}):
+        assert restarted.answer(request)["status"] == "unknown"
+    assert provider.calls == []
+
+
+def test_replayed_legacy_answer_binds_its_question_without_redelivery(controls):
+    app, provider = controls
+    data = {"id": str(uuid.uuid4()), "target": "second", "form": "second",
+            "answer": {"choice": False}}
+    fingerprint = json.dumps(["answer", "second", data["answer"], False],
+                             sort_keys=True, separators=(",", ":"))
+    app.store.reserve(data["id"], "second", fingerprint, "answer")
+    app.store.finish(data["id"], "applied")
+    assert app.answer(data)["status"] == "applied"
+    assert app.answer({**data, "id": str(uuid.uuid4())})["status"] == "already_answered"
+    assert not provider.calls
+
+
+def test_invalid_answer_does_not_prevent_a_corrected_new_command(controls):
+    app, provider = controls
+    data = {"id": str(uuid.uuid4()), "target": "second", "form": "second", "answer": {"choice": 1}}
+    assert app.answer(data)["status"] == "failed"
+    assert app.answer({**data, "id": str(uuid.uuid4()), "answer": {"choice": False}})["status"] == "applied"
+    assert len(provider.calls) == 1
+
+
+def test_form_native_values_survive_duplicate_and_reordered_display_labels():
+    native = {"id": "frm_one", "sessionID": "ses_a", "title": "Choose", "fields": [
+        {"key": "pick", "type": "string", "required": True,
+         "options": [{"value": "native-b", "label": "Same"}, {"value": "native-a", "label": "Same"}]},
+    ]}
+    for _ in range(2):
+        decoded = opencode_forms.decode_form(native, "ses_a")
+        decoded.validate({"pick": "native-a"})
+        assert [choice.value for choice in decoded.fields[0].choices] == [
+            choice["value"] for choice in native["fields"][0]["options"]]
+        with pytest.raises(DeliveryRejected):
+            decoded.validate({"pick": "Same"})
+        native["fields"][0]["options"].reverse()
 
 
 def test_conditional_forms_preserve_false_zero_and_multiselect_semantics():

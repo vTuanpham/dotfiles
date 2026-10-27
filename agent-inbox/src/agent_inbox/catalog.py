@@ -1,7 +1,7 @@
 import json
 import time
 import uuid
-from dataclasses import replace
+from dataclasses import asdict, replace
 from threading import Lock
 
 from .adapters import adapter
@@ -31,14 +31,28 @@ class Catalog:
             for seeds in sources.values():
                 seed = seeds[0]
                 try:
-                    discovered = adapter(seed).discover(seed)
+                    provider = adapter(seed)
+                    capabilities = asdict(provider.capabilities)
+                    discovered = provider.discover(seed)
+                except (TimeoutError, ConnectionError):
+                    warnings.append(seed.harness + " connection unavailable")
+                    if seed.adapter != "claude":
+                        # A failed probe is not an authoritative list of closed sessions.
+                        for identifier, previous in self.live.items():
+                            if (previous.adapter, previous.harness, previous.settings) == (
+                                seed.adapter, seed.harness, seed.settings,
+                            ):
+                                live[identifier] = previous
+                                row = next(row for row in self.rows if row["id"] == identifier)
+                                rows.append({**row, "status": "unknown", "stale": True})
+                    continue
                 except Exception:
                     warnings.append(seed.harness + " connection unavailable")
                     continue
                 if discovered is None:
                     for target in seeds:
                         live[target.id] = target
-                        rows.append({**target.public(), "status": "native"})
+                        rows.append({**target.public(), "status": "native", "capabilities": capabilities})
                     continue
                 for info in discovered:
                     target = replace(seed, session_id=info.session_id, label=info.label)
@@ -49,7 +63,8 @@ class Catalog:
                     if target.id in live:
                         raise ValueError("Duplicate discovered root")
                     live[target.id] = target
-                    rows.append({**target.public(), "status": info.status, "saved": info.saved})
+                    rows.append({**target.public(), "status": info.status, "saved": info.saved,
+                                 "capabilities": capabilities})
             annotate(live, rows, read())
             registered_ids = {t.id for t in registered.values()}
             rows.sort(key=lambda row: (row["id"] not in registered_ids,

@@ -3,6 +3,7 @@ import base64
 import io
 import sys
 import time
+import uuid
 from dataclasses import replace
 from pathlib import Path
 from threading import Lock, Thread
@@ -138,7 +139,7 @@ def test_send_keeps_native_image_blocks_and_returns_only_after_prompt_receipt():
     pool = FakePool()
     selected = target("native-id-001")
     message = Outgoing("96be83a6-314a-45d9-89cc-a0bc94508bc9", "Describe this", [image_url()])
-    assert acp.ACP(pool).send(selected, message) == "forwarded"
+    assert acp.ACP(pool).send(selected, message) == "completed"
     prompt = pool.prompts[0]
     assert prompt[0] == {"type": "text", "text": "Describe this"}
     assert prompt[1]["type"] == "image" and prompt[1]["mimeType"] == "image/png"
@@ -150,6 +151,13 @@ def test_image_only_prompt_is_allowed_but_empty_prompt_is_rejected():
     provider.send(selected, Outgoing("96be83a6-314a-45d9-89cc-a0bc94508bc9", "", [image_url()]))
     with pytest.raises(ValueError):
         provider.send(selected, Outgoing("96be83a6-314a-45d9-89cc-a0bc94508bc9", "", []))
+
+
+def test_acp_explicitly_rejects_steering_instead_of_dispatching_a_second_prompt():
+    pool = FakePool()
+    with pytest.raises(DeliveryRejected, match="steering"):
+        acp.ACP(pool).send(target("native-id-001"), Outgoing(str(uuid.uuid4()), "Hi", [], "steer"))
+    assert not pool.prompts
 
 
 def test_commands_are_limited_to_native_config_modes_slash_and_live_cancel():
