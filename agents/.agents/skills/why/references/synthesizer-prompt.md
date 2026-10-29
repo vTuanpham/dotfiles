@@ -46,7 +46,7 @@ You MUST follow `references/epistemics.md`. Read it in full before writing. The 
 
 ## Output Format
 
-Write for the user, in this exact structure:
+Use the sections relevant to the question; a narrow answer can be a short cited paragraph. The structure below supports larger investigations. Keep the separation of evidence, inference and unknowns, without empty headings or a mandatory inventory of unrelated sources:
 
 ---
 
@@ -98,7 +98,7 @@ Specific gaps: "We searched the issue tracker for [query1], [query2], [query3] a
 
 What was actually searched, so the user can judge coverage and redirect:
 
-- **Source control history**: {file paths}, {number of commits reviewed}, PRs #{numbers}, and code comments searched. Or "Not searched. This should not happen because git and `gh` are always expected."
+- **Source control history**: {file paths}, {number of commits reviewed}, PRs #{numbers}, and code comments searched. State if history or remote access is unavailable.
 - **Issue / ticket tracker**: {ticket IDs and keyword searches}. Or "Not searched. No matching MCP available in this environment."
 - **Long-form documents**: {page titles and search queries}. Or "Not searched. No matching MCP available in this environment."
 - **Real-time team chat**: {channels searched, date ranges, queries}. Or "Not searched. No matching MCP available in this environment."

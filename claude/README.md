@@ -12,6 +12,16 @@ Claude Code configuration under `~/.claude`. Each part has its own kind:
 | [Root stop safety net](.claude/hooks/README.md) | Script is a live link; entries merge into settings | `install.sh --apply links`, then `install.sh --apply hooks` |
 | [Wake mod](#wake-mod-live) | Live link; reloads as its files change | `install.sh --apply links` |
 
+## Cache and thread reuse
+
+Within included subscription usage, Claude Code's main conversation defaults to
+a one-hour prompt cache; subagents and most other requests default to five
+minutes. Usage credits, API keys and cloud-provider requests default to five
+minutes for both. Explicit settings can change these defaults; see the
+[official prompt-cache guide](https://code.claude.com/docs/en/prompt-caching#which-ttl-each-request-gets).
+Reuse context when relevant, and start fresh when unrelated history outweighs
+the benefit; a warm cache does not make an oversized conversation free.
+
 ## Hooks
 
 `settings.json` defines two `PreToolUse` hooks, the same ones Codex runs (`codex/.codex/hooks.json`):

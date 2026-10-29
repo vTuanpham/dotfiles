@@ -5,6 +5,8 @@
 Codex CLI config under `~/.codex`.
 
 - `AGENTS.md`: **live** link to the shared instructions (`agents/`).
+- `skills/codex-wake/`: **live** Codex-only skill, installed under `~/.codex/skills`;
+  loaded on demand for background wake-ups. Invoke explicitly as `$codex-wake`.
 - `config.toml`: model, agents, plugins, features and the status line. A snapshot. Machine-local state
   (trusted projects, hook trust hashes, UI hints) is deliberately not tracked; Codex asks again.
 - `hooks.json`: RTK/Baton guards and the [browser idle reminder](../chrome/README.md#idle-reminder). `install.sh --apply hooks`
@@ -34,6 +36,12 @@ no question-cancellation hook is installed here.
 [OpenAI hooks reference](https://learn.chatgpt.com/docs/hooks#run-hooks-in-the-background).
 
 ## Native integrations
+
+[Codex Wake](../codex-wake/README.md) delivers native task notifications to an
+existing conversation from background commands, hooks and event producers.
+`codex-wake check` verifies availability; `codex-wake run --message "Build finished"
+-- make build` runs a command and wakes the same session on completion. Bridge
+uses its shared client and retains its own event and reminder policies.
 
 Native Baton and GitHub servers use the installed `agent-baton mcp` and
 `github-mcp` commands. Reload MCP configuration after installing them; the

@@ -34,12 +34,13 @@ class InstallTests(unittest.TestCase):
 
             self.assertEqual(first.returncode, 0, first.stderr)
             for name in (".zshrc", ".claude/CLAUDE.md", ".config/systemd/user/agent-bridge-reference.timer",
-                         ".local/libexec/chatgpt-browser-idle.py"):
+                         ".local/libexec/chatgpt-browser-idle.py", ".codex/skills/codex-wake"):
                 link = Path(tmp) / name
                 self.assertTrue(link.is_symlink(), name)
                 self.assertTrue(str(link.resolve()).startswith(str(root)), name)
             for skill in ("correct", "benchmark-checklist", "create-verification-skill",
-                          "maintain-verification-skill", "how", "why", "blast-radius", "arena", "unslop"):
+                          "maintain-verification-skill", "how", "why", "blast-radius", "arena", "unslop",
+                          "python-project"):
                 source = root / "agents/.agents/skills" / skill
                 self.assertTrue((source / "SKILL.md").is_file(), skill)
                 for directory in (".agents/skills", ".claude/skills", ".gemini/config/skills"):
@@ -47,6 +48,8 @@ class InstallTests(unittest.TestCase):
                     self.assertTrue(link.is_symlink(), str(link))
                     self.assertEqual(link.resolve(), source)
             self.assertNotIn("  + ", second.stdout)
+            for directory in (".agents/skills", ".claude/skills", ".gemini/config/skills"):
+                self.assertFalse((Path(tmp) / directory / "codex-wake").exists())
 
     def test_a_different_file_is_a_conflict_and_is_left_alone_but_an_identical_copy_becomes_a_link(self):
         with tempfile.TemporaryDirectory() as tmp:

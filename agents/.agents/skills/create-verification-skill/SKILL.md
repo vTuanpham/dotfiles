@@ -1,7 +1,7 @@
 ---
 name: create-verification-skill
-description: "Generate a project-local verification skill that drives your app the way a user does — any language, framework, or platform. Use for /create-verification-skill, \"make a control skill for this repo\", or when a project has no scripted way to prove UI/CLI/service behavior."
-disable-model-invocation: true
+description: "Create a project-local skill that launches and drives the real app, captures evidence and cleans up. Use when asked for /create-verification-skill or a reusable app verification/control workflow."
+license: MIT
 ---
 
 # Create a verification skill
@@ -18,7 +18,7 @@ Answer these from the codebase and only ask the user what you cannot observe:
 - **Observe:** what evidence can be captured? Screenshots, terminal transcripts, response bodies, logs, exit codes, DB state.
 - **Isolate:** can two instances run side by side (ports, data dirs, profiles)? If not, say so in the generated skill: refusing to double-drive a shared instance beats corrupting the user's session.
 
-If the checkout doesn't build or start as-is, fix that first (or report it precisely) before generating; a skill written against a broken base teaches wrong steps. When an irrelevant missing asset blocks startup (a static dir the API never serves, a sample config), the generated skill may create it, clearly marked as verification scaffolding, and remove it in cleanup.
+If the checkout doesn't build or start as-is, fix it only within the authorized task or report the blocker before generating; a skill written against a broken base teaches wrong steps. When an irrelevant missing asset blocks startup (a static dir the API never serves, a sample config), the generated skill may create it, clearly marked as verification scaffolding, and remove it in cleanup.
 
 ## 2. Generate the skill
 

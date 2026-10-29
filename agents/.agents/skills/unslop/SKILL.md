@@ -1,7 +1,7 @@
 ---
 name: unslop
-description: Cut AI tells from any writing.
-disable-model-invocation: true
+description: "Edit drafts, README prose or explanations to remove AI-style filler and mechanical language. Use for /unslop or a request to make writing clearer and more natural."
+license: MIT
 ---
 
 # Unslop

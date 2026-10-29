@@ -2,46 +2,75 @@
 
 [← Packages](../README.md#packages) · **Live** · `./install.sh --apply links`
 
-The instructions and skills every coding agent shares.
+Shared guidance and task skills for Codex, Claude Code, Antigravity and OpenCode.
+The [repository placement policy](../AGENTS.md#guidance-placement) governs changes:
+keep enough context to choose and execute correctly, with one owner for details.
 
-Manual recovery backups live outside Git under
-`${XDG_STATE_HOME:-$HOME/.local/state}/backups/<scope>/<timestamp>/`, with private
-permissions and original paths/restore details. A scope can be a tool, project,
-system, or cross-tool change; bundles can contain files, directories, or archives.
-Application-managed rotating backups stay in the application's own location.
+## Instruction and skill map
 
-- `.config/agents/AGENTS.md`: the one owner of the rules all harnesses share. Put harness-specific rules in
-  that harness's own file, never here.
-- `.agents/skills/agent-bridge/SKILL.md` and `.agents/skills/agent-baton/SKILL.md`: short briefings that say
-  what each tool is and when to reach for it. The full workflow prints from `agent-bridge guide workflow` and
-  `agent-baton --help`, so an agent reads it only when it decides to.
-  Bridge's `steer` resumes idle jobs automatically; `--queue` leaves them queued
-  for an explicit `resume`, and `--watch` follows delivery in the same command.
+| Scope | Maintained source | Live discovery |
+| --- | --- | --- |
+| Shared globals | `.config/agents/AGENTS.md` | All four harnesses |
+| Codex globals | [codex/.codex/AGENTS.md](../codex/.codex/AGENTS.md) | `~/.codex/AGENTS.md`; currently links to shared globals |
+| Claude globals | [claude/.claude/CLAUDE.md](../claude/.claude/CLAUDE.md) | `~/.claude/CLAUDE.md`; imports shared globals and adds Claude preferences |
+| Antigravity globals | [gemini/.gemini/AGENTS.md](../gemini/.gemini/AGENTS.md) | `~/.gemini/AGENTS.md`; currently links to shared globals |
+| OpenCode globals | [opencode/.config/opencode/AGENTS.md](../opencode/.config/opencode/AGENTS.md) | `~/.config/opencode/AGENTS.md`; currently links to shared globals |
+| Shared skills | `.agents/skills/` | Codex/OpenCode: `~/.agents/skills`; Claude: `~/.claude/skills`; agy: `~/.gemini/config/skills` |
+| Codex-only skills | [codex/.codex/skills/](../codex/.codex/skills/) | `~/.codex/skills`; includes `codex-wake` |
 
-How each harness reaches them: Codex `~/.codex/AGENTS.md`, OpenCode `~/.config/opencode/AGENTS.md` and
-Antigravity `~/.gemini/AGENTS.md` are in-repo symlinks to the shared file (none of them imports files).
-Claude's `CLAUDE.md` imports it with `@~/.config/agents/AGENTS.md`. Codex finds the skills in
-`~/.agents/skills`, Claude in `~/.claude/skills`, Antigravity in `~/.gemini/config/skills`, through links in
-their packages.
+A harness-specific global file is allowed when a preference belongs in every
+session of that harness. The current shared symlinks are not places to append
+one harness's override. Use supported composition or a scoped skill, preserving
+the shared file's ownership. Project-local instructions own project invariants.
+
+Skill names/descriptions provide discovery; the body supplies the workflow.
+Keep the first action and non-obvious constraints there. Load references only for
+the selected mode, and use CLI help for changing flags/defaults. Prefer an
+enforced contract or native tool behavior when it can replace a remembered rule.
+
+## Shared tools
+
+- `agent-bridge`: root coordination across harnesses. Its skill routes to
+  `agent-bridge guide workflow`, which owns launch/watch/group/cleanup behavior.
+  Backend notes and CLI discovery own available models and flags.
+- `agent-baton`: secret handoffs and unanswered-question reminders. Its skill
+  retains secret handling, conversation isolation and target-focus constraints;
+  `agent-baton --help` owns forms and command schemas.
+- `python-project`: the substantial Python baseline, including uv, type checking,
+  quality tools and CI. Small scripts and narrow fixes keep proportional scope.
+
+The global rules retain authorization, question escalation, ownership,
+verification and boundary safety. Detailed language-specific workflows belong
+to their skills. Harness-specific cache notes live in
+[Codex](../codex/README.md#cache-and-resuming-threads),
+[Claude](../claude/README.md#cache-and-thread-reuse) and
+[Antigravity](../gemini/README.md#cache-and-thread-reuse).
 
 ## Engineering skills
 
-Nine [pstack](https://github.com/backnotprop/pstack) skills are vendored unchanged
-at commit [`fad8d01588a1`](https://github.com/backnotprop/pstack/tree/fad8d01588a1b1ae803f87c8a1e0de79e28cffec),
-with their references and [MIT license](PSTACK-LICENSE). The installer links each
-directory into `~/.agents/skills`, `~/.claude/skills` and
-`~/.gemini/config/skills`. Codex and OpenCode discover the shared `.agents` path.
+Nine [pstack](https://github.com/backnotprop/pstack) skills are based on commit
+[`fad8d01588a1`](https://github.com/backnotprop/pstack/tree/fad8d01588a1b1ae803f87c8a1e0de79e28cffec),
+with their references and [MIT license](PSTACK-LICENSE). They are locally adapted:
+native tools/model discovery replace Cursor-specific calls and guessed model
+slugs; absent companion skills are not required; searches and delegation fit the
+task; commits/publication retain the user's authorization boundary.
 
 | Use | Skills |
 | --- | --- |
-| Prevent repeated mistakes | `correct` |
-| Check performance measurements | `benchmark-checklist` |
-| Create and maintain project verification recipes | `create-verification-skill`, `maintain-verification-skill` |
-| Explain behavior and design rationale | `how`, `why` |
-| Investigate change risks | `blast-radius` |
-| Compare alternatives and edit prose | `arena`, `unslop` |
+| Prevent recurring repository mistakes | `correct` |
+| Validate measured performance claims | `benchmark-checklist` |
+| Create or audit app verification workflows | `create-verification-skill`, `maintain-verification-skill` |
+| Explain execution or historical rationale | `how`, `why` |
+| Assess risk beyond a diff | `blast-radius` |
+| Compare requested candidates or edit prose | `arena`, `unslop` |
 
-Use these on demand, under the shared scope, permission and delegation rules.
-The full `poteto-mode` plugin is not installed. To update, review a new upstream
-revision and replace these nine directories together, retaining the license and
-updating the pinned commit here.
+Automatic matching is enabled; descriptions narrow when a workflow is relevant.
+A skill's availability does not authorize extra agents, product edits or external
+actions. The full upstream plugin is not required or installed. To refresh the
+vendored skills, review upstream against the pinned baseline, preserve local
+scope/portability adaptations and license, then update the attribution.
+
+Manual recovery backups remain outside Git under
+`${XDG_STATE_HOME:-$HOME/.local/state}/backups/<scope>/<timestamp>/`, with private
+permissions and original paths/restore details. Application-managed backups stay
+in their own locations.

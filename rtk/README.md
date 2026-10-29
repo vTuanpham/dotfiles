@@ -19,6 +19,17 @@ live config, run `rtk trust --yes` locally. Trust hashes stay outside Git.
 Use `rtk uvx ...` for standalone UV-managed tools; repository commands stay
 `uv run` with the existing RTK filters.
 
+## Exact output and shell quoting
+
+`rtk proxy` bypasses output filtering. Use it for exact protocol/instruction
+output or commands with shell operators/comparisons that a filtering wrapper
+may reconstruct incorrectly. A recorded `rtk summary` invocation stripped the
+quoting from `awk 'NR>=80'`, leaving a `>=80` redirect and a stray `=80` file.
+Prefer a read tool for line ranges; recover omitted output with `rtk recall` or
+a focused read. Ordinary commands still use the appropriate RTK filter.
+
+## Checks
+
 Run `python3 -B tests/test_rtk_filters.py` from the repo root to check the inline
 fixtures and real dispatch/exit status in an isolated config. RTK's verifier
 currently reads project filters, not global ones, so an empty global verify run

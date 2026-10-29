@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from codex_wake import client
 
 from agent_bridge import core, root_wake, status, watch
 from agent_bridge.acknowledgements import acknowledge
@@ -60,8 +61,8 @@ def transport(monkeypatch):
         def close(self):
             self.closed = True
 
-    monkeypatch.setattr(root_wake.socket, "socket", Socket)
-    monkeypatch.setattr(root_wake, "create_connection", Peer)
+    monkeypatch.setattr(client.socket, "socket", Socket)
+    monkeypatch.setattr(client, "create_connection", Peer)
     return sockets, peers, responses
 
 

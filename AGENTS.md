@@ -33,6 +33,27 @@ Adding a new tool's config: decide live link or snapshot, add it to `LINKS` or `
 give its folder a README that says which, and add a row to the top-level Packages table. Stage explicit paths,
 never `git add -A`. Push only when the user says so.
 
+## Guidance placement
+
+Prefer discoverable behavior over always-loaded prose, without removing the context needed to act correctly.
+
+| Layer | What belongs there |
+| --- | --- |
+| Shared global instructions | Stable rules that apply across projects and harnesses |
+| Harness global instructions | Stable preferences/invariants for every session in that harness; this layer is allowed |
+| Project instructions | Local contracts, ownership and non-obvious constraints |
+| Scoped skills | Reusable workflows selected by a clear task description |
+| Maintained docs / CLI help | Detailed procedures, schemas, flags, troubleshooting and supporting evidence |
+| Code / types / checks / hooks | Behavior that can be enforced reliably rather than remembered |
+
+Keep one owner per rule and route to it. Entry points must retain clear triggers, the next action and
+essential safety/correctness constraints; pruning must not leave agents guessing or searching unrelated
+files. Keep skill metadata short and discriminating, allow automatic discovery unless explicitly unwanted,
+and verify live links plus the target harness's supported discovery paths. Shared skills must not require
+another harness's tool names, guessed model IDs or absent companion skills. Preserve authorization and
+project invariants when adapting upstream skills; document local adaptations and retain their license.
+Edit maintained sources, not generated plugin caches. Do not add global catalogs or repeated workflows.
+
 ## Before every commit
 
 ```sh

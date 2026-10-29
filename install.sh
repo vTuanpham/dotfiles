@@ -54,7 +54,7 @@ step_tools() {
 step_uvtools() {
   if ! have uv; then say "  uv is missing: run the tools step first"; return 0; fi
   local tool
-  for tool in agent-bridge agent-baton agent-inbox portlink; do
+  for tool in codex-wake agent-bridge agent-baton agent-inbox portlink; do
     if uv tool list 2>/dev/null | grep -q "^$tool "; then say "  $tool installed"; else act uv tool install --editable "$REPO/$tool"; fi
   done
 }
@@ -94,6 +94,7 @@ LINKS=(
   "claude/.claude/skills/agent-baton .claude/skills/agent-baton"
   "claude/.claude/skills/agent-bridge .claude/skills/agent-bridge"
   "codex/.codex/AGENTS.md .codex/AGENTS.md"
+  "codex/.codex/skills/codex-wake .codex/skills/codex-wake"
   "chrome/.local/bin/chatgpt-browser .local/bin/chatgpt-browser"
   "chrome/.local/libexec/chatgpt-browser-idle.py .local/libexec/chatgpt-browser-idle.py"
   "opencode/.config/opencode/AGENTS.md .config/opencode/AGENTS.md"
@@ -105,7 +106,7 @@ LINKS=(
   "systemd/.config/environment.d/999-local-bin.conf .config/environment.d/999-local-bin.conf"
 )
 PSTACK_SKILLS=(correct benchmark-checklist create-verification-skill maintain-verification-skill how why blast-radius arena unslop)
-for skill in "${PSTACK_SKILLS[@]}"; do
+for skill in "${PSTACK_SKILLS[@]}" python-project; do
   for directory in .agents/skills .claude/skills .gemini/config/skills; do
     LINKS+=("agents/.agents/skills/$skill $directory/$skill")
   done

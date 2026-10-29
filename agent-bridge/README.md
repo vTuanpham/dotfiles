@@ -72,7 +72,8 @@ documents controls and fields. `watch --until-event` delivers completion digests
 once and immediately wakes for failures, questions, errors and explicit
 blocking/URGENT messages, flushing any held results.
 In a Codex root, the watch process sends wake events, timeouts and failures through
-the current thread's native MCP tool, including after the model turn ends. Empty
+the shared [Codex Wake client](../codex-wake/README.md) and the current thread's
+native MCP tool, including after the model turn ends. Empty
 handled owners exit silently. After its first wake, it remains alive through
 scheduled unread reminders and group completions, even with no runners; this may
 outlast `--timeout`. Re-arm after an event if a job remains but no schedule is

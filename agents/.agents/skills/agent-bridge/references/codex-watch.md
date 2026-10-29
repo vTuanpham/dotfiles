@@ -9,8 +9,10 @@ root-managed timer, polling loop, MCP call, or extra watch flag is needed.
 ## Implementation and troubleshooting
 
 `root_wake.py` detects the current `CODEX_THREAD_ID`, excluding bridge workers
-and Claude roots. It uses the current Codex home's local app-server control
-socket and verifies `codex_tui.send_message_to_thread` before consuming events.
+and Claude roots. The independent
+[`codex-wake` client](../../../../../codex-wake/README.md) owns the current Codex
+home's local app-server control socket and verifies `codex_tui.send_message_to_thread`
+before Bridge consumes events.
 At each returned event, timeout, or observer error, it opens a fresh connection
 and calls the native tool for that same thread. This works after the model turn
 ends; a yielded model-runtime code cell is not the adapter.

@@ -50,6 +50,7 @@ question for you, passed tests (fireworks), a failed command (storm), a finished
 - **[Agent Bridge](agent-bridge/README.md)**: persistent jobs, live steering, resource limits.
 - **[Agent Baton](agent-baton/README.md)**: questions, choices and private secret handoffs.
 - **[Agent Inbox](agent-inbox/README.md)**: your existing root conversations, chat and questions, on your phone.
+- **[Codex Wake](codex-wake/README.md)**: native session wake-ups from background commands and task events.
 - **[Wake](claude/README.md#wake-mod-live)**: the Claude-only landscape, crew and quota rows shown above.
 - **[Shared instructions](agents/README.md)**: one `AGENTS.md` plus the Bridge and Baton briefings.
 
@@ -144,6 +145,7 @@ does the linking). Every package README opens with its kind.
 | [agent-bridge](agent-bridge/README.md), [agent-baton](agent-baton/README.md) | uv tool | Cross-harness jobs and human handoff CLIs; editable uv tools |
 | [agent-inbox](agent-inbox/README.md) | uv tool + user service | Phone chat for existing root conversations; editable uv tool |
 | [portlink](portlink/README.md) | uv tool | Private preview URLs, QR codes and automatic route expiry |
+| [codex-wake](codex-wake/README.md) | uv tool | Native Codex task notifications from commands, hooks and event producers |
 | [systemd](systemd/README.md) | Live + reference | User units, reference timer and service PATH |
 | [chrome](chrome/README.md) | Live + manual | Global Chrome extensions; ChatGPT browser transport from WSL |
 | [github](github/README.md) | Live + manual | Native GitHub tools using the GitHub CLI credential store |

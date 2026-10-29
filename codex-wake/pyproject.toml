@@ -1,0 +1,25 @@
+[project]
+name = "codex-wake"
+version = "0.1.0"
+description = "Native task notifications for existing Codex sessions"
+requires-python = ">=3.11"
+dependencies = ["websocket-client==1.9.2"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+codex-wake = "codex_wake.cli:main"
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "ruff==0.17.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

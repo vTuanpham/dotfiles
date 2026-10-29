@@ -1,6 +1,6 @@
 ---
 name: agent-baton
-description: Hand login, 2FA, sudo/ssh/gpg and other secret prompts to the human without seeing them, or collect ordinary answers and choices after a native harness question goes unanswered. Question reminders belong to the root/coordinator only. Never ask for secrets in chat or type them yourself.
+description: "Hand secret entry to the human without exposing values to the agent, or remind unanswered root questions through isolated forms. Use for login, 2FA, privileged prompts and human handoffs."
 ---
 
 # agent-baton
@@ -18,7 +18,7 @@ The CLI remains the path for composite forms, approved commands and `pass`.
 For several ordinary questions or a disposable UI, `form <json-file>` composes built-in text, choice and select-many controls. `wait` returns answers keyed by question id; optional unanswered fields are omitted. This follows the same root-only reminder policy. The CLI help owns the JSON schema; do not invent an HTTP endpoint or supply HTML/scripts.
 
 ## When to reach for it
-- An ordinary harness question remains unanswered: the root/coordinator can use `question` with the same wording, choices and single/multiple selection mode, following the shared reminder policy. Free text and yes/no questions work too. Use the harness's native question tool first, preferring its nonblocking variant (chat if unavailable); workers report questions to the root. `wait <id>` returns the answer as JSON. `withdraw <id>` closes an obsolete reminder if the human answers in chat first; cancellation or expiry is never consent. Harness permission dialogs still apply.
+- For an unanswered ordinary question, follow the shared root reminder policy and preserve wording, choices and single/multiple selection. `question` supports free text and yes/no too. `wait <id>` returns JSON; `withdraw <id>` closes a reminder answered elsewhere. Cancellation/expiry is never consent; harness permission dialogs still apply.
 - A page or app asks for an email, password, 2FA or one-time code, or an API key: `ask` the human, then `type` the answer into the field.
 - A human-supplied API key must go into shell secrets or a project `.env`: use `agent-baton env NAME --file PATH... --prefix PREFIX --reason ...`. The masked form writes directly to the files; wait reports only names, paths and backup location. Never pass a value in chat or a command.
 - A command asks for a password (`sudo`, ssh passphrase, gpg, git credentials): `run -- <command>`. The human approves the exact command and types the password on a page.

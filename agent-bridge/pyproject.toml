@@ -2,7 +2,10 @@
 name = "agent-bridge"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["websocket-client==1.9.2"]
+dependencies = ["codex-wake==0.1.0"]
+
+[tool.uv.sources]
+codex-wake = { path = "../codex-wake", editable = true }
 
 [build-system]
 requires = ["setuptools>=68"]
