@@ -12,6 +12,9 @@ def isolated_bridge_environment(monkeypatch, tmp_path):
     # Tests launched inside a worker must never inspect or clean its live queue/state.
     monkeypatch.delenv("AGENT_BRIDGE_WORKER", raising=False)
     monkeypatch.delenv("AGENT_BRIDGE_JOB", raising=False)
+    for name in ("CODEX_THREAD_ID", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
+                 "AGENT_BRIDGE_ROOT_HARNESS", "AGENT_BRIDGE_ROOT_SESSION"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("AGENT_BRIDGE_HEAVY_DIR", str(tmp_path / "heavy"))
     monkeypatch.setattr(core, "JOBS", tmp_path / "jobs")
     # Existing lifecycle tests use immediate completions; policy tests exercise the production settle window.

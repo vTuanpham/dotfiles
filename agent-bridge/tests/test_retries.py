@@ -1,7 +1,10 @@
+from datetime import datetime
+
 import pytest
 
-from agent_bridge import cli, core, retries
+from agent_bridge import cli, core, retries, status, waiting
 from agent_bridge.acknowledgements import pending, urgent
+from agent_bridge.status_model import DeclaredWait
 
 
 @pytest.mark.parametrize("error", ["server capacity", "model is at capacity", "HTTP 503",
@@ -50,14 +53,62 @@ def test_retries_continue_same_session_and_model_without_early_wake(job):
             else:
                 core.log(job, "turn_completed", status="completed")
 
-    assert retries.run(job, state, path, Backend(), "work", False, {}) is True
+    assert retries.run(job, state, path, Backend(), "work", False, {}, root_prompt=True) is True
     assert calls == [("work", False, "same-model", "original"),
                      ("Continue.", True, "same-model", "original")]
     events = cli.events(job)
     assert [event["kind"] for event in events] == ["attempt_failed", "retry_wait", "turn_completed"]
+    assert not any(event["kind"] == "root_prompt" for event in events)
     assert all(not urgent(event, include_info=True) for event in events[:-1])
+    assert urgent(events[-1], include_info=True)  # the successful turn completion
     assert [event["kind"] for _, event in pending(job)] == ["turn_completed"]
     assert "retry" not in core.load_state(job)
+
+
+def test_explicit_root_prompt_is_recorded_without_clearing_a_same_turn_question(job):
+    job, state, path = job
+
+    class Backend:
+        def run(self, job, state, path, prompt, resume=False):
+            core.log(job, "turn_started")
+            core.log(job, "question", level="urgent", question="Which option should I use?")
+            core.log(job, "turn_completed", status="completed")
+            # Simulate the worker's late persisted wait update after its output event.
+            waiting.write(job, DeclaredWait("root", "answer the question", core.stamp(), 1200))
+
+    assert retries.run(job, state, path, Backend(), "Use option A", False, {}, root_prompt=True)
+    messages = status.Collector(jobs_root=job.parent.parent).collect().direct_messages
+    assert {(message.kind, message.preview) for message in messages} == {
+        ("prompt", "Use option A"),
+        ("question", None),
+    }
+    snapshot = status.Collector(jobs_root=job.parent.parent).collect()
+    assert snapshot.jobs[0].unanswered_urgent == 1
+    assert core.load_state(job).get("waiting") is not None
+
+
+def test_root_prompt_records_confirmation_after_a_long_successful_turn(job, monkeypatch):
+    job, state, path = job
+    start = "2026-10-24T00:00:00Z"
+    confirmed = "2026-10-27T00:00:00Z"
+    clock = [start]
+    monkeypatch.setattr(core, "stamp", lambda: clock[0])
+    monkeypatch.setattr(status.time, "time", lambda: datetime.fromisoformat(confirmed).timestamp())
+
+    class Backend:
+        def run(self, job, state, path, prompt, resume=False):
+            core.log(job, "turn_started")
+            clock[0] = confirmed
+            core.log(job, "turn_completed", status="completed")
+
+    assert retries.run(job, state, path, Backend(), "long work", False, {}, root_prompt=True)
+    snapshot = status.Collector(jobs_root=job.parent.parent).collect(include_quotas=False)
+    assert len(snapshot.direct_messages) == 1
+    message = snapshot.direct_messages[0]
+    assert message.at == start and message.recorded_at == confirmed
+    assert message.preview == "long work"
+    assert snapshot.jobs[0].last_event_at == confirmed
+    assert snapshot.jobs[0].last_event_age_seconds == 0
 
 
 def test_exception_retries_and_exhaustion_produces_one_actionable_failure(job):
@@ -93,6 +144,7 @@ def test_non_retryable_failure_is_not_replayed(job):
     assert retries.run(job, state, path, Backend(), "work", False, {}) is False
     assert calls == ["work"]
     assert [event["kind"] for _, event in pending(job)] == ["turn_completed"]
+    assert not any(event["kind"] == "root_prompt" for event in cli.events(job))
 
 
 def test_queued_steer_takes_precedence_over_retry_continue(job):

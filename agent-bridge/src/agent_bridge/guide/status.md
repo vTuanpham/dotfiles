@@ -7,7 +7,7 @@ the packaged JSON Schema 2020-12 contract is `agent_bridge/status.schema.json`.
 
 V1 evolves additively: existing fields retain their types, units and meanings.
 `schema_minor: 1` adds completion wake groups; `schema_minor: 2` adds bounded waits
-and in-flight tools. Older V1 readers ignore those fields and unfamiliar assessment states.
+and in-flight tools; `schema_minor: 3` adds bounded direct-message previews. Older V1 readers ignore those fields and unfamiliar assessment states.
 Readers ignore unknown fields at every level and reject unsupported
 `schema_version` values. Incompatible changes require another version. Unknown
 readings are `null`, not guessed zeroes. `errors` identifies unavailable/rejected
@@ -41,6 +41,7 @@ separate protocol. Polling keeps that protocol out of every harness.
 | `quotas` | Available Codex/agy account caches, window labels/remaining percent/reset text, plan/active flag and freshness. No account addresses. Unsupported backends have no rows; absence means unknown, not unlimited. |
 | `retention` | Retired/expired counts, optional verified eligible/dirty counts, reclaim bytes and items. Dirty, unreadable, symlinked or live retired worktrees are never claimed reclaimable. No purge occurs. |
 | `peers` | Stable job nodes, directed weighted conversations and bounded deliveries, described below. |
+| `direct_messages` | Up to 100 root/worker records from the last 24 hours, with direction, stable event ID, byte size and a nullable scrubbed preview. Worker output is observed, not proof it was read; queued steers are omitted. |
 | `dependencies` | Heavy exclusivity edges target `heavy:<request-id>`; worker-declared peer/dependency edges target stable job IDs. |
 
 Job states: `running`, `idle`, `retired`, `waiting_for_heavy`, `paused`,
@@ -91,13 +92,35 @@ directed arrows weighted by count and faded by last activity.
 All four backends already log message text, so previews default on, capped at
 160 characters. Secret-like labels reuse the worker environment's secret-name
 rule; matching environment values, bearer/private-key markers and common token
-prefixes omit the whole preview. Whitespace is collapsed. Null previews render
-an omitted marker. Scrubbing is conservative, not permission to send secrets:
+prefixes and AWS access-key ID shapes omit the whole preview. Whitespace is
+collapsed. Null previews render an omitted marker. This heuristic is not
+exhaustive; unknown credential formats may pass. Scrubbing is not permission to send secrets:
 full existing messages remain in local logs and status event text. Do not publish
 snapshots. `peers` keeps its sibling table and groups `a → b: preview` lines,
 newest last per direction. Watch prints deliveries as information. Delivery
 records and peer-directed envelopes never wake root, including `--include-info`.
 Unknown-peer failures and explicit root messages retain their wake behavior.
+
+`direct_messages` is separate from `peers`: worker reports/questions point to
+`root/<owner>`, while successful start/resume prompts and root steers point to
+the job. The root endpoint names an owner namespace across session handoffs;
+it does not identify a sender or reader session. Worker→root means recorded in
+the worker log, not a read receipt. A
+prompt appears only after a successful terminal turn event; a steer appears
+only after a matching `steer_sent` event.
+`at` retains the source/attempt timestamp. Optional `recorded_at` records when
+Bridge could confirm the entry (the terminal success for prompts); its fallback
+is `at` for older logs. The 24-hour window and ordering use that confirmation
+time, with numeric log offsets breaking ties. Neither timestamp is a read receipt.
+Codex inbox answers are omitted: app-server's `serverRequest/resolved` fires
+after a response or when the request is cleared, so there is no authoritative
+acceptance event for the answer body ([official app-server contract](https://learn.chatgpt.com/docs/app-server#toolrequestuserinput)). Previews are at most 160 characters;
+bodies over 64 KiB, secret-like content, and legacy messages without a
+pre-scrubbed preview use `null`. The preview is the only body field in this
+projection. The existing `events` stream still contains its historical full
+worker text; this addition does not copy or archive raw message bodies. Messages
+older than the 24-hour window remain only in the local job history until normal
+job purge; status reads never acknowledge or delete them.
 
 ## Deliberate limits
 
@@ -135,7 +158,7 @@ restores immediate completion wakes. `all` emits once when every current member
 turn finishes, counting failures; `--max-wait` emits a partial list and missing
 members instead. Root launch/resume and subsequent native turns define new
 batches. Predeclare `--members` before launching fast workers to avoid an early
-one-member batch. `quiet` never wakes for successful completions. Critical
+one-member batch. `quiet` defers successful completion wakes until their unread reminder. Critical
 events always bypass policies and flush held completions into that wake.
 
 Root commands: `group set OWNER NAME --wake all --members a b --max-wait 30m`,
@@ -149,14 +172,24 @@ duplicate batch. Display marks a digest delivered once; explicit result/ack
 still controls unread status. A malformed notification ledger fails open to
 immediate native completion wakes rather than hiding work.
 
-Reminders default to 15 minutes and never wake, even with `--include-info`.
-They are generated when status/watch observes the owner and appear in the next
-watch and status text; no observer means no background push. `--remind off`
+Reminders default to 15 minutes and wake once through an armed `watch --until-event`
+in every root harness, including under `quiet`, without `--include-info`.
+They are generated when status/watch observes the owner; status can show them, but
+only a watch delivers them through the root's harness callback. A watch exits on
+its first completion wake in non-Codex roots, so re-arm it while an unread completion has
+`next_reminder_at`, even after all workers stop. A Codex native watch continues in the same
+OS process through scheduled reminders and group completions; re-arm after an event if a job
+still runs but no schedule is pending. A scheduled Codex watch can outlive its initial timeout.
+Without an observer there is no background push. `--remind off`
 disables them; `--repeat-reminders` opts into doubling backoff, capped at a year. Acknowledging
 results clears their reminders. `owners[].active_watch` uses kernel locks, not
 PID guesses; `root_backend` and `root_session_id` identify the owning session.
+`agent-bridge handoff OWNER` transfers a namespace to the current known root;
+the previous known root can still read shared status but cannot mutate, acknowledge
+or deliver that owner's jobs. Missing identity fields retain legacy rootless behavior.
 Claude's optional repository Stop hook uses these fields to catch an unarmed
-watch at a turn boundary; Codex/agy roots should arm a watch or poll the JSON.
+watch at a turn boundary. Every root needs an armed watch with delivery through
+its own harness.
 
 ## Bounded waits and one stall classifier (V1.2)
 

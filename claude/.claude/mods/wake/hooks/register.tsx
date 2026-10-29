@@ -1,18 +1,19 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 
-import type { WakeAgent, WakeCall, WakeChip, WakeQuota, WakeDigest, WakeMood, WakeNeed, WakeNow, WakePreset, WakePulse, WakePulseKind, WakeRecap, WakeRecapLine, WakeStep, WakeSurroundings, WakeTally } from '../types'
-import { ownedBy, ownersIn, scanCodex, type CodexCursor } from './sources/codex'
+import type { WakeAgent, WakeCall, WakeChip, WakeQuota, WakeDigest, WakeMood, WakeNeed, WakeNow, WakePreset, WakePulse, WakePulseKind, WakeRecap, WakeRecapLine, WakeSceneHit, WakeStep, WakeSurroundings, WakeTally } from '../types'
+import { ownedBy, ownersIn, scanCodex, withoutDetachedOwners, type CodexCursor } from './sources/codex'
 import { makerOf, modelTier, scanQuotas } from './sources/accounts'
 import { extractCalls, writeRecap } from './sources/recap'
 import { scanTidy, tidyRequest } from './sources/tidy'
 import { type BandState, sceneInput } from './band'
-import { KIND_COLOR } from './landscapes/kit'
-import { EFFECT_FRAMES, SCENE_ROWS, type SceneEffect, eventName, sceneCells, sceneFrame } from './scene'
+import { EFFECT_FRAMES, SCENE_ROWS, type SceneEffect, type SceneHitMap, type SceneSelection, readScenePointer, sceneCardBounds, sceneFrame, sceneHitAt } from './scene'
 import { PRESETS, nextRain, skyOf } from './sources/weather'
 import { lookAround, namePlace, pinPreset } from './surroundings'
-import { COLOR, readable, clock, commandHead, fitSlots, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
-import { crewRows, quotaLines } from './crew-row'
+import { COLOR, readable, clock, commandHead, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
+import { crewPage, crewRows, quotaRows, quotaText, truncate } from './crew-row'
+import { PeerMessageTracker } from './peer-messages'
+import { LOGOS, modelLogo } from './logos'
 
 // Wake lives in the flow of the chat: a living diorama above the prompt (the session as a
 // town in the real weather where you are, Mochi on the street), a line of words and the
@@ -30,6 +31,8 @@ const SCENE_MS = 50 // the diorama paints 20 a second: half steps of its frame, 
 const AGENTS_MS = 2_000
 const SURROUNDINGS_MS = 10 * 60_000
 const NOTICE = '◈ wake'
+const dimPeer = (color: string, subtle: string, strength: number) => '#' + [1, 3, 5].map(i =>
+  Math.round(parseInt(color.slice(i, i + 2), 16) * strength + parseInt(subtle.slice(i, i + 2), 16) * (1 - strength)).toString(16).padStart(2, '0')).join('')
 
 /** Nerd Font glyphs (escaped: editors drop private-use characters); the dingbat marks are missing from many fonts. */
 const G = {
@@ -99,6 +102,7 @@ const subagents = atom({ plugin: 'wake', key: 'subagents' } as const, [] as Wake
 const agentModels = atom({ plugin: 'wake', key: 'agentModels' } as const, {} as Record<string, string>) // subagent id -> the model its spawn resolved to
 const parentModel = atom({ plugin: 'wake', key: 'parentModel' } as const, '')
 const surroundings = atom({ plugin: 'wake', key: 'surroundings' } as const, null as WakeSurroundings | null)
+const crewPageIndex = atom({ plugin: 'wake', key: 'crewPage' } as const, 0)
 
 /** Bookkeeping must never break a tool call or a turn. */
 async function safely(work: () => unknown): Promise<void> {
@@ -115,11 +119,17 @@ let codexPoll: Timer | null = null
 let quotaPoll: Timer | null = null
 let quotaTicks = 0
 let awayTimer: Timer | null = null
+let recapGeneration = 0
+let userActivityInFlight = 0
+let callRevision = 0
+const resolvedCalls = new Map<string, number>()
 let cursor: CodexCursor = {}
 let turnFailed = false
 let turnTestsOk = false
 const taskIds = new Map<string, string>() // tool_use_id of a TaskCreate -> its subject, until the id is known
 let frameNo = 0
+let labelClockBucket: number | null = null
+const peerMessages = new PeerMessageTracker()
 let effect: { kind: SceneEffect['kind']; start: number } | null = null
 let tour: { start: number } | null = null // /wake tour: every landscape in turn, a whole day in each
 const TOUR_FRAMES = 120 // 12 s a landscape
@@ -139,6 +149,13 @@ function toured<T extends { preset: WakePreset; hour: number }>(input: T): T {
   return at ? { ...input, preset: at.preset, hour: at.hour } : input
 }
 let band: { id: string; width: number } | null = null // where the scene is mounted, for blits
+let sceneHitMap: SceneHitMap | null = null
+let scenePointer: { x: number; y: number } | null = null
+let sceneSelection: SceneSelection | null = null
+let lastSceneTarget: WakeSceneHit | null = null
+let scenePainting = false
+let sceneRetryAt = 0
+let sceneRetryDelay = 50
 let sceneLoop: Timer | null = null
 let agentLoop: Timer | null = null
 let surroundLoop: Timer | null = null
@@ -151,14 +168,62 @@ const play = (kind: SceneEffect['kind']) => {
 /** One frame of the diorama, blitted into the mounted Raster without a redraw. */
 async function paint($: EngineInterface) {
   frameNo += 0.5
-  if (!band) return
-  const age = effect ? frameNo - effect.start : 0
-  if (effect && age >= EFFECT_FRAMES[effect.kind]) effect = null
-  if (tour && !tourAt(frameNo)) tour = null
-  if (tour && (frameNo - tour.start) % TOUR_FRAMES === 0) await update($, tick, n => n + 1) // redraw the words for the next landscape
-  const input = toured(sceneInput(await bandState($), band.width, frameNo, effect ? { kind: effect.kind, age } : null, await $.clock.now()))
-  const done = await $.ui.blit({ requestId: band.id, key: 'scene', columns: band.width, rows: SCENE_ROWS, cells: sceneCells(input) })
-  if (done.deny) band = null // unmounted or resized: the next render mounts it again
+  const target = band
+  if (!target) { sceneHitMap = null; return }
+  if (scenePainting) return
+  const now = await $.clock.now()
+  if (now < sceneRetryAt || band !== target || scenePainting) return
+  scenePainting = true
+  try {
+    const age = effect ? frameNo - effect.start : 0
+    if (effect && age >= EFFECT_FRAMES[effect.kind]) effect = null
+    if (tour && !tourAt(frameNo)) tour = null
+    if (tour && (frameNo - tour.start) % TOUR_FRAMES === 0) await update($, tick, n => n + 1)
+    const input = toured(sceneInput(await bandState($), target.width, frameNo, effect ? { kind: effect.kind, age } : null, now))
+    const frame = sceneFrame(input, sceneSelection)
+    const done = await $.ui.blit({ requestId: target.id, key: 'scene', columns: target.width, rows: SCENE_ROWS, cells: frame.cells })
+    if (band !== target) return
+    if (done.deny) {
+      sceneHitMap = null
+      sceneRetryAt = now + sceneRetryDelay
+      sceneRetryDelay = Math.min(1_000, sceneRetryDelay * 2)
+    } else {
+      sceneRetryAt = 0
+      sceneRetryDelay = 50
+      sceneHitMap = frame.hits
+    }
+  } catch {
+    if (band === target) {
+      sceneHitMap = null
+      sceneRetryAt = now + sceneRetryDelay
+      sceneRetryDelay = Math.min(1_000, sceneRetryDelay * 2)
+    }
+  } finally {
+    scenePainting = false
+  }
+}
+
+function updateSceneHover(x: number, y: number, hadPointer: boolean) {
+  const prior = sceneSelection
+  if (hadPointer && prior && sceneHitMap) {
+    const card = sceneCardBounds(sceneHitMap.columns, sceneHitMap.rows, { x: prior.x, y: prior.y, details: prior.target.details })
+    if (card && x >= card.left && x < card.left + card.width && y >= card.top && y < card.top + card.height) return
+  }
+  const target = sceneHitAt(sceneHitMap, x, y)
+  const next = target ? { target, x, y } : null
+  if (hadPointer && prior?.target.id === next?.target.id && prior?.target.title === next?.target.title
+    && prior?.target.details.join('\n') === next?.target.details.join('\n')) {
+    if (target) lastSceneTarget = target
+    return
+  }
+  sceneSelection = next
+  if (target) lastSceneTarget = target
+}
+
+function resetSceneSelection() {
+  lastSceneTarget = null
+  scenePointer = null
+  sceneSelection = null
 }
 
 /** What the scene reads from the session. */
@@ -173,14 +238,14 @@ async function bandState($: EngineInterface): Promise<BandState> {
     plan: await read($, plan),
     mood: await read($, mood),
     chips: await read($, chips),
-    subagents: crew.map(a => ({ id: a.id, tier: modelTier('claude', a.model || parent) })),
+    subagents: crew.map(a => ({ id: a.id, name: a.name, description: a.description, type: a.type, model: a.model, tier: modelTier('claude', a.model || parent) })),
   }
 }
 
 /** Looks around (place, landscape, weather) and keeps what it finds. */
 async function refreshSurroundings($: EngineInterface, force = false) {
   const found = await lookAround($, force)
-  if (found) await update($, surroundings, () => found)
+  if (found && JSON.stringify(found) !== JSON.stringify(await read($, surroundings))) await update($, surroundings, () => found)
 }
 
 /** The running Claude Code subagents, written only when the list changes. */
@@ -213,17 +278,22 @@ function animate($: EngineInterface, on: boolean) {
 function pollCodex($: EngineInterface) {
   codexPoll ??= $.clock.every(CODEX_POLL_MS, () => void safely(() => codexTick($)))
   if (!quotaPoll) {
-    const tick = () =>
-      safely(async () => {
-        const found = await scanQuotas($, { refreshAgy: quotaTicks++ % AGY_REFRESH === 0 })
-        // an account that timed out this read keeps its last numbers rather than dropping off the line
-        await update($, quotas, previous =>
-          found.map(q => (q.parts.length > 0 || q.status !== undefined ? q : (previous ?? []).find(p => p.cli === q.cli && p.account === q.account) ?? q)),
-        )
-      })
-    void tick()
-    quotaPoll = $.clock.every(QUOTA_POLL_MS, () => void tick())
+    void safely(() => quotaTick($))
+    quotaPoll = $.clock.every(QUOTA_POLL_MS, () => void safely(() => quotaTick($)))
   }
+}
+
+export async function quotaTick($: EngineInterface) {
+  const mine = await read($, owners)
+  const activeOwners = [...new Set((await read($, chips)).flatMap(job =>
+    job.running && job.owner && ownedBy({ owner: job.owner }, mine) ? [job.owner] : []))]
+  if (!activeOwners.length) return
+  const found = await scanQuotas($, { owners: activeOwners, refreshAgy: quotaTicks++ % AGY_REFRESH === 0 })
+  // an account that timed out this read keeps its last numbers rather than dropping off the line
+  const projectQuotas = (previous: WakeQuota[]) =>
+    found.map(q => (q.parts.length > 0 || q.status !== undefined ? q : { ...q, parts: previous.find(p => p.cli === q.cli && p.account === q.account)?.parts ?? q.parts }))
+  const priorQuotas = await read($, quotas)
+  if (JSON.stringify(projectQuotas(priorQuotas)) !== JSON.stringify(priorQuotas)) await update($, quotas, projectQuotas)
 }
 
 async function isAway($: EngineInterface, threshold: number) {
@@ -271,53 +341,110 @@ function activity(e: { tool: string } & Record<string, unknown>): { label: strin
 
 const recapBody = (lines_: WakeRecapLine[]) => lines_.map(line => `${MARK[line.mark].glyph} ${line.text}`)
 
-async function codexTick($: EngineInterface) {
-  const scan = await scanCodex($, cursor)
-  cursor = scan.cursor
+export async function codexTick($: EngineInterface) {
   const mine = await read($, owners)
+  const sessionId = await $.session.id()
+  const scan = await scanCodex($, cursor, {
+    root: { backend: 'claude', session_id: sessionId },
+    owners: mine,
+  })
+  cursor = scan.cursor
+  const detachedOwners = scan.detachedOwners.filter(owner => mine.includes(owner))
   scan.jobs = scan.jobs.filter(job => ownedBy(job, mine)) // other sessions share the root
+  if (detachedOwners.length) {
+    const priorNeeds = await read($, needs)
+    if (withoutDetachedOwners(priorNeeds, detachedOwners).length !== priorNeeds.length) {
+      await update($, needs, list => withoutDetachedOwners(list, detachedOwners))
+    }
+    const priorDigest = await read($, digest)
+    if (withoutDetachedOwners(priorDigest.codex, detachedOwners).length !== priorDigest.codex.length) {
+      await update($, digest, value => ({ ...value, codex: withoutDetachedOwners(value.codex, detachedOwners) }))
+    }
+  }
   const now = await $.clock.now()
-  await update($, chips, () =>
-    scan.jobs
-      .filter(job => job.running || job.awaitingRoot || (job.finishedAt ?? 0) > now - 30 * 60_000)
-      .map(job => ({ name: job.name, title: titleOf(job), backend: job.backend, account: job.account, model: job.model, effort: job.effort, running: job.running, isStale: job.isStale, since: job.finishedAt ?? job.lastEventAt, startedAt: job.startedAt, lastEventAt: job.eventKnown ? job.lastEventAt : undefined, awaitingRoot: job.awaitingRoot, waitingForRoot: job.waitingForRoot, maker: makerOf(job.model), state: job.state, reason: job.reason, memoryBytes: job.memoryBytes, memoryCap: job.memoryCap, peers: job.peers })),
-  )
+  const peerScope = JSON.stringify([
+    sessionId,
+    [...mine].sort(),
+    detachedOwners.filter(owner => mine.includes(owner)).sort(),
+  ])
+  // New IDs pulse when Bridge first exposes their record to this Wake session.
+  // `lastAt` can be the attempt-start time, so it is not an observation clock.
+  const newPeerMessages = peerMessages.observe(peerScope, scan.jobs)
+  const projectChips = (previous: WakeChip[]) => scan.jobs
+    .filter(job => job.running || job.awaitingRoot || (job.finishedAt ?? 0) > now - 30 * 60_000)
+    .map(job => ({ id: job.id, owner: job.owner, name: job.name, title: titleOf(job), backend: job.backend, account: job.account, model: job.model, effort: job.effort, running: job.running, isStale: job.isStale, since: job.finishedAt ?? job.lastEventAt, startedAt: job.startedAt, lastEventAt: job.eventKnown ? job.lastEventAt : undefined, awaitingRoot: job.awaitingRoot, waitingForRoot: job.waitingForRoot, maker: makerOf(job.model), state: job.state, reason: job.reason, memoryBytes: job.memoryBytes, memoryCap: job.memoryCap, peers: job.peers.map(peer => {
+      const oldJob = previous.find(old => old.id === job.id)
+      const old = oldJob?.peers?.find(p => p.target === peer.target && p.outgoing === peer.outgoing)
+      const changed = peer.messageId && newPeerMessages.has(JSON.stringify([job.owner, job.id, peer.messageId]))
+      return { ...peer, observedAt: changed ? now : old?.messageId === peer.messageId ? old?.observedAt : undefined }
+    }), waitingPeer: job.waitingPeer }))
+  const priorChips = await read($, chips)
+  const nextChips = projectChips(priorChips)
+  if (JSON.stringify(nextChips) !== JSON.stringify(priorChips)) await update($, chips, projectChips)
   const away = await isAway($, ASK_AWAY_MS)
   for (const job of scan.jobs) {
     for (const ask of job.urgent) {
       const text = ask.text.replace(/^URGENT:\s*/, '')
-      await update($, needs, list => [...list, { id: hash(job.dir + ask.at), kind: 'codex-ask' as const, job: job.name, title: titleOf(job), text, at: ask.at }].slice(-6))
+      await update($, needs, list => [...list, { id: hash(job.dir + ask.at), kind: 'codex-ask' as const, owner: job.owner, job: job.name, title: titleOf(job), text, at: ask.at }].slice(-6))
       await card($, `${job.backend} ${titleOf(job)} asks`, [`${G.needs} ${text}`])
-      await update($, digest, d => ({ ...d, codex: [...d.codex, { name: titleOf(job), model: job.model, urgent: text }] }))
+      await update($, digest, d => ({ ...d, codex: [...d.codex, { owner: job.owner, name: titleOf(job), model: job.model, urgent: text }] }))
       await update($, mood, () => 'alert')
       if (away) await $.ui.notify(`${job.backend} ${titleOf(job)}: ${text.slice(0, 120)}`, { title: 'Wake · needs you' })
     }
     if (job.completedNow) {
       const summary = (job.lastMessage ?? '').split('\n')[0]!.slice(0, 160)
       // one done row per job: a later turn replaces it
-      await update($, needs, list => [...list.filter(one => one.kind !== 'codex-done' || one.job !== job.name), { id: hash(job.dir + job.finishedAt), kind: 'codex-done' as const, job: job.name, title: titleOf(job), text: summary, at: now }].slice(-6))
+      await update($, needs, list => [...list.filter(one => one.kind !== 'codex-done' || one.owner !== job.owner || one.job !== job.name), { id: hash(job.dir + job.finishedAt), kind: 'codex-done' as const, owner: job.owner, job: job.name, title: titleOf(job), text: summary, at: now }].slice(-6))
       play('shoot')
       await card($, `${job.backend} ${titleOf(job)} finished · ${job.model} ${job.effort}`, [`${G.agent} ${summary || 'no final message'}`])
-      await update($, digest, d => ({ ...d, codex: [...d.codex, { name: titleOf(job), model: job.model, summary }] }))
+      await update($, digest, d => ({ ...d, codex: [...d.codex, { owner: job.owner, name: titleOf(job), model: job.model, summary }] }))
       if (away) await $.ui.notify(`${job.backend} ${titleOf(job)} finished`, { title: 'Wake' })
     }
+  }
+  if (away && (scan.detachedOwners.length || scan.jobs.some(job => job.completedNow || job.urgent.length))) await refreshRecap($)
+  const clockBucket = Math.floor(now / CODEX_POLL_MS)
+  if (clockBucket !== labelClockBucket) {
+    labelClockBucket = clockBucket
+    if (!animation && ((await read($, tally)).turns > 0
+      || nextChips.some(job => job.running || job.awaitingRoot)
+      || (await read($, subagents)).length > 0 || await read($, recap))) await update($, tick, value => value + 1)
+  }
+}
+
+async function refreshRecap($: EngineInterface, generation = ++recapGeneration) {
+  if (userActivityInFlight) return
+  const since = await read($, lastActivity)
+  if (!(await isAway($, AWAY_MS)) || (await read($, turnStartedAt)) !== null) return
+  const d = await read($, digest)
+  const open = (await read($, needs)).map(need => `${(need.title ?? need.job)}: ${need.text}`)
+  const written = await writeRecap($, { ...d, codex: d.codex.filter(c => !c.urgent), needs: open })
+  const next = written.lines.length ? { lines: written.lines, awaySince: since, source: written.source } : null
+  if (generation === recapGeneration && JSON.stringify(next) !== JSON.stringify(await read($, recap))) {
+    await update($, recap, previous => generation !== recapGeneration ? previous : next)
   }
 }
 
 async function goAway($: EngineInterface, since: number) {
+  if (userActivityInFlight) return
+  const generation = ++recapGeneration
   if ((await read($, lastActivity)) !== since || (await read($, turnStartedAt)) !== null) return
-  await update($, mood, () => 'sleep')
-  const d = await read($, digest)
-  if (d.answers.length === 0 && d.files.length === 0) return
-  const open = (await read($, needs)).map(need => `${(need.title ?? need.job)}: ${need.text}`)
-  const written = await writeRecap($, { ...d, needs: open })
-  await update($, recap, () => ({ lines: written.lines, awaySince: since, source: written.source }))
+  await update($, mood, previous => generation === recapGeneration ? 'sleep' : previous)
+  await refreshRecap($, generation)
+}
+
+async function resolveCall($: EngineInterface, id: string) {
+  resolvedCalls.set(id, ++callRevision)
+  await update($, calls, list => list.filter(call => call.id !== id))
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    labelClockBucket = null
+    cursor = {}
+    peerMessages.reset()
     await safely(async () => {
-      await $.command.register({ name: 'wake', description: 'What Wake knows; /wake legend, tour, scene or place', argumentHint: '[legend|tour|scene <name>|place <city>]' })
+      resetSceneSelection()
+      await $.command.register({ name: 'wake', description: 'What Wake knows; /wake legend, detail, tour, scene or place', argumentHint: '[legend|detail|tour|scene <name>|place <city>]' })
       await $.tool.register({
         name: 'tidy_scan',
         description:
@@ -334,17 +461,37 @@ export const register: Register = on => {
 
   // /clear, /resume and /branch reset $.state without a new session.start: look around again at once
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
+    labelClockBucket = null
+    cursor = {}
+    peerMessages.reset()
     await safely(async () => {
+      resetSceneSelection()
       await update($, lastActivity, () => Date.now())
       await refreshSurroundings($)
     })
     return next(e)
   }).catch(($, e, next) => next(e))
 
+  on('ui.message', { element: 'scene-pointer' }, (_$, e, next) => {
+    const pointer = readScenePointer(e.data)
+    if (!pointer) return next(e)
+    const position = pointer.type !== 'leave' ? { x: pointer.x, y: pointer.y } : null
+    if (position && scenePointer?.x === position.x && scenePointer.y === position.y) return {}
+    const hadPointer = scenePointer !== null
+    scenePointer = position
+    updateSceneHover(position?.x ?? -1, position?.y ?? -1, hadPointer)
+    // The next Raster blit paints the card too; no Client or band redraw.
+    return {}
+  }).catch(($, e, next) => next(e))
+
   on('command.run', { command: 'wake' }, async ($, e) => {
     const [verb = '', ...rest] = e.args.trim().split(/\s+/)
     const arg = rest.join(' ')
-    if (verb === 'legend') return { text: 'Crew: ◈ Codex · ✦ agy · ◆ Claude · ○ OpenCode; the circle fills with model size, ◔ small to ◉ largest. ● running · ⌁ heavy queue · = paused · ↻ retrying · ? needs answer · ! stalled · ✓ done · ○ idle. Signal bars ▁▃▄▆█ show thinking effort, lit steps against dots (full is max); the number is time since the last event; ▣▰▱ is memory against the job cap (unrelated to quota m, which is monthly). ↗/↙ peer direction toward the named job (a number appears past one message); links older than 15 minutes are dropped. Quota bars show remaining per account/window; ✕ marks signed-out or expired accounts, folded into one range; ? means unknown, ~ means stale numbers.' }
+    if (verb === 'detail') {
+      const target = sceneSelection?.target ?? lastSceneTarget
+      return { text: target ? [target.title, ...target.details].join('\n') : 'No scene object has been selected.' }
+    }
+    if (verb === 'legend') return { text: 'Crew: harness logos identify Codex, agy, Claude and OpenCode; unsupported terminals show text instead. The circle fills with model size, ◔ small to ◉ largest. Hover crew marks for harness or model details; model IDs appear only when known. In the scene, hover a building for its turn and tool kinds, or a sprite for its worker; /wake detail shows its full details. Their windows mark read, search, edit, run, test, agent, web and failed calls. Lamps show plan progress; fireworks mark passing tests, storms mark failed commands, and shooting stars mark finished jobs. ● running · ⌁ heavy queue · = paused · ↻ retrying · ? needs answer · ! stalled · ✓ done · ○ idle. Signal bars ▁▃▄▆█ show thinking effort; the number is time since the last event; ▣▰▱ is memory against the job cap. Colored peer lanes join workers; ← points to the recipient, ─/━/═ means 1/2–4/5+ messages. Message links briefly pulse, then fade and disappear after 15 minutes. Narrow rows use ↗/↙ and the peer name instead. Quota bars show remaining per account/window; hover an account mark for percentages and source reset text when available. ✕ marks signed-out or expired accounts, ? means unknown, ~ means stale numbers.' }
     if (verb === 'tour') {
       tour = { start: frameNo }
       return { text: `Touring ${PRESETS.length} landscapes, 12 s each, a whole day in each; your own scene comes back after.` }
@@ -360,6 +507,16 @@ export const register: Register = on => {
       await refreshSurroundings($, true)
       return { text }
     }
+    if (verb === 'call') {
+      const call = (await read($, calls)).find(c => c.id === arg)
+      return { text: call ? `${call.text}\n\nSource answer:\n${call.answer}` : 'Call not found. Use /wake to list calls.' }
+    }
+    if (verb === 'fine') {
+      const call = (await read($, calls)).find(c => c.id === arg)
+      if (!call) return { text: 'Call not found. Use /wake to list calls.' }
+      await resolveCall($, call.id)
+      return { text: `Resolved: ${call.text}` }
+    }
     return { text: await summary($) }
   })
 
@@ -372,24 +529,28 @@ export const register: Register = on => {
   }).catch(() => ({ result: 'Tidy scan failed; nothing was changed.' as never, text: 'Tidy scan failed; nothing was changed.', isError: true as const }))
 
   on('prompt.submit', async ($, e, next) => {
+    userActivityInFlight++
+    recapGeneration++
     await safely(async () => {
       const now = await $.clock.now()
       const waiting = await read($, recap)
       if (waiting) {
-        await card($, `while you were away · ${span(now - waiting.awaySince)}`, recapBody(waiting.lines))
+        await card($, `since last activity · ${span(now - waiting.awaySince)} · ${waiting.source === 'digest' ? 'from the log' : 'model'}`, recapBody(waiting.lines))
         await update($, recap, () => null)
       }
       awayTimer?.cancel()
-      await update($, needs, () => [])
       await update($, digest, () => freshDigest(now, String(e.text ?? '').slice(0, 600)))
       await update($, lastActivity, () => now)
       await update($, mood, () => 'work')
     })
+    userActivityInFlight--
     return next(e)
   }).catch(($, e, next) => next(e)) // observer: the prompt always goes through
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
+      userActivityInFlight++
+      recapGeneration++
       await safely(async () => {
         turnFailed = false
         turnTestsOk = false
@@ -400,6 +561,7 @@ export const register: Register = on => {
         await update($, mood, () => 'work')
         animate($, true)
       })
+      userActivityInFlight--
     }
     return next(e)
   })
@@ -475,6 +637,7 @@ export const register: Register = on => {
           }))
         }
       })
+      await safely(() => refreshRecap($))
     }
   }).catch(($, e, next) => next(e)) // observer only: never refuse, never run twice
 
@@ -495,10 +658,10 @@ export const register: Register = on => {
         awayTimer?.cancel()
         awayTimer = $.clock.after(AWAY_MS, () => void safely(() => goAway($, now)))
         if (plan && (await read($, plan)).every(step => step.status === 'completed')) await update($, plan, () => [])
-        const known = (await read($, calls)).map(({ id, text }) => ({ id, text }))
+        const revision = callRevision
+        const known = await read($, calls)
         const fresh = await extractCalls($, e.answer, known)
-        // calls belong to the latest answer: a new answer replaces them, none included
-        await update($, calls, () => fresh.map(call => ({ ...call, answer: e.answer })))
+        await update($, calls, current => [...current, ...fresh.filter(call => (resolvedCalls.get(call.id) ?? 0) <= revision && !current.some(existing => existing.id === call.id)).map(call => ({ ...call, answer: e.answer }))])
       })
     }
     return next(e)
@@ -523,6 +686,7 @@ export const register: Register = on => {
         agents: [...d.agents, { name: e.agent_type, ok: true, summary: (e.last_assistant_message ?? '').split('\n')[0]!.slice(0, 160) }].slice(-10),
       })),
     )
+    await safely(() => refreshRecap($))
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -554,21 +718,30 @@ export const register: Register = on => {
     const here = await read($, surroundings)
     const crewAgents = await read($, subagents)
     const parentTier = modelTier('claude', await read($, parentModel))
-    const latest = allCalls.at(-1)?.answer
-    const fresh = allCalls.filter(call => call.answer === latest).slice(-3)
 
     const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
     const Raster = 'Raster' in ui ? ui.Raster : undefined // terminal only
+    const Image = e.surface === 'terminal' && 'Image' in ui ? ui.Image : undefined
+    const Client = 'Client' in ui ? ui.Client : undefined // terminal pointer surface
     const now = await $.clock.now()
     const working = e.props.isWorking || started !== null
     const width = e.props.bodyColumns
     const bridgeCount = jobs.filter(job => job.running || job.awaitingRoot).length
-    const crewRowsNeeded = bridgeCount + Number(crewAgents.length > 0) + (bridgeCount ? quotaLines(accounts, Math.max(0, width - 2)).length : 0)
-    const withScene = Raster !== undefined && e.props.maxRows >= SCENE_ROWS + 2 + crewRowsNeeded && width >= 40
+    const crewRowsNeeded = bridgeCount + crewAgents.length > 0 ? 2 : 0
+    const withScene = Raster !== undefined && !waiting && !open.length && !allCalls.length && e.props.maxRows >= SCENE_ROWS + 2 + crewRowsNeeded && width >= 40
     band = withScene ? { id: e.requestId, width } : null
+    sceneRetryAt = 0
+    sceneRetryDelay = 50
     const input = toured(sceneInput(await bandState($), width, frameNo, effect ? { kind: effect.kind, age: frameNo - effect.start } : null, now))
-    const frame0 = withScene ? sceneFrame(input) : null
+    const frame0 = withScene ? sceneFrame(input, sceneSelection) : null
+    if (frame0) {
+      sceneHitMap = frame0.hits
+    } else {
+      sceneHitMap = null
+      scenePointer = null
+      sceneSelection = null
+    }
     // the words sit on the scene's floor colour, their colours pushed for contrast against it
     const floor = frame0 ? hex(frame0.floor) : undefined
     const ink = floor ? readable(floor) : COLOR
@@ -634,7 +807,7 @@ export const register: Register = on => {
       ''
     )
     const words = (
-      <Box paddingX={1}>
+      <Box key="wake-headline" paddingX={1}>
         <Box flexGrow={1} flexShrink={1}>
           {headline}
         </Box>
@@ -649,57 +822,129 @@ export const register: Register = on => {
     // what needs the person, under the words; first the crew at work: subagents and bridge jobs
     const rows: RenderElement[] = []
     // Keep Claude's native subagent row intact; bridge jobs each get their own line.
-    const agentText = (agent: WakeAgent) => `${agent.name ?? agent.description} ${pips(agent.model ? modelTier('claude', agent.model) : parentTier)} claude·${agent.type} · ${span(now - agent.since)}`
-    const agentNeeds = crewAgents.map(agent => 2 + agentText(agent).length)
     const rowWidth = Math.max(0, width - 2) // extras has one cell of padding on either side
-    const slots = fitSlots(agentNeeds, rowWidth - Math.max(0, crewAgents.length - 1) * 3)
-    if (crewAgents.length > 0) {
+    const logo = (backend: string, alt = ({ codex: 'Codex', agy: 'Antigravity', claude: 'Claude', opencode: 'OpenCode' } as Record<string, string>)[backend] ?? backend) => Image && LOGOS[backend]
+      ? <Image source={{ png: LOGOS[backend] }} columns={2} rows={1} alt={alt} />
+      : <Box width={2}><Text wrap="truncate-end">{alt}</Text></Box>
+    const hoverPopup = (title: string, details: string[], maker?: string) => (
+      <Box position="absolute" top={1} left={0} display="none" hover={{ display: 'flex' }} flexDirection="column" width={Math.max(1, Math.min(56, rowWidth))} overflow="hidden" backgroundColor="#11111b" paddingX={1}>
+        <Box flexDirection="row">{maker ? logo(maker, maker === 'codex' ? 'OpenAI' : 'Anthropic') : ''}<Text color={COLOR.text} weight="bold" wrap="wrap">{title}</Text></Box>
+        {details.map((detail, index) => <Text key={`detail-${index}`} color={COLOR.subtext} wrap="wrap">{detail}</Text>)}
+      </Box>
+    )
+    for (const [index, agent] of crewAgents.entries()) {
       rows.push(
-        <Box width={rowWidth} overflow="hidden">
-          {crewAgents.map((agent, index) => (
-            <Box flexShrink={0}>
-              {index > 0 ? <Text color={ink.surface}> │ </Text> : ''}
-              <Box width={slots[index]!} flexShrink={0} overflow="hidden"><Text wrap="truncate-end">
-                <Text color={ink.pink}>{diamond(frame)} </Text>
-                <Text color={ink.text}>{agent.name ?? agent.description}</Text>
-                <Text color={ink.pink}> {pips(agent.model ? modelTier('claude', agent.model) : parentTier)}</Text>
-                <Text color={ink.pink}> claude</Text>
-                <Text color={ink.subtle}>·{agent.type} · {span(now - agent.since)}</Text>
-              </Text></Box>
-            </Box>
-          ))}
-        </Box>,
+            <Box width={rowWidth} flexShrink={0} flexDirection="row">
+              <Text color={ink.pink}>{diamond(frame)} </Text>
+              <Text color={ink.text} wrap="truncate-end">{agent.name ?? agent.description}</Text>
+              <Box key={`wake-agent-model-${index}`} position="relative" flexShrink={0}>
+                <Text color={ink.pink}>{` ${pips(agent.model ? modelTier('claude', agent.model) : parentTier)}`}</Text>
+                {hoverPopup('Claude subagent · model mark', [
+                  agent.model ? `Model ID: ${agent.model}` : parentModel ? `Model ID unavailable; size mark follows parent ${parentModel}` : 'Model ID unavailable; size mark uses the default class',
+                ], modelLogo(agent.model))}
+              </Box>
+              <Box key={`wake-agent-harness-${index}`} position="relative" flexShrink={0}>
+                <Text> </Text>{logo('claude')}
+                {hoverPopup(`Claude subagent · ${agent.type}`, [agent.name ?? agent.description, span(now - agent.since)])}
+              </Box>
+              <Text color={ink.subtle} wrap="truncate-end">·{agent.type} · {span(now - agent.since)}</Text>
+            </Box>,
       )
     }
-    const bridgeRows = crewRows(running, now, rowWidth)
-    for (const [index, job] of running.entries()) {
-      const row = bridgeRows[index]!
+    const renderBridgeRow = (job: WakeChip, index: number, row: ReturnType<typeof crewRows>[number]) => {
       const familyColor = job.backend === 'agy' ? ink.blue : job.backend === 'claude' ? ink.pink : job.backend === 'opencode' ? ink.green : ink.teal
       const stateColor = row.state === 'stalled' ? ink.red : row.state === 'blocked_on_question' ? ink.peach
         : row.state === 'paused' || row.state === 'waiting_for_heavy' ? ink.yellow
         : row.state === 'retrying' ? ink.mauve : row.state === 'done' || row.state === 'waiting_for_root' ? ink.green : ink.teal
-      rows.push(<Box width={rowWidth} overflow="hidden"><Text wrap="truncate-end">
+      const [, modelMark] = [...row.family]
+      return <Box width={rowWidth} flexDirection="row" position="relative">
         <Text color={ink.text}>{row.title}</Text>
-        {row.family ? <Text> <Text color={familyColor}>{row.family}</Text><Text color={stateColor}> {row.glyph}</Text></Text> : ''}
-        <Text color={ink.subtle}>{row.detail}</Text>
-      </Text></Box>)
+        {row.family && <Text> </Text>}
+        {row.family && <Box key={`wake-crew-harness-${index}`} position="relative" flexShrink={0}>
+          {logo(job.backend)}
+          {hoverPopup(`Crew · ${job.backend}`, [row.title.trim(), `State: ${row.state}`, ...(job.waitingPeer ? [`Waiting for: ${job.waitingPeer.target}`] : [])])}
+        </Box>}
+        {row.family && <Box key={`wake-crew-model-${index}`} position="relative" flexShrink={0}>
+          <Text color={familyColor}>{modelMark}</Text>
+          {hoverPopup('Model-size mark', [
+            job.model ? `Model ID: ${job.model}` : 'Model ID unavailable',
+            ...(job.effort ? [`Effort: ${job.effort}`] : []),
+            'Unknown model families use the default middle mark',
+          ], modelLogo(job.model))}
+        </Box>}
+        {row.family && <Text color={stateColor}> {row.glyph}</Text>}
+        <Box position="relative" flexShrink={0}>
+          <Text color={ink.subtle}>{row.detail}</Text>
+          {row.columns.includes('peers') && hoverPopup(
+            job.peers?.some(peer => peer.target === 'root') ? 'Bridge messages' : 'Peer communication',
+            (job.peers ?? [])
+            .filter(peer => now - peer.lastAt <= 900_000)
+            .flatMap(peer => [
+              `${peer.outgoing ? 'To' : 'From'}: ${peer.target}`,
+              ...(peer.messageState === 'observed'
+                ? ['Worker output observed; root read status unknown']
+                : peer.messageState === 'sent'
+                  ? ['Bridge sent; worker read status unknown']
+                  : []),
+              peer.preview || 'Message preview unavailable',
+            ])
+          )}
+        </Box>
+        {row.gutter.map((segment, lane) => {
+          const color = [ink.teal, ink.mauve, ink.yellow, ink.blue, ink.pink, ink.green][segment.color % 6]!
+          return <Box key={String(lane)} position="relative" flexShrink={0}>
+            <Text color={dimPeer(color, ink.subtle, segment.strength)}>{segment.text}</Text>
+            {segment.text.trim() ? hoverPopup('Peer communication', segment.description) : ''}
+          </Box>
+        })}
+      </Box>
     }
-    if (running.length > 0 && accounts.length > 0) {
+    const bridgeRows = crewRows(running, now, rowWidth)
+    for (const [index, job] of running.entries()) rows.push(renderBridgeRow(job, index, bridgeRows[index]!))
+    if (running.some(job => job.running) && accounts.length > 0) {
       const inUse = new Set(running.map(job => job.backend))
       const ordered = [...accounts.filter(q => inUse.has(q.cli)), ...accounts.filter(q => !inUse.has(q.cli))]
-      for (const line of quotaLines(ordered, rowWidth)) rows.push(<Box width={rowWidth} overflow="hidden"><Text color={ink.subtle} wrap="truncate-end">{line}</Text></Box>)
+      for (const [lineIndex, line] of quotaRows(ordered, rowWidth).entries()) {
+        rows.push(<Box width={rowWidth} flexDirection="row">
+          {line.map((chunk, chunkIndex) => {
+            const scope = `wake-quota-${lineIndex}-${chunkIndex}`
+            const quota = chunk.quotas[0]!
+            const mark = quota.cli === 'agy' ? '✦' : '◈'
+            const details = chunk.quotas.flatMap(account => account.status
+              ? [`${account.account}: ${account.status}`]
+              : account.parts.length
+                ? account.parts.map(part => `${part.label} · ${Math.round(part.pct)}% remaining${part.resets ? ` · reset: ${truncate(part.resets, 48)}` : ''}`)
+                : ['Quota unavailable'])
+            const first = chunk.quotas.length === 1 ? quota.account : `${quota.account}–${chunk.quotas.at(-1)!.account}`
+            const hasMark = chunk.text.startsWith(mark)
+            return <Box key={`quota-${lineIndex}-${chunkIndex}`} flexDirection="row" position="relative" flexShrink={0}>
+              {chunkIndex > 0 && <Text>  </Text>}
+              {hasMark ? <Box key={scope} position="relative" flexDirection="row" flexShrink={0}>
+                {logo(quota.cli)}
+                {hoverPopup(`${quota.cli} quota · ${first}${chunk.quotas.length === 1 && quota.active ? ' · active' : ''}`, [
+                  ...details,
+                  ...(quota.freshness && quota.freshness !== 'fresh' ? [`Snapshot ${quota.freshness}`] : []),
+                ])}
+              </Box> : <Text color={ink.subtle}>{chunk.text}</Text>}
+              {hasMark && <Text color={ink.subtle}>{chunk.text.slice(mark.length)}</Text>}
+            </Box>
+          })}
+        </Box>)
+      }
     }
+    const crew = rows.splice(0)
     let hotkey = 1
     const key = () => String(hotkey++)
+    const recapRows: RenderElement[] = []
     if (waiting) {
-      rows.push(
+      recapRows.push(
         <Text color={ink.mauve} italic>
-          while you were away · {span(now - waiting.awaySince)}
-          {waiting.source === 'digest' ? <Text color={ink.subtle}> · from the log</Text> : ''}
+          since last activity · {span(now - waiting.awaySince)}
+          <Text color={ink.subtle}> · {waiting.source === 'digest' ? 'from the log' : 'model'}</Text>
         </Text>,
       )
       for (const line of waiting.lines) {
-        rows.push(
+        recapRows.push(
           <Text wrap="truncate-end">
             <Text color={MARK[line.mark].color}>{MARK[line.mark].glyph} </Text>
             <Text color={ink.text}>{line.text}</Text>
@@ -723,49 +968,75 @@ export const register: Register = on => {
             hotkey={key()}
             label={isAsk ? 'reply' : 'review'}
             onPress={async () => {
-              await $.prompt.fill({ text: isAsk ? `Reply to bridge job ${need.job}: ` : `Review bridge job ${need.job}'s result and merge it if it holds up.`, mode: 'replace' })
-              await update($, needs, list => list.filter(one => one.id !== need.id))
+              await $.prompt.fill({ text: isAsk ? `\nReply to bridge job ${need.job}: ` : `\nReview bridge job ${need.job}'s result.`, mode: 'append' })
             }}
           />
           <Text> </Text>
-          <Button key={`drop-${need.id}`} plain label="dismiss" onPress={() => update($, needs, list => list.filter(one => one.id !== need.id))} />
+          <Button key={`drop-${need.id}`} plain label="dismiss" onPress={async () => {
+            await update($, needs, list => list.filter(one => one.id !== need.id))
+            await refreshRecap($)
+          }} />
         </Box>,
       )
     }
-    if (fresh.length > 0) {
-      // the latest answer's judgment calls, folded into one row
-      rows.push(
-        <Box>
-          <Box flexGrow={1} flexShrink={1}>
-            <Text wrap="truncate-end">
-              <Text color={ink.mauve}>{G.call} </Text>
-              <Text color={ink.subtext}>{fresh.length === 1 ? 'call' : `${fresh.length} calls`} · </Text>
-              {fresh.map((call, i) => (
-                <Text color={ink.text}>
-                  {i > 0 ? <Text color={ink.subtle}> · </Text> : ''}
-                  {call.text}
-                </Text>
-              ))}
-            </Text>
-          </Box>
+    for (const call of allCalls) {
+      const callText = <Text wrap="truncate-end"><Text color={ink.mauve}>{G.call} </Text><Text color={ink.text}>{call.text}</Text></Text>
+      const actions = <Box>
           <Button
-            key="calls-push"
+            key={`call-push-${call.id}`}
             hotkey={key()}
             label="push back"
-            onPress={async () => {
-              const text = fresh.length === 1 ? `Revisit your call "${fresh[0]!.text}": I'd rather ` : `Revisit your calls:\n${fresh.map((call, i) => `${i + 1}. ${call.text}`).join('\n')}\nI'd rather `
-              await $.prompt.fill({ text, mode: 'replace' })
-              await update($, calls, () => [])
-            }}
+            onPress={async () => { await $.prompt.fill({ text: `\nRevisit your call "${call.text}": I'd rather `, mode: 'append' }) }}
           />
           <Text> </Text>
-          <Button key="calls-fine" plain label="fine" onPress={() => update($, calls, () => [])} />
-        </Box>,
-      )
+          <Button key={`call-inspect-${call.id}`} plain label="inspect" onPress={async () => { await card($, 'call source', [call.answer]) }} />
+          <Text> </Text>
+          <Button key={`call-fine-${call.id}`} plain label="fine" onPress={() => resolveCall($, call.id)} />
+        </Box>
+      if (width < 60) rows.push(callText, actions)
+      else rows.push(<Box><Box flexGrow={1} flexShrink={1}>{callText}</Box>{actions}</Box>)
     }
-
     const room = Math.max(1, e.props.maxRows - (withScene ? SCENE_ROWS : 0) - 2)
-    const visible = rows.slice(0, room)
+    const workerCount = crewAgents.length + running.length
+    const otherRows = [...rows, ...recapRows]
+    const urgentCount = rows.length
+    const remaining = Math.max(0, room - urgentCount)
+    const reserved = workerCount ? Math.min(workerCount > 1 ? 2 : 1, remaining) : 0
+    const otherLimit = !workerCount && otherRows.length > room ? Math.max(0, room - 1)
+      : Math.min(urgentCount, room) + Math.min(recapRows.length, Math.max(0, remaining - reserved))
+    rows.length = 0
+    rows.push(...otherRows.slice(0, otherLimit))
+    const hiddenOther = otherRows.length - Math.min(otherRows.length, otherLimit)
+    const crewRoom = room - rows.length
+    const pager = crewPage(workerCount, crewRoom, await read($, crewPageIndex))
+    if (pager) {
+      const { page, pages, start, end } = pager
+      const startBridge = Math.max(0, start - crewAgents.length)
+      const endBridge = Math.max(0, end - crewAgents.length)
+      const pageJobs = running.slice(startBridge, endBridge)
+      const pageRows = crewRows(pageJobs, now, rowWidth)
+      const agentsOnPage = crew.slice(start, Math.min(end, crewAgents.length))
+      rows.push(...agentsOnPage, ...pageJobs.map((job, i) => renderBridgeRow(job, startBridge + i, pageRows[i]!)))
+      rows.push(<Box flexDirection="row">
+        <Button key="crew-prev" plain label="‹" onPress={async () => { await update($, crewPageIndex, () => (page + pages - 1) % pages) }} />
+        <Text color={ink.subtle}>{` crew ${page + 1}/${pages} `}</Text>
+        <Button key="crew-next" plain label="›" onPress={async () => { await update($, crewPageIndex, () => (page + 1) % pages) }} />
+        {hiddenOther > 0 && <Text color={ink.subtle}>{` +${hiddenOther} · /wake`}</Text>}
+        {accounts.length > 0 && hiddenOther === 0 && <Text color={ink.subtle}> · quotas: /wake</Text>}
+      </Box>)
+    } else if (workerCount > 1 && crewRoom === 1) {
+      const page = Math.min(await read($, crewPageIndex), workerCount - 1)
+      const name = page < crewAgents.length ? crewAgents[page]!.name ?? crewAgents[page]!.description : running[page - crewAgents.length]!.title ?? running[page - crewAgents.length]!.name
+      rows.push(<Box flexDirection="row">
+        <Button key="crew-prev" plain label="‹" onPress={async () => { await update($, crewPageIndex, () => (page + workerCount - 1) % workerCount) }} />
+        <Box flexGrow={1} flexShrink={1}><Text color={ink.text} wrap="truncate-end">{` ${name} ${page + 1}/${workerCount} `}</Text></Box>
+        <Button key="crew-next" plain label="›" onPress={async () => { await update($, crewPageIndex, () => (page + 1) % workerCount) }} />
+      </Box>)
+    } else if (crewRoom > 0) {
+      rows.push(...crew)
+      if (hiddenOther) rows.push(<Text color={ink.subtle}>{`+${hiddenOther} more · /wake`}</Text>)
+    }
+    const visible = rows.slice(0, rows.length > room ? Math.max(0, room - 1) : room)
     const extras = (
       <Box flexDirection="column" paddingX={1}>
         {visible}
@@ -781,41 +1052,13 @@ export const register: Register = on => {
       )
     }
 
-    const playing = eventName(input)
-    const swatch = (kind: WakePulseKind, label: string) => (
-      <Text>
-        <Text color={hex(KIND_COLOR[kind])}>■</Text>
-        <Text color={ink.subtext}> {label} </Text>
-      </Text>
-    )
-    // hover the scene for its legend
-    const legend = (
-      <Box position="absolute" top={0} right={1} display="none" hover={{ display: 'flex' }} flexDirection="column" backgroundColor="#11111b" paddingX={1}>
-        <Text color={COLOR.text} weight="bold">
-          {PRESET_LABEL[input.preset]}
-          {here ? <Text color={COLOR.subtle}> · {here.place.name}{here.presetSource === 'guessed' ? ' · /wake scene <name> to change' : ''}</Text> : ''}
-        </Text>
-        <Text color={COLOR.subtext}>each building is a turn · each window a tool call · the busy one is this turn</Text>
-        <Text>
-          {swatch('read', 'read')}
-          {swatch('search', 'search')}
-          {swatch('edit', 'edit')}
-          {swatch('run', 'run')}
-          {swatch('test', 'test')}
-          {swatch('agent', 'agent')}
-          {swatch('web', 'web')}
-          {swatch('fail', 'failed')}
-        </Text>
-        <Text color={COLOR.subtext}>lamps · plan steps done   crew · teal drones and boats: Codex, mauve sparks and comets: agy, pink birds: Claude, balloons: OpenCode (bigger: stronger model)</Text>
-        <Text color={COLOR.subtext}>fireworks · tests passed   storm · a command failed   shooting star · a bridge job finished</Text>
-        {playing ? <Text color={COLOR.subtle}>now: {playing}</Text> : <Text color={COLOR.subtle}>sky, sun, moon phase and weather are live where you are</Text>}
-      </Box>
-    )
     return (
       <Box flexDirection="column">
-        <Box key="wake-scene">
-          <Raster key="scene" columns={width} rows={SCENE_ROWS} cells={frame0!.cells} />
-          {legend}
+        <Box key="wake-scene" position="relative">
+          <Box flexDirection="column"><Raster key="scene" columns={width} rows={SCENE_ROWS} cells={frame0!.cells} /></Box>
+          {Client && <Box position="absolute" top={0} left={0} width={width} height={SCENE_ROWS}>
+            <Client key="scene-pointer" module="./scene-hover.tsx" width={width} height={SCENE_ROWS} />
+          </Box>}
         </Box>
         <Box flexDirection="column" backgroundColor={floor}>
           {words}
@@ -902,12 +1145,16 @@ async function summary($: EngineInterface): Promise<string> {
   const open = await read($, needs)
   const allCalls = await read($, calls)
   const jobs = await read($, chips)
+  const agents = await read($, subagents)
+  const accounts = await read($, quotas)
   const waiting = await read($, recap)
   const out: string[] = []
-  if (waiting) out.push('While you were away:', ...recapBody(waiting.lines).map(l => `  ${l}`))
+  if (waiting) out.push(`Since last activity · ${span((await $.clock.now()) - waiting.awaySince)} · ${waiting.source === 'digest' ? 'from the log' : 'model'}:`, ...recapBody(waiting.lines).map(l => `  ${l}`))
   if (steps.length) out.push('Plan:', ...steps.map(s => `  ${s.status === 'completed' ? '✓' : s.status === 'in_progress' ? '◐' : '○'} ${s.text}`))
   if (open.length) out.push('Waiting on you:', ...open.map(n => `  ${n.kind === 'codex-ask' ? '▲' : '⟲'} ${n.job}: ${n.text}`))
-  if (allCalls.length) out.push('Judgment calls:', ...allCalls.map(c => `  ◆ ${c.text}`))
-  if (jobs.length) out.push('Jobs:', ...jobs.map(j => `  ${j.running ? '◐' : '✓'} ${j.title ?? j.name} · ${j.backend ?? 'codex'}·${j.account ?? ''} ${j.model} ${j.effort}`))
+  if (allCalls.length) out.push('Judgment calls (inspect: /wake call <id>; resolve: /wake fine <id>):', ...allCalls.map(c => `  ◆ ${c.id} ${c.text}`))
+  if (jobs.length) out.push('Jobs:', ...jobs.map(j => `  ${j.running ? '◐' : '✓'} ${j.title ?? j.name} · ${j.backend ?? 'codex'}·${j.account ?? ''} ${j.model} ${j.effort}${j.waitingPeer ? ` · waiting for ${j.waitingPeer.target}` : ''}`))
+  if (agents.length) out.push('Claude subagents:', ...agents.map(a => `  ◐ ${a.name ?? a.description} · ${a.type}${a.model ? ` · ${a.model}` : ''}`))
+  if (accounts.length) out.push('Quotas:', ...accounts.map(account => `  ${quotaText(account)}${account.parts.some(part => part.resets) ? ` · ${account.parts.filter(part => part.resets).map(part => `${part.label} resets ${part.resets}`).join(', ')}` : ''}`))
   return out.length ? out.join('\n') : 'Nothing to report: no plan, no open items, no bridge jobs.'
 }

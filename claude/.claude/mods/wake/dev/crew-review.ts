@@ -1,6 +1,7 @@
-// Synthetic before/after crew sheets at narrow, medium and wide widths.
+// Synthetic before/after crew sheets at narrow, medium and wide widths; not terminal captures.
 // The before lines reproduce the previous slot and timing calculation; after uses the live row formatter.
-import { crewRows, quotaLines, truncate } from '../hooks/crew-row'
+import { crewRows, quotaRows, truncate } from '../hooks/crew-row'
+import { LOGOS } from '../hooks/logos'
 import { crewTiming, fitSlots } from '../hooks/util'
 import { jobLabel } from '../hooks/sources/accounts'
 import type { WakeChip, WakeQuota } from '../types'
@@ -17,14 +18,15 @@ const cases: [string, string, string, string, Partial<WakeChip>][] = [
   ['Check response', 'agy', 'sonnet', 'running', {}],
 ]
 const jobs: WakeChip[] = cases.map(([title, backend, model, state, extra], i) => ({
-  name: `job${i}`, title, backend, account: '01', model, state, effort: ['low', 'medium', 'high', 'xhigh'][i % 4]!,
+  id: `demo/job${i}`, name: `job${i}`, title, backend, account: '01', model, state, effort: ['low', 'medium', 'high', 'xhigh'][i % 4]!,
   running: true, isStale: false, since: 0, startedAt: 40_000, lastEventAt: now - (i + 1) * 8_000,
   memoryBytes: (i + 1) * 100 * 1024 ** 2, memoryCap: '1G',
-  peers: i === 0 ? [{ target: 'demo/job1', outgoing: true, count: 3, lastAt: now - 10_000 }] : [], ...extra,
+  peers: i === 0 ? [{ target: 'demo/job1', outgoing: true, count: 3, lastAt: now - 10_000 }] : i === 1 ? [{ target: 'demo/job0', outgoing: false, count: 3, lastAt: now - 10_000 }, { target: 'demo/job2', outgoing: true, count: 1, lastAt: now - 10_000 }] : i === 3 ? [{ target: 'demo/job4', outgoing: true, count: 5, lastAt: now - 400_000 }] : [],
+  waitingPeer: i === 2 ? { target: 'demo/job0', declaredAt: now - 30_000 } : undefined, ...extra,
 }))
 const quotas: WakeQuota[] = [
-  { cli: 'codex', account: '01', active: true, plan: '', freshness: 'unknown', parts: [{ label: 'h', pct: 70 }, { label: 'w', pct: 30 }] },
-  { cli: 'agy', account: 'a1', active: false, plan: '', freshness: 'fresh', parts: [{ label: 'Gw', pct: 100 }, { label: 'Cw', pct: 25 }] },
+  { cli: 'codex', account: '01', active: true, plan: '', freshness: 'unknown', parts: [{ label: 'h', pct: 70, resets: null }, { label: 'w', pct: 30, resets: null }] },
+  { cli: 'agy', account: 'a1', active: false, plan: '', freshness: 'fresh', parts: [{ label: 'Gw', pct: 100, resets: 'in 2 hours' }, { label: 'Cw', pct: 25, resets: null }] },
 ]
 
 // This is the former renderer's shared-slot sizing and metadata selection.
@@ -50,18 +52,30 @@ function before(group: WakeChip[], width: number): string {
   }).join(' │ ') + (sharedWidth ? ` │ ${shared}` : '')
 }
 
-const panels = [40, 72, 110].map(width => ({
+const panels = [40, 50, 59, 60, 90, 140, 190].flatMap(width => [2, 3, 5].map(count => ({
   width,
-  before: [before(jobs.slice(0, 3), width), before(jobs.slice(3, 6), width), before(jobs.slice(6), width), 'codex 01* h70 w30 │ agy a1 Gw100 Cw25'],
-  after: [...crewRows(jobs, now, width).map((row, i) => [
+  count,
+  before: [before(jobs.slice(0, count), width)],
+  after: [...crewRows(jobs.slice(0, count), now, width).map((row, i) => [
     [row.title, '#cdd6f4'],
-    [` ${row.family}`, ({ codex: '#94e2d5', agy: '#89b4fa', claude: '#f5c2e7', opencode: '#a6e3a1' } as Record<string, string>)[jobs[i]!.backend]!],
+    [' ', '#cdd6f4'],
+    { png: LOGOS[jobs[i]!.backend]! },
+    [row.family.slice(1), ({ codex: '#94e2d5', agy: '#89b4fa', claude: '#f5c2e7', opencode: '#a6e3a1' } as Record<string, string>)[jobs[i]!.backend]!],
     [` ${row.glyph}`, row.state === 'stalled' ? '#f38ba8' : row.state === 'blocked_on_question' ? '#fab387' : row.state === 'paused' || row.state === 'waiting_for_heavy' ? '#f9e2af' : row.state === 'retrying' ? '#cba6f7' : '#a6e3a1'],
     [row.detail, '#a6adc8'],
-  ]), ...quotaLines(quotas, width)],
-}))
+    ...row.gutter.map(segment => {
+      const color = ['#94e2d5', '#cba6f7', '#f9e2af', '#89b4fa', '#f5c2e7', '#a6e3a1'][segment.color % 6]!
+      const dim = '#' + [1, 3, 5].map(i => Math.round(parseInt(color.slice(i, i + 2), 16) * 0.35 + parseInt('#6c7086'.slice(i, i + 2), 16) * 0.65).toString(16).padStart(2, '0')).join('')
+      return [segment.text, segment.dim ? dim : color]
+    }),
+  ]), ...quotaRows(quotas, width).map(chunks => chunks.flatMap((chunk, i) => [
+    ...(i ? [['  ', '#a6adc8']] : []),
+    { png: LOGOS[chunk.quotas[0]!.cli]! },
+    [chunk.text.slice(1), '#a6adc8'],
+  ]))],
+})))
 for (const mode of ['before', 'after'] as const) {
-  const out = `${import.meta.dir}/wake-${mode}.png`
+  const out = `/tmp/wake-peer-${mode}.png`
   await Bun.write(out + '.json', JSON.stringify({ mode, panels }))
   const result = Bun.spawnSync(['uv', 'run', '-q', '--with', 'pillow', 'python', import.meta.dir + '/crew-review.py', out + '.json', out])
   if (result.exitCode !== 0) throw new Error(result.stderr.toString())

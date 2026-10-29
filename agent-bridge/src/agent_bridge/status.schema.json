@@ -198,6 +198,32 @@
       ],
       "additionalProperties": true
     },
+    "DirectMessage": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "source": {"type": "string"},
+        "target": {"type": "string"},
+        "direction": {"enum": ["root_to_worker", "worker_to_root"]},
+        "at": {"type": "string", "format": "date-time"},
+        "recorded_at": {"anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]},
+        "kind": {"enum": ["message", "question", "prompt", "steer"]},
+        "size": {
+          "anyOf": [
+            {"type": "integer", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "preview": {
+          "anyOf": [
+            {"type": "string", "maxLength": 160},
+            {"type": "null"}
+          ]
+        }
+      },
+      "required": ["id", "source", "target", "direction", "at", "kind", "size", "preview"],
+      "additionalProperties": true
+    },
     "PeerEdge": {
       "type": "object",
       "properties": {
@@ -1323,6 +1349,11 @@
         },
         "peers": {
           "$ref": "#/$defs/Peers"
+        },
+        "direct_messages": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/DirectMessage"},
+          "maxItems": 100
         },
         "dependencies": {
           "type": "array",

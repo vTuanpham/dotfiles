@@ -11,6 +11,11 @@ from .core import command_env
 from .status_inputs import timestamp
 from .status_model import InFlight
 
+NON_ACTIVITY_KINDS = {
+    "slow", "stalled", "heavy_wait", "peer_sent", "root_prompt",
+    "waiting_declared", "long_command", "overdue_wait",
+}
+
 
 def running(state):
     pid = state.get("runnerPid")

@@ -16,7 +16,7 @@ export type BandState = {
   plan: WakeStep[]
   mood: WakeMood
   chips: WakeChip[]
-  subagents: { id: string; tier: 1 | 2 | 3 | 4 }[] // running subagents: identity and model class
+  subagents: { id: string; name?: string; description: string; type: string; model?: string; tier: 1 | 2 | 3 | 4 }[]
 }
 
 const SYNODIC_DAYS = 29.530588853
@@ -55,8 +55,8 @@ function turnsOf(beats: { kind: SceneTurn['kinds'][number]; turn: number }[], cu
     byTurn.set(beat.turn, turn)
   }
   const numbers = [...byTurn.keys()].sort((a, b) => a - b)
-  const finished = numbers.filter(n => !(live && n === current)).map(n => byTurn.get(n)!)
-  return { turns: finished, live: live ? (byTurn.get(current) ?? { kinds: [] }) : null }
+  const finished = numbers.filter(n => !(live && n === current)).map(turn => ({ ...byTurn.get(turn)!, turn }))
+  return { turns: finished, live: live ? { ...(byTurn.get(current) ?? { kinds: [] }), turn: current } : null }
 }
 
 export function sceneInput(state: BandState, width: number, frame: number, effect: SceneEffect | null, now: number): SceneInput {
@@ -81,8 +81,46 @@ export function sceneInput(state: BandState, width: number, frame: number, effec
     turns,
     live,
     mood: state.mood,
-    jobs: state.chips.filter(job => job.running).map(job => ({ isStale: job.isStale, seed: seedOf(job.name), tier: modelTier(job.backend ?? 'codex', job.model), kind: (['agy', 'claude', 'opencode'] as const).find(kind => kind === job.backend) ?? ('codex' as const), maker: job.maker })),
-    agents: state.subagents.map(agent => ({ seed: seedOf(agent.id), tier: agent.tier })),
+    peerEdges: state.chips.filter(job => job.running && job.id).flatMap(job => (job.peers ?? [])
+      .filter(peer => (peer.target === 'root' ? peer.messageState !== undefined : peer.outgoing)
+        && now >= peer.lastAt && now - peer.lastAt <= 900_000)
+      .map(peer => {
+        const age = now - peer.lastAt
+        const pulse = peer.observedAt !== undefined && now >= peer.observedAt && now - peer.observedAt < 2_000
+        const rootMessage = peer.target === 'root'
+        return {
+          source: rootMessage && !peer.outgoing ? 'mochi' : job.id!,
+          target: rootMessage ? peer.outgoing ? 'mochi' : job.id! : peer.target,
+          strength: pulse ? 0.65 + 0.35 * (Math.floor((now - peer.observedAt!) / 400) % 2) : Math.max(0.25, 1 - age / 900_000 * 0.75),
+          preview: peer.preview ?? null,
+          messageState: rootMessage ? peer.messageState : undefined,
+        }
+      })),
+    jobs: state.chips.filter(job => job.running).map(job => {
+      const peer = [...(job.peers ?? [])].filter(p => now - p.lastAt <= 900_000 && now >= p.lastAt).sort((a, b) => b.lastAt - a.lastAt)[0]
+      return {
+      isStale: job.isStale, seed: seedOf(job.name), tier: modelTier(job.backend ?? 'codex', job.model),
+      kind: (['agy', 'claude', 'opencode'] as const).find(kind => kind === job.backend) ?? ('codex' as const), maker: job.maker,
+      signal: !!peer && peer.observedAt !== undefined && now >= peer.observedAt && now - peer.observedAt < 2_000 && Math.floor((now - peer.observedAt) / 400) % 2 === 1,
+      hit: job.id || job.owner ? {
+        id: job.id ?? `${job.owner}/${job.name}`, title: job.title ?? job.name,
+        details: [
+          ...(peer ? [`${peer.outgoing ? 'To' : 'From'}: ${peer.target}`, peer.preview || 'Message preview unavailable'] : []),
+          ...(peer?.messageState === 'observed' ? ['Worker output observed; root read status unknown'] : []),
+          ...(peer?.messageState === 'sent' ? ['Bridge sent; worker read status unknown'] : []),
+          `Harness: ${job.backend ?? 'codex'}`,
+          job.model ? `Model ID: ${job.model}` : 'Model ID unavailable',
+          ...(job.effort ? [`Effort: ${job.effort}`] : []),
+        ],
+      } : undefined,
+    }}),
+    agents: state.subagents.map(agent => ({
+      id: agent.id, seed: seedOf(agent.id), tier: agent.tier,
+      hit: {
+        id: agent.id, title: agent.name ?? agent.description,
+        details: [`Claude subagent · ${agent.type}`, agent.model ? `Model ID: ${agent.model}` : 'Model ID unavailable'],
+      },
+    })),
     plan: state.plan.length > 0 ? { done, total: state.plan.length } : null,
     effect,
   }

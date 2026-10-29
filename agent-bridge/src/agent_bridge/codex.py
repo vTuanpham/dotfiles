@@ -16,6 +16,7 @@ from .core import (
     POLL,
     capped,
     command_env,
+    confirm_steer,
     link,
     log,
     poll_steers,
@@ -229,12 +230,7 @@ def run(job, state, path, prompt, resume=False, compact=False):
             if inflight:
                 if inflight["id"] not in known:
                     raise RuntimeError("steer delivery is uncertain; inspect history before retrying")
-                inflight_file = Path(job) / "steer" / inflight["file"]
-                if inflight_file.exists():
-                    sent = Path(job) / "steer" / "sent"
-                    sent.mkdir(exist_ok=True)
-                    os.replace(inflight_file, sent / inflight_file.name)
-                state["inflight"] = None
+                confirm_steer(job, state)
             persist()
         else:
             p = {"cwd": state["cwd"], "sandbox": state["sandbox"], "developerInstructions": MESSAGING_RULE}
@@ -308,12 +304,18 @@ def run(job, state, path, prompt, resume=False, compact=False):
                         persist()
                 elif method == "item/tool/requestUserInput" and "id" in m:
                     pending[str(m["id"])] = (m["id"], p, time.monotonic() + QUESTION_TIMEOUT)
+                    from .peers import message_fields
+
+                    question_text = json.dumps(
+                        p.get("questions", []), ensure_ascii=False, separators=(",", ":")
+                    )
                     log(
                         job,
                         "question",
                         requestId=str(m["id"]),
                         turnId=p.get("turnId"),
                         questions=p.get("questions", []),
+                        **message_fields(question_text),
                     )
                 elif method and "id" in m:
                     if method == "item/permissions/requestApproval":

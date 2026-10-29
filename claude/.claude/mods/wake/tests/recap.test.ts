@@ -45,100 +45,75 @@ const digest: Digest = {
   needs: ['Permission to run uv sync'],
 }
 
-test('good JSON becomes model lines, clamped, capped and evidence-checked', async () => {
-  const seen = model(
-    JSON.stringify([
-      { mark: 'done', text: 'Switched the ledger to per-lot locks', evidence: 'src/ledger/lots.py' },
-      { mark: 'fail', text: 'x'.repeat(200), evidence: 'uv run ty check' },
-      { mark: 'needs', text: 'Waiting on permission for uv sync' },
-      { mark: 'bogus', text: 'bad mark', evidence: 'reviewer' },
-      { mark: 'done', text: 'Edited config.toml', evidence: 'config.toml' }, // not in the digest
-      ...Array.from({ length: 8 }, (_, i) => ({ mark: 'agent', text: `agent ${i}`, evidence: 'reviewer' })),
-    ]),
-  )
-  const { lines, source } = await writeRecap(seen.$, digest)
-
-  expect(source).toBe('model')
-  expect(lines).toHaveLength(6)
-  expect(lines.map(l => l.text)).not.toContain('Edited config.toml')
-  expect(lines.map(l => l.text)).not.toContain('bad mark')
-  expect(lines[0]).toEqual({ mark: 'done', text: 'Switched the ledger to per-lot locks', evidence: 'src/ledger/lots.py' })
-  expect(lines[1]!.text.length).toBe(70)
-  expect(lines[2]).toEqual({ mark: 'needs', text: 'Waiting on permission for uv sync' })
-  expect(seen).toHaveLength(1)
-  expect(seen[0]!.model).toBe('haiku')
-  expect(seen[0]!.prompt).toContain('src/ledger/lots.py')
-})
-
-test('a fenced JSON reply is accepted', async () => {
-  const seen = model('```json\n[{"mark":"done","text":"Per-lot locks","evidence":"reviewer"}]\n```')
-  expect((await writeRecap(seen.$, digest)).source).toBe('model')
-})
-
-test('garbage, wrong shape, all-invalid, model error and a throw fall back to the digest', async () => {
-  const expected = digestLines(digest)
-  const seen = model('')
-  for (const reply of ['sorry, here is a recap', '{"lines":[]}', '[]', '[{"mark":"done","text":"x","evidence":"nowhere.ts"}]', 'error', 'throw']) {
-    seen.answer.reply = reply
-    expect(await writeRecap(seen.$, digest)).toEqual({ lines: expected, source: 'digest' })
-  }
-  expect(seen).toHaveLength(6)
-})
-
-test('an empty digest asks nothing', async () => {
-  const seen = model('[]')
-  const empty: Digest = { awaySince: 1, answers: [], files: [], failures: [], tests: [], agents: [], codex: [], needs: [] }
-  expect(await writeRecap(seen.$, empty)).toEqual({ lines: [], source: 'digest' })
+test('recap uses local evidence and never asks the model', async () => {
+  const seen = model('[{"mark":"done","text":"Invented success","evidence":"reviewer"}]')
+  expect(await writeRecap(seen.$, digest)).toEqual({ lines: digestLines(digest), source: 'digest' })
   expect(seen).toHaveLength(0)
 })
 
-test('the prompt stays small and keeps the newest answers', async () => {
-  const seen = model('[]')
-  const big: Digest = { ...digest, answers: Array.from({ length: 30 }, (_, i) => `answer-${i} ${'w'.repeat(2400)}`) }
-  await writeRecap(seen.$, big)
-  const prompt = seen[0]!.prompt
-  expect(prompt.length).toBeLessThan(13_000)
-  expect(prompt).toContain('answer-29')
-  expect(prompt).not.toContain('answer-0 ')
+test('a same-head failure remains observed when its order against a test is unknown', () => {
+  const d: Digest = { ...digest, answers: ['Blocked: tests still fail'], needs: [], codex: [], files: [], agents: [],
+    failures: [{ command: 'pytest', code: 1 }],
+    tests: [{ command: 'pytest', ok: false }, { command: 'pytest', ok: true }] }
+  const lines = digestLines(d)
+  expect(lines[0]).toEqual({ mark: 'fail', text: 'Blocked: tests still fail' })
+  expect(lines.some(l => l.text === 'test runs observed: 1 failed, 1 passed')).toBe(true)
+  expect(lines.some(l => l.text === '1 command failure observed: pytest')).toBe(true)
 })
 
-test('digestLines: needs first, then failures, tests, files, agents, last answer', () => {
+test('unresolved needs lead and ambiguous answers do not become completed work', () => {
+  const d: Digest = { ...digest, answers: ['Waiting for approval.'], needs: [], codex: [] }
+  expect(digestLines(d)[0]).toEqual({ mark: 'needs', text: 'Waiting for approval.' })
+  for (const answer of ['The fix will be completed later.', 'I fixed nothing.', 'Fixed nothing; the issue remains.']) {
+    expect(digestLines({ ...d, answers: [answer] }).some(l => l.text === answer)).toBe(false)
+  }
+})
+
+test('digestLines: needs first, then failures, tests, files and agents', () => {
   const lines = digestLines(digest)
-  expect(lines.map(l => l.mark)).toEqual(['needs', 'needs', 'fail', 'done', 'done', 'done'])
+  expect(lines.map(l => l.mark)).toEqual(['needs', 'needs', 'fail', 'done', 'done', 'agent'])
   expect(lines[0]!.text).toBe('Permission to run uv sync')
   expect(lines[1]!.text).toContain('Codex luna-audit')
-  expect(lines.some(l => l.text === '2 test runs passed')).toBe(true)
+  expect(lines.some(l => l.text === 'test runs observed: 2 passed')).toBe(true)
   expect(lines.some(l => l.text.startsWith('edited 2 files in src/ledger'))).toBe(true)
-  expect(lines.at(-1)).toEqual({ mark: 'done', text: 'Switched the ledger to per-lot locks.' })
   expect(lines.length).toBeLessThanOrEqual(6)
   expect(lines.every(l => l.text.length <= 70)).toBe(true)
 })
 
-const ANSWER = `I went with per-lot locks instead of one global lock, because settlement touches lots independently. ${'Details follow. '.repeat(10)}`
-
-test('extractCalls skips the model for short answers and answers with no decision verb', async () => {
-  const seen = model('["x"]')
-  expect(await extractCalls(seen.$, 'I chose a lock.', [])).toEqual([])
-  expect(await extractCalls(seen.$, `All good and finished. ${'Everything is done. '.repeat(20)}`, [])).toEqual([])
+test('short explicit choices are extracted locally and unsupported model claims are ignored', async () => {
+  const seen = model('["invented choice"]')
+  const answer = 'I chose per-lot locks instead of a global lock.'
+  const calls = await extractCalls(seen.$, answer, [])
+  expect(calls).toHaveLength(1)
+  expect(calls[0]!.text).toBe(answer)
+  expect(calls[0]!.id).toBe((await extractCalls(seen.$, answer, []))[0]!.id)
+  expect(await extractCalls(seen.$, answer, calls)).toEqual([])
+  expect(await extractCalls(seen.$, 'All tests passed.', [])).toEqual([])
+  expect(await extractCalls(seen.$, 'I chose the option you requested.', [])).toEqual([])
   expect(seen).toHaveLength(0)
 })
 
-test('extractCalls returns stable ids, drops known and duplicate calls, clamps and caps', async () => {
-  const seen = model(JSON.stringify(['per-lot locks, not a global lock', 'Per-lot locks, NOT a global lock!', 'skipped the retry path', 'y'.repeat(100), 'assumed UTC everywhere', 'fourth call', 42]))
-  const known = [{ id: 'k', text: 'skipped the retry path' }]
-  const calls = await extractCalls(seen.$, ANSWER, known)
-
-  expect(calls.map(c => c.text)).toEqual(['per-lot locks, not a global lock', 'y'.repeat(59) + '…', 'assumed UTC everywhere'])
-  expect(calls[0]!.id).toMatch(/^[0-9a-z]+$/)
-  expect(calls[0]!.id).toBe((await extractCalls(seen.$, ANSWER, []))[0]!.id)
-  expect(seen[0]!.prompt).toContain('- skipped the retry path')
-  expect(seen[0]!.model).toBe('haiku')
+test('subjectless short decisions are captured only when not attributed to the user', async () => {
+  const $ = model('[]').$
+  for (const answer of ['Chose SQLite.', 'Selected SQLite.', 'Opted for SQLite.']) {
+    expect((await extractCalls($, answer, [])).map(call => call.text)).toEqual([answer])
+  }
+  for (const answer of ['Selected by the user: SQLite.', 'Selected by you: SQLite.', 'Selected by the customer: SQLite.', 'You asked for SQLite. I chose SQLite.', 'I chose SQLite per your request.', 'I chose SQLite as requested.', 'Use SQLite.', "The user's choice was SQLite. Selected SQLite.", "The customer's choice was SQLite. Selected SQLite.", 'The customer chose SQLite. Selected SQLite.', 'The owner requested SQLite. Selected SQLite.', 'The user’s request was SQLite. Selected SQLite.', 'The user’s selection was SQLite. Selected SQLite.', 'The owner’s decision was SQLite. Selected SQLite.', 'A user decision was to select SQLite. Selected SQLite.', 'The new release notes say, “I chose SQLite.”', '```\nI chose SQLite.\n```']) {
+    expect(await extractCalls($, answer, [])).toEqual([])
+  }
+  expect((await extractCalls($, 'You asked for SQLite. I chose per-lot locks.', [])).map(call => call.text)).toEqual(['I chose per-lot locks.'])
 })
 
-test('extractCalls returns [] on garbage, error and throw', async () => {
-  const seen = model('')
-  for (const reply of ['nothing to report', '{"a":1}', 'error', 'throw']) {
-    seen.answer.reply = reply
-    expect(await extractCalls(seen.$, ANSWER, [])).toEqual([])
-  }
+test('preserves legacy long calls using their full source without merging distinct choices', async () => {
+  const $ = model('[]').$
+  const answer = 'I chose SQLite for the synthetic test cases because the fixtures need consistent storage behavior.'
+  const old = { id: '12uf0k0', text: 'I chose SQLite for the synthetic test cases because the fix…', answer }
+  expect(await extractCalls($, answer, [old])).toEqual([])
+  const different = 'I chose SQLite for the synthetic test cases because the fixtures need isolated transactions.'
+  const next = await extractCalls($, different, [old])
+  expect(next).toHaveLength(1)
+  expect(next[0]!.text).toBe(old.text)
+  expect(await extractCalls($, different, [...[old], ...next])).toEqual([])
+  const ambiguous = { ...old, answer: `${answer}\n${different}` }
+  expect(await extractCalls($, answer, [ambiguous])).toHaveLength(1)
 })

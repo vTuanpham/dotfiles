@@ -1,6 +1,9 @@
 """Version 1 public status contract. Only status.Collector produces snapshots."""
 
 from dataclasses import asdict, dataclass
+from typing import Literal
+
+MESSAGE_PREVIEW_LIMIT = 160
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,19 @@ class PeerMessage:
     kind: str
     size: int
     preview: str | None
+
+
+@dataclass(frozen=True)
+class DirectMessage:
+    id: str
+    source: str
+    target: str
+    direction: Literal["root_to_worker", "worker_to_root"]
+    at: str
+    kind: Literal["message", "question", "prompt", "steer"]
+    size: int | None
+    preview: str | None
+    recorded_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -281,9 +297,10 @@ class Snapshot:
     quotas: tuple[Quota, ...]
     retention: Retention
     peers: Peers
+    direct_messages: tuple[DirectMessage, ...]
     dependencies: tuple[Dependency, ...]
     errors: tuple[str, ...]
-    schema_minor: int = 2
+    schema_minor: int = 3
     groups: tuple[WakeGroup, ...] = ()
     group_events: tuple[GroupNotice, ...] = ()
     unacknowledged_completions: int = 0

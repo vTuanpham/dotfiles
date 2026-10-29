@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_bridge import agy, cli, codex
+from agent_bridge import agy, cli, codex, core, status
 from agent_bridge.core import MESSAGING_RULE, human, tree_size, worker_env
+from agent_bridge.peers import message_fields
 
 
 def event(path, kind, **fields):
@@ -183,6 +184,9 @@ def test_guessed_commands_fail_with_hints(monkeypatch, capsys, argv, hint):
 def test_queue_only_and_resume_queue_count(monkeypatch, tmp_path, capsys):
     job = tmp_path / "owner/job"
     job.mkdir(parents=True)
+    now = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setattr(core, "stamp", lambda: now)
+    monkeypatch.setattr(status.time, "time", lambda: datetime.fromisoformat(now).timestamp())
     state = {"backend": "codex", "activeTurnId": None}
     (job / "state.json").write_text(json.dumps(state))
     monkeypatch.delenv("AGENT_BRIDGE_WORKER", raising=False)
@@ -193,7 +197,21 @@ def test_queue_only_and_resume_queue_count(monkeypatch, tmp_path, capsys):
     output = capsys.readouterr().out
     assert "queued:" in output and "agent-bridge resume owner/job" in output
     assert (job / "steer/001.md").read_text().strip() == "follow up"
-    (job / "steer/002.md").write_text("another follow up")
+    root_steer = next(
+        json.loads(line)
+        for line in (job / "live.jsonl").read_text().splitlines()
+        if json.loads(line)["kind"] == "root_steer"
+    )
+    assert "preview" not in root_steer and "size" not in root_steer
+    assert "text" not in root_steer
+    second = core.make_steer(job, "another follow up")
+    core.log(
+        job,
+        "root_steer",
+        level="info",
+        file=second.name,
+        **message_fields("another follow up"),
+    )
     (job / "steer/sent").mkdir()
     (job / "steer/sent/000.md").write_text("already sent")
     delivered = []
@@ -211,6 +229,37 @@ def test_queue_only_and_resume_queue_count(monkeypatch, tmp_path, capsys):
     cli.main()
     assert "resume: delivering 2 queued steer(s)" in capsys.readouterr().out
     assert delivered == ["follow up", "another follow up"]
+    messages = status.Collector(jobs_root=tmp_path).collect().direct_messages
+    assert [message.preview for message in messages if message.kind == "steer"] == [
+        "follow up",
+        "another follow up",
+    ]
+
+
+def test_root_steer_event_never_logs_a_secret_value(monkeypatch, tmp_path, capsys):
+    job = tmp_path / "owner/job"
+    job.mkdir(parents=True)
+    state = {"backend": "codex", "activeTurnId": None}
+    (job / "state.json").write_text(json.dumps(state))
+    monkeypatch.setenv("SERVICE_TOKEN", "hidden-value")
+    monkeypatch.delenv("AGENT_BRIDGE_WORKER", raising=False)
+    monkeypatch.setattr(cli, "resolve_job", lambda _: job)
+    monkeypatch.setattr(cli.os, "fork", lambda: pytest.fail("--queue must not start a runner"))
+    text = "SERVICE_TOKEN=hidden-value"
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", "steer", "owner/job", text, "--queue"])
+
+    cli.main()
+
+    root_steer = next(
+        json.loads(line)
+        for line in (job / "live.jsonl").read_text().splitlines()
+        if json.loads(line)["kind"] == "root_steer"
+    )
+    assert "preview" not in root_steer and "size" not in root_steer
+    assert text not in json.dumps(root_steer)
+    assert (job / "steer/001.md").read_text().strip() == text
+    assert "queued:" in capsys.readouterr().out
+    assert status.Collector(jobs_root=tmp_path).collect().direct_messages == ()
 
 
 @pytest.mark.parametrize("backend", ["codex", "claude", "agy", "opencode"])

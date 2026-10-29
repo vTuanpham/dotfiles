@@ -4,15 +4,19 @@ export type Canvas = {
   W: number
   H: number
   px: Uint32Array
+  hitOwners?: Uint32Array
   set(x: number, y: number, color: number): void
   get(x: number, y: number): number
   /** Moves the pixel toward `color` by `t` (0..1). */
   glow(x: number, y: number, color: number, t: number): void
   rect(x: number, y: number, w: number, h: number, color: number): void
+  withHit<T>(owner: number, draw: () => T): T
 }
 
-export function canvas(W: number, H: number): Canvas {
+export function canvas(W: number, H: number, collectHits = false): Canvas {
   const px = new Uint32Array(W * H)
+  const hitOwners = collectHits ? new Uint32Array(W * H) : undefined
+  let currentHit = 0
   // the scene plays half frames (20 a second, motion paced for 10), so a position can land
   // between pixels: it rounds to the nearest, which is what makes the half frame a smoother step
   const at = (x: number, y: number) => {
@@ -24,9 +28,13 @@ export function canvas(W: number, H: number): Canvas {
     W,
     H,
     px,
+    hitOwners,
     set: (x, y, color) => {
       const k = at(x, y)
-      if (k >= 0) px[k] = color
+      if (k >= 0) {
+        px[k] = color
+        if (hitOwners) hitOwners[k] = currentHit
+      }
     },
     get: (x, y) => {
       const k = at(x, y)
@@ -34,10 +42,18 @@ export function canvas(W: number, H: number): Canvas {
     },
     glow: (x, y, color, t) => {
       const k = at(x, y)
-      if (k >= 0) px[k] = mix(px[k]!, color, t)
+      if (k >= 0) {
+        px[k] = mix(px[k]!, color, t)
+        if (hitOwners) hitOwners[k] = currentHit
+      }
     },
     rect: (x, y, w, h, color) => {
       for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) c.set(i, j, color)
+    },
+    withHit: (owner, draw) => {
+      const previous = currentHit
+      currentHit = owner
+      try { return draw() } finally { currentHit = previous }
     },
   }
   return c

@@ -81,6 +81,10 @@ heredoc scripts; shell is for reading, searching, and running commands.
   Only dismiss prompts through a verified harness API; do not simulate keys or
   promise timed escalation while the agent is blocked or suspended.
 - Run tests for affected areas. The root agent decides if a full suite is warranted; prefer targeted tests when they provide enough coverage, especially if the full suite is costly. Subagents test only the areas they change.
+- Fit command and tool waits to expected duration and harness limits. For a
+  long-running command, yield and keep working; when idle, use longer
+  event-driven waits instead of repeated short polls. A wait window is not a
+  task runtime limit; set actual timeouts separately when needed.
 - Skip a commit hook only when the commit cannot affect what it checks; run all relevant hooks.
 - When a bug may be a recurring pattern, name the failure class before fixing,
   sweep the affected area for siblings, and fix or report them in the same
@@ -95,9 +99,10 @@ heredoc scripts; shell is for reading, searching, and running commands.
   concurrency, or recovery. Docs-only edits need link, consistency, and diff
   checks. Do not add mirror tests or unrelated tooling.
 - Visual work (UI, layout, charts, captures) needs looking at the rendered
-  output, not only tests: inspect renders at meaningful checkpoints, cropping
-  or zooming edges, headers and dense regions where clipping and overlap hide.
-  Don't iterate blind; don't screenshot every small step either.
+  output, not only tests: inspect at normal scale and zoom or crop edges,
+  headers, dense regions and small details to judge legibility, spacing,
+  clipping and overlap. Inspect meaningful states and widths before handoff;
+  don't iterate blind or screenshot every small step.
 
 ## Architecture
 
@@ -122,9 +127,10 @@ heredoc scripts; shell is for reading, searching, and running commands.
 - Delegate only with explicit user authorization and only when independent
   progress/scrutiny outweighs briefing cost. Honor model/effort constraints;
   otherwise use the current frontier family and fit effort to difficulty.
-- Same-harness workers: your native subagents. Other harnesses (Codex, agy,
-  Claude): load the `agent-bridge` skill first; it owns routing, launch,
-  watch and cleanup.
+- Prefer the current harness's native subagents. Use `agent-bridge` only when
+  another harness, model or quota pool is needed and relevant to the current
+  task; never route same-harness work through it. Load its skill first for
+  routing, launch, watch and cleanup.
 - A thread can resume with a different model in the same harness, including
   across model families. Prefer retaining it when its task context remains
   useful; a model switch alone is not a reason to start a new thread.
@@ -137,7 +143,10 @@ heredoc scripts; shell is for reading, searching, and running commands.
   announce boundary crossings. No commit/push/deploy/external mutation without
   authorization.
 - Keep independent work moving; wait only on dependencies or when no useful
-  work remains. Use meaningful wait windows, not busy polling.
+  work remains. Set event-driven wait timeouts to fit the task and harness:
+  for example, about 60 seconds for an agent's answer, or 3–5 minutes for
+  progress when idle and the harness permits. Return early for updates; avoid
+  frequent polling and keep the user informed.
 - Cache awareness: signed-in Codex announced "cache forever" (API retention
   differs); Claude Code main subscription ~1 h, subagents/API/credits default
   5 min unless configured; agy reports cache hits, fixed TTL unverified.

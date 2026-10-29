@@ -14,6 +14,12 @@ Jobs persist under `~/.local/state/agent-bridge`, so another root can resume or 
 workers can message each other with `TO <peer>:`. Plain worker messages, including ones addressed `TO root:`,
 go to the coordinator as info.
 
+To take over an existing owner namespace from a different known root, run
+`agent-bridge handoff <owner>` once from the new root. The previous root can
+still inspect shared status, but its job mutations, acknowledgements and watch
+delivery are refused after the handoff. Unknown/rootless callers retain legacy
+access without replacing a known binding.
+
 `agent-bridge steer <owner>/<name> "follow-up"` delivers to a running worker, or
 resumes an idle job detached in its original session. Add `--watch` to follow the
 new work in the same background command. Use `--queue` to batch messages without
@@ -57,14 +63,24 @@ protocol.
 Choose a group policy when launching several workers. Default `each` batches
 completions for 60 seconds; `all` waits for the group (optionally `--max-wait`),
 and `quiet` leaves results visible. `group set OWNER NAME --wake all --members a b`
-configures a group; launch with `--group NAME`. Unread results get one informational
-reminder after 15 minutes. The [group contract](src/agent_bridge/guide/status.md#completion-groups-v11)
+configures a group; launch with `--group NAME`. Unread results wake the root once
+after 15 minutes by default, including under `quiet`, when a watch remains armed
+in every harness. Reminders are observation-driven; without an armed watch, there
+is no background push.
+The [group contract](src/agent_bridge/guide/status.md#completion-groups-v11)
 documents controls and fields. `watch --until-event` delivers completion digests
 once and immediately wakes for failures, questions, errors and explicit
 blocking/URGENT messages, flushing any held results.
+In a Codex root, the watch process sends wake events, timeouts and failures through
+the current thread's native MCP tool, including after the model turn ends. Empty
+handled owners exit silently. After its first wake, it remains alive through
+scheduled unread reminders and group completions, even with no runners; this may
+outlast `--timeout`. Re-arm after an event if a job remains but no schedule is
+pending. Other roots still need to re-arm their watch for reminders. A short
+startup line confirms delivery is ready; the root needs no separate callback.
 Routine messages and slow/stall notices remain visible; `--include-info` also
-wakes for them. Group policies still apply with that flag; reminders, queue
-waits and retry status never wake the root.
+wakes for them. Group policies still apply with that flag; overdue unread
+reminders wake without it. Queue waits and retry status never wake the root.
 Re-arming cannot discard a completion. Printing is not acknowledgement:
 `agent-bridge result <owner>/<job>` acknowledges that job's completions, while
 `agent-bridge ack <owner>` (or `<owner>/<job>`) acknowledges urgent events already

@@ -87,8 +87,10 @@ when there is room. Finished jobs remain until Bridge's `result` or `ack`.
 
 The compact list follows Claude Code's subagent presentation: one recognizable
 marker and name, a brief state and small counters, with color providing emphasis
-and longer explanations kept out of the list. Claude's own subagent row remains
-unchanged. The [Claude Code documentation](https://code.claude.com/docs/en/sub-agents)
+and longer explanations kept out of the list. The row uses vendor logos where the
+terminal supports inline images, with text alternatives otherwise. Model-maker
+logos appear in hover details only when the model ID identifies the maker.
+The [Claude Code documentation](https://code.claude.com/docs/en/sub-agents)
 describes its subagent workflow and status access.
 
 Classes are 1 Haiku/Luna, 2 Sonnet/Terra, 3 Opus/Sol and 4 Fable/Astra;
@@ -105,8 +107,16 @@ known waits have their own reasons. Finished jobs stay as `done` until Bridge's
 Bridge jobs, quota numbers and tidy eligibility come from
 [`agent-bridge status --json`](../agent-bridge/src/agent_bridge/guide/status.md).
 Wake maps the shared state and stall reason; heavy waits, root pauses and retry
-backoff stay normal known states. Directed peer marks name the other job and
-show a message count past one; links older than 15 minutes are dropped. The native Claude `statusline.py` still renders
+backoff stay normal known states. Colored gutter lanes join connected peers;
+← points to the recipient, ─, ━ and ═ represent 1, 2–4 and 5+ messages,
+and ┄/┆ show a declared peer or dependency wait. Message links dim after five
+minutes and disappear after 15. The gutter shrinks with the terminal; where a
+group cannot fit, the existing ↗/↙ peer marks remain. Root messages have their
+own ↗r (worker → root) and ↙r (root → worker) gutter marks. Clear scene paths
+connect workers to Mochi. Hover details show the scrubbed preview and distinguish
+Bridge observing worker output from sending a root prompt or steer; neither
+proves the recipient read it. The root endpoint is the owner namespace across
+session handoffs. The native Claude `statusline.py` still renders
 Claude's own session/context/cost input; it has no separate Bridge parser.
 
 The quota rows belong to Wake and appear while Bridge jobs are running. They show
@@ -139,9 +149,16 @@ interactive session reloads it when its files change, so edits here apply live.
 - Checks, from the mod folder: `claude plugin validate .`, `claude plugin test .`,
   and `npx -y -p typescript tsc -p .` (the engine writes `.claude-plugin/types/`
   on load; it is ignored).
+  If every test file reports "did not load" with child exit code 0, check sandbox
+  restrictions on the child harness; rerun the same command outside the sandbox
+  when authorized. Type checking does not replace the runtime suite.
 - `bun dev/showcase.ts` and `bun dev/dock.ts` render the animation frames behind the README GIFs
   ([docs/tools](../docs/tools/README.md) turns them into images).
 - `bun dev/crew.ts <codex|agy|claude|opencode>` renders the four sprite classes;
   `bun dev/crew-review.ts` renders synthetic before/after rows at three widths.
 - Look at a landscape before changing it: `bun dev/preview.ts <landscape>` writes
   a sheet of every day phase, weather, effect and event to `dev/<landscape>.png`.
+- Paint scene cards in the same Raster as the animation. The Client captures pointers
+  only: independently redrawing an overlapping Client can briefly clear the fullscreen
+  scene. Check continuous mouse movement in the configured terminal mode; hook traces
+  and the test kit do not verify terminal compositing.

@@ -1,8 +1,9 @@
-import type { WakeMood, WakePreset, WakePulseKind } from '../types'
-import { fly, stations } from './landscapes/crew'
+import type { WakeMood, WakePreset, WakePulseKind, WakeSceneHit } from '../types'
+import { placeFly, stations } from './landscapes/crew'
 import { type DayPhase, type Job, type Landscape, type Look, P, SCENE_H, type SceneEvent, type Season } from './landscapes/kit'
 import { LANDSCAPES } from './landscapes'
 import { type Canvas, canvas, hash, mix, sprite } from './pixels'
+import { cells, truncate } from './crew-row'
 
 // The band's diorama. Every thing in it stands for something real:
 //   buildings      turns of this session (taller: more tool calls; wider: more edits)
@@ -23,14 +24,57 @@ import { type Canvas, canvas, hash, mix, sprite } from './pixels'
 const H = SCENE_H
 export const SCENE_ROWS = H / 2
 
-export type SceneTurn = { kinds: WakePulseKind[] }
+export type SceneTurn = { turn?: number; kinds: WakePulseKind[] }
 export type SceneEffect = { kind: 'fireworks' | 'storm' | 'shoot'; age: number }
 export const EFFECT_FRAMES: Record<SceneEffect['kind'], number> = { fireworks: 40, storm: 48, shoot: 24 }
 
 export type SceneWeather = { cloud: number; rain: 0 | 1 | 2 | 3; snow: 0 | 1 | 2 | 3; fog: boolean; thunder: boolean; wind: number }
 
 /** A running subagent as a bird: its id's seed (who it is: its lane and pace come from it) and its model's class. */
-export type SceneAgent = { seed: number; tier: 1 | 2 | 3 | 4 }
+export type SceneAgent = { id?: string; seed: number; tier: 1 | 2 | 3 | 4; hit?: WakeSceneHit }
+
+export type SceneHitMap = { columns: number; rows: number; owners: number[]; targets: WakeSceneHit[] }
+export type SceneSelection = { target: WakeSceneHit; x: number; y: number }
+
+/** The popup stays inside the scene, opposite its selected object. */
+export function sceneCardBounds(columns: number, rows: number, selected: { x: number; y: number; details: readonly string[] }) {
+  if (columns < 3 || rows < 1) return null
+  const width = Math.min(52, columns - 2)
+  const height = Math.min(rows, 1 + Math.min(2, selected.details.length))
+  return {
+    left: selected.x < columns / 2 ? columns - width - 1 : 1,
+    top: selected.y < rows / 2 ? rows - height : 0,
+    width, height,
+  }
+}
+
+export type ScenePointerMessage = { type: 'down' | 'move' | 'up' | 'enter' | 'leave'; x: number; y: number }
+
+/** Strictly decode the Client message before using its cell coordinates. */
+export function readScenePointer(value: unknown): ScenePointerMessage | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const data = value as Record<string, unknown>
+  return ['down', 'move', 'up', 'enter', 'leave'].includes(data.type as string)
+    && Number.isSafeInteger(data.x) && Number.isSafeInteger(data.y)
+    ? { type: data.type as ScenePointerMessage['type'], x: data.x as number, y: data.y as number }
+    : undefined
+}
+
+/** A cell is targetable only when its visible halves name at most one object. */
+export function sceneHitAt(map: SceneHitMap | null, x: number, y: number): WakeSceneHit | undefined {
+  if (!map || !Number.isSafeInteger(x) || !Number.isSafeInteger(y) || x < 0 || y < 0 || x >= map.columns || y >= map.rows) return undefined
+  const owner = map.owners[y * map.columns + x]!
+  return owner > 0 ? map.targets[owner - 1] : undefined
+}
+
+const turnHit = (turn: SceneTurn, isLive: boolean): WakeSceneHit | undefined => turn.turn === undefined ? undefined : ({
+  id: `turn:${turn.turn}`,
+  title: `Turn ${turn.turn}${isLive ? ' · current' : ''}`,
+  details: [
+    `${turn.kinds.length} tool calls`,
+    turn.kinds.length ? turn.kinds.join(' · ') : 'No tool calls recorded',
+  ],
+})
 
 export type SceneInput = {
   width: number
@@ -47,6 +91,7 @@ export type SceneInput = {
   live: SceneTurn | null
   mood: WakeMood
   jobs: Job[]
+  peerEdges?: { source: string; target: string; strength: number; preview: string | null; messageState?: 'observed' | 'sent' }[]
   agents: SceneAgent[] // running subagents
   plan: { done: number; total: number } | null
   effect: SceneEffect | null
@@ -96,7 +141,7 @@ function nightness(hour: number, rise: number, set: number): number {
   return 1
 }
 
-function drawSky(c: Canvas, look: Look, input: SceneInput) {
+function drawSky(c: Canvas, look: Look, input: SceneInput, celestialOwner = 0) {
   const cloud = input.weather?.cloud ?? 0.2
   const grey = Math.min(0.55, Math.max(0, cloud - 0.5) * 1.1 + (input.weather && input.weather.rain + input.weather.snow > 0 ? 0.2 : 0))
   // overcast greys the sky: light by day, dark by night
@@ -130,7 +175,9 @@ function drawSky(c: Canvas, look: Look, input: SceneInput) {
     const veil = Math.max(0, cloud - 0.5) * 1.5
     if (day) {
       for (let dy = -2; dy < 6; dy++) for (let dx = -2; dx < 6; dx++) c.glow(bx + dx, by + dy, P.yellow, 0.08 * (1 - veil))
-      sprite(c, bx, by, disc, { '#': mix(P.yellow, top, veil) })
+      const drawSun = () => sprite(c, bx, by, disc, { '#': mix(P.yellow, top, veil) })
+      if (celestialOwner) c.withHit(celestialOwner, drawSun)
+      else drawSun()
     } else {
       // lit fraction from the phase: waxing lights the right side first
       const phase = input.moonPhase
@@ -139,12 +186,14 @@ function drawSky(c: Canvas, look: Look, input: SceneInput) {
         if (phase < 0.5) return u > 1 - phase * 2
         return u < 1 - (phase - 0.5) * 2
       }
-      disc.forEach((line, dy) => {
+      const drawMoon = () => disc.forEach((line, dy) => {
         for (let dx = 0; dx < 4; dx++) {
           if (line[dx] !== '#') continue
           c.set(bx + dx, by + dy, lit(dx) ? mix(P.snow, top, veil) : mix(top, P.surface1, 0.35))
         }
       })
+      if (celestialOwner) c.withHit(celestialOwner, drawMoon)
+      else drawMoon()
     }
   }
   // clouds: count and greyness from the cloud cover, drifting with the wind
@@ -460,42 +509,124 @@ export function lookOf(input: SceneInput): Look {
 }
 
 /** The scene's pixels, row-major, `width` x 12, as 0xRRGGBB. */
-export function scenePixels(input: SceneInput): Uint32Array {
-  const c = canvas(input.width, H)
+export function scenePixels(input: SceneInput, crewAnchors: number[] = [], hitMap?: SceneHitMap): Uint32Array {
+  const localHits = hitMap ?? (input.peerEdges?.length ? { columns: input.width, rows: SCENE_ROWS, owners: [], targets: [] } : undefined)
+  const c = canvas(input.width, H, localHits !== undefined)
   const look = lookOf(input)
+  look.hitTargets = localHits?.targets
+  const registerHit = (target: WakeSceneHit | undefined) => {
+    if (!target || !localHits) return 0
+    localHits.targets.push(target)
+    return localHits.targets.length
+  }
+  const jobs = input.jobs.map(job => ({ ...job, hitOwner: registerHit(job.hit) || undefined }))
+  const agents = input.agents.map(agent => ({
+    isStale: false, seed: agent.seed, tier: agent.tier, kind: 'claude' as const,
+    hit: agent.hit, hitOwner: registerHit(agent.hit) || undefined,
+  }))
+  const skyOwner = registerHit({ id: 'sky', title: 'Sky', details: [look.isDay ? 'Daytime' : 'Nighttime', input.weather ? `Cloud cover: ${Math.round(input.weather.cloud * 100)}%` : 'Weather unavailable'] })
+  const sceneryOwner = registerHit({ id: 'scenery', title: `${input.preset} landscape`, details: ['Scene setting'] })
+  const foregroundOwner = registerHit({ id: 'foreground', title: `${input.preset} landscape`, details: ['Scene setting'] })
+  const celestialOwner = (input.weather?.cloud ?? 0) < 0.85 ? registerHit({ id: look.isDay ? 'sun' : 'moon', title: look.isDay ? 'Sun' : 'Moon', details: [look.isDay ? 'Daytime' : `Lunar cycle: ${Math.round(input.moonPhase * 100)}%`] }) : 0
+  let skyPixels: Uint32Array | undefined
+  let sceneryPixels: Uint32Array | undefined
+  const finish = () => {
+    if (hitMap) {
+      hitMap.columns = c.W
+      hitMap.rows = SCENE_ROWS
+      hitMap.owners = Array.from({ length: c.W * SCENE_ROWS }, (_, i) => {
+        const row = Math.floor(i / c.W), x = i % c.W
+        const top = c.hitOwners![(2 * row) * c.W + x]!
+        const bottom = c.hitOwners![(2 * row + 1) * c.W + x]!
+        if (top || bottom) return top === bottom ? top : top === 0 ? bottom : bottom === 0 ? top : 0
+        const a = (2 * row) * c.W + x, b = (2 * row + 1) * c.W + x
+        if (skyPixels && c.px[a] === skyPixels[a] && c.px[b] === skyPixels[b]) return skyOwner
+        if (skyPixels && sceneryPixels && (sceneryPixels[a] !== skyPixels[a] || sceneryPixels[b] !== skyPixels[b]) && c.px[a] === sceneryPixels[a] && c.px[b] === sceneryPixels[b]) return sceneryOwner
+        return 0
+      })
+    }
+    return c.px
+  }
   const land: Landscape = LANDSCAPES[input.preset]
   const ground = land.ground
   const catX = c.W - CAT_COLUMNS - 1
   const right = catX - 5 // left of the laptop
+  const planOwner = registerHit({
+    id: 'plan-lamps', title: input.plan ? 'Plan progress' : 'Night lamps',
+    details: [input.plan ? `${input.plan.done} of ${input.plan.total} steps complete` : 'Lamps light at night when no plan is active'],
+  })
+  const mochiOwner = registerHit({ id: 'mochi', title: 'Mochi', details: [`Session mood: ${input.mood}`] })
 
-  drawSky(c, look, input)
+  drawSky(c, look, input, celestialOwner)
+  if (localHits) skyPixels = c.px.slice()
   land.backdrop(c, look)
   land.floor(c, look)
+  if (localHits) sceneryPixels = c.px.slice()
 
-  // birds: running subagents, over the backdrop; each keeps a lane and pace by who it is (the five first by identity fly)
-  for (const [bird, j] of stations(input.agents.map(agent => ({ isStale: false, seed: agent.seed, tier: agent.tier, kind: 'claude' as const })), 5)) {
-    if (j >= 5) continue
-    const tier = bird.tier // larger Claude birds glide slower
-    const x = Math.round((input.frame * (0.5 + j * 0.08) * (tier >= 3 ? 0.7 : 1) + j * 29) % (c.W + 20)) - 10
-    const y = 3 + (j % 3) + Math.round(Math.sin((input.frame + j * 9) * (tier >= 3 ? 0.07 : 0.15)))
-    fly(c, look, x, y, bird)
+  look.crewZones = []
+  look.crewGround = ground
+  look.crewAnchors = crewAnchors
+  const catZone = { x: catX - 4, y: 0, w: CAT_COLUMNS + 4, h: H }
+  look.crewZones.push(catZone)
+  look.crewSpriteZones = [catZone]
+  if (input.mood === 'work') {
+    const laptop = { x: catX - 4, y: ground - 3, w: 4, h: 4 }
+    look.crewZones.push(laptop)
+    look.crewSpriteZones.push(laptop)
+  }
+  if ((input.weather?.cloud ?? 0) < 0.85) {
+    const { rise, set } = input.sun
+    const len = look.isDay ? set - rise : 24 - (set - rise)
+    const since = look.isDay ? input.hour - rise : (((input.hour - set) % 24) + 24) % 24
+    const arc = Math.max(0, Math.min(1, since / len))
+    const x = Math.round(4 + arc * (c.W - 14)), y = Math.round(H * 0.55 - H * 0.5 * Math.sin(Math.PI * arc))
+    const top = y & ~1
+    look.crewZones.push({ x, y: top, w: 4, h: y + 4 - top + (y % 2) })
   }
 
-  // structures, newest at the right
-  let edge = right
-  const place = (kinds: WakePulseKind[], index: number, isLive: boolean) => {
-    const { width, height } = land.size(kinds, index, look)
-    const x0 = edge - width
-    if (x0 + width < 0) return false
-    land.building(c, look, { kinds, index, x0, width, height, isLive })
-    const gap = land.gap(index, look)
-    if (gap > 0) land.filler(c, look, x0 - gap, x0)
-    edge = x0 - gap
-    return true
+
+  // Structures and their furniture reserve their painted pixels for the crew.
+  const reference = canvas(c.W, c.H)
+  const referenceLook = { ...look, frame: 0, crewZones: [] }
+  const beforeStructures = reference.px.slice()
+  const structures = (target: Canvas, state: Look, tag = false) => {
+    let edge = right
+    const place = (kinds: WakePulseKind[], index: number, isLive: boolean) => {
+      const { width, height } = land.size(kinds, index, state)
+      const x0 = edge - width
+      if (x0 + width < 0) return false
+      const turn = isLive ? input.live : input.turns[index]
+      const owner = tag && turn ? registerHit(turnHit(turn, isLive)) : 0
+      const draw = () => land.building(target, state, { kinds, index, x0, width, height, isLive })
+      if (owner) target.withHit(owner, draw)
+      else draw()
+      const gap = land.gap(index, state)
+      if (gap > 0) land.filler(target, state, x0 - gap, x0)
+      edge = x0 - gap
+      return true
+    }
+    if (input.live) place(input.live.kinds, input.turns.length, true)
+    for (let i = input.turns.length - 1; i >= 0; i--) if (!place(input.turns[i]!.kinds, i, false)) break
+    if (edge > 0) land.filler(target, state, 0, edge)
   }
-  if (input.live) place(input.live.kinds, input.turns.length, true)
-  for (let i = input.turns.length - 1; i >= 0; i--) if (!place(input.turns[i]!.kinds, i, false)) break
-  if (edge > 0) land.filler(c, look, 0, edge)
+  structures(c, look, true)
+  structures(reference, referenceLook)
+  look.crewZones.push(...referenceLook.crewZones)
+
+  const reserveChanges = (before: Uint32Array) => {
+    for (let y = 0; y < H; y++) {
+      let start = -1
+      for (let x = 0; x <= right; x++) {
+        const changed = x < right && reference.px[y * c.W + x] !== before[y * c.W + x]
+        if (changed && start < 0) start = x
+        if (!changed && start >= 0) {
+          look.crewZones!.push({ x: start, y: y & ~1, w: x - start, h: 2 })
+          start = -1
+        }
+      }
+    }
+  }
+  reserveChanges(beforeStructures)
 
   // lamps: plan progress
   const lamps = Math.max(0, Math.floor((right - 4) / 9))
@@ -503,19 +634,132 @@ export function scenePixels(input: SceneInput): Uint32Array {
     const x = 4 + i * 9
     const on = input.plan ? i < Math.round((lamps * input.plan.done) / input.plan.total) : look.night > 0.5
     const color = input.plan ? P.yellow : mix(P.yellow, P.mantle, 0.35)
-    c.set(x, ground - 1, P.surface1)
-    c.set(x, ground - 2, on ? color : P.surface2)
-    if (on) for (const [dx, t] of [[-1, 0.25], [0, 0.4], [1, 0.25]] as const) c.glow(x + dx, ground, color, t)
+    const drawLamp = () => {
+      c.set(x, ground - 1, P.surface1)
+      c.set(x, ground - 2, on ? color : P.surface2)
+      if (on) for (const [dx, t] of [[-1, 0.25], [0, 0.4], [1, 0.25]] as const) c.glow(x + dx, ground, color, t)
+    }
+    if (planOwner) c.withHit(planOwner, drawLamp)
+    else drawLamp()
+    const lampTop = (ground - 2) & ~1
+    look.crewZones.push({ x: x - 1, y: lampTop, w: 3, h: ground + 2 - lampTop })
   }
 
-  land.jobs(c, look, input.jobs, right)
-  land.foreground(c, look, right)
+  // Foreground figures reserve their visible pixels before the crew picks lanes.
+  const beforeForeground = reference.px.slice()
+  if (foregroundOwner) c.withHit(foregroundOwner, () => land.foreground(c, look, right))
+  else land.foreground(c, look, right)
+  land.foreground(reference, referenceLook, right)
+  reserveChanges(beforeForeground)
   const playing = playingEvent(look, [...land.events, ...SHARED_EVENTS], input.forceEvent)
-  if (playing) playing.event.draw(c, look, playing.age, playing.seed)
-  if (input.weather) drawWeather(c, look, input.weather, ground)
+  const eventOwner = playing ? registerHit({ id: `event:${playing.event.name}`, title: playing.event.name, details: ['Ambient scene event'] }) : 0
+  if (playing) {
+    const draw = () => playing.event.draw(c, look, playing.age, playing.seed)
+    if (eventOwner) c.withHit(eventOwner, draw)
+    else draw()
+  }
+
+  // Subagents and jobs share the same exclusion zones.
+  land.jobs(c, look, jobs, right)
+  for (const [bird, j] of stations(agents, 5)) {
+    if (j >= 5) continue
+    const tier = bird.tier
+    const x = Math.round((input.frame * (0.5 + j * 0.08) * (tier >= 3 ? 0.7 : 1) + j * 29) % (c.W + 20)) - 10
+    const y = 3 + (j % 3) + Math.round(Math.sin((input.frame + j * 9) * (tier >= 3 ? 0.07 : 0.15)))
+    placeFly(c, look, x, y, bird, right)
+  }
+  if (input.weather) {
+    const weather = input.weather
+    const weatherOwner = registerHit({ id: 'weather', title: 'Weather', details: [`Cloud cover: ${Math.round(weather.cloud * 100)}%`, weather.thunder ? 'Thunderstorm' : weather.snow ? 'Snow' : weather.rain ? 'Rain' : weather.fog ? 'Fog' : 'No precipitation shown'] })
+    if (weatherOwner) c.withHit(weatherOwner, () => drawWeather(c, look, weather, ground))
+    else drawWeather(c, look, weather, ground)
+  }
   if (input.effect) drawEffect(c, look, input.effect, ground, right)
-  drawMochi(c, look, input, ground, catX)
-  return c.px
+  if (mochiOwner) c.withHit(mochiOwner, () => drawMochi(c, look, input, ground, catX))
+  else drawMochi(c, look, input, ground, catX)
+  // Route only between visible endpoints, through unoccupied sky.
+  const peerBlocked = new Uint8Array(c.W * ground)
+  if (localHits && c.hitOwners && input.peerEdges?.length) {
+    for (let y = 0; y < ground; y++) for (let x = 0; x < c.W; x++) {
+      const i = y * c.W + x, other = (y ^ 1) * c.W + x
+      if (c.hitOwners[i] || c.hitOwners[other] || sceneryPixels && skyPixels && (sceneryPixels[i] !== skyPixels[i] || sceneryPixels[other] !== skyPixels[other])) peerBlocked[i] = 1
+    }
+    for (const z of look.crewZones ?? []) for (let y = Math.max(0, z.y); y < Math.min(ground, z.y + z.h); y++) for (let x = Math.max(0, z.x); x < Math.min(c.W, z.x + z.w); x++) peerBlocked[y * c.W + x] = 1
+  }
+  if (localHits && c.hitOwners && input.peerEdges?.length) for (const edge of input.peerEdges) {
+    const source = localHits.targets.findIndex(target => target.id === edge.source) + 1
+    const target = localHits.targets.findIndex(item => item.id === edge.target) + 1
+    if (!source || !target || source === target) continue
+    const rootMessage = edge.source === 'mochi' || edge.target === 'mochi'
+    const rootZone = rootMessage ? look.crewZones?.find(z => z.x === catX - 4 && z.y === 0 && z.w === CAT_COLUMNS + 4 && z.h === H) : undefined
+    const bound = rootMessage ? c.W : right
+    const free = (x: number, y: number) => {
+      if (x < 0 || x >= bound || y < 0 || y >= ground) return false
+      const i = y * c.W + x, other = (y ^ 1) * c.W + x
+      if (c.hitOwners![i] || c.hitOwners![other]) return false
+      // Mochi's reserved lane is passable only where both cell halves are empty sky.
+      if (rootZone && x >= rootZone.x && x < rootZone.x + rootZone.w) {
+        return !sceneryPixels || !skyPixels || sceneryPixels[i] === skyPixels[i] && sceneryPixels[other] === skyPixels[other]
+      }
+      return (x < right || rootMessage && x === right) && peerBlocked[i] === 0
+    }
+    const starts: number[] = [], goals = new Set<number>()
+    for (let y = 0; y < ground; y++) for (let x = 0; x < bound; x++) {
+      const owner = c.hitOwners[y * c.W + x]
+      if (owner !== source && owner !== target) continue
+      const sprite = owner === mochiOwner ? rootZone : (look.crewSpriteZones ?? []).find(z => x >= z.x && x < z.x + z.w && y >= z.y && y < z.y + z.h)
+      if (!sprite) continue
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+        const reach = owner === mochiOwner ? 2 : Math.max(sprite.w, sprite.h) + 2
+        for (let distance = 1; distance <= reach; distance++) {
+          const xx = x + dx * distance, yy = y + dy * distance
+          if (xx < 0 || xx >= bound || yy < 0 || yy >= ground) break
+          const other = c.hitOwners[yy * c.W + xx]
+          if (other && other !== owner) break
+          if (free(xx, yy)) {
+            if (owner === source) starts.push(yy * c.W + xx)
+            else goals.add(yy * c.W + xx)
+            break
+          }
+          if (xx < sprite.x - 2 || xx >= sprite.x + sprite.w + 2 || yy < sprite.y - 2 || yy >= sprite.y + sprite.h + 2) break
+        }
+      }
+    }
+    if (!starts.length || !goals.size) continue
+    const prev = new Int32Array(c.W * ground).fill(-1), queue = [...new Set(starts)]
+    for (const i of queue) prev[i] = i
+    let end = -1
+    for (let head = 0; head < queue.length; head++) {
+      const i = queue[head]!
+      if (goals.has(i)) { end = i; break }
+      const x = i % c.W, y = Math.floor(i / c.W)
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+        const xx = x + dx, yy = y + dy, j = yy * c.W + xx
+        if (free(xx, yy) && prev[j] === -1) { prev[j] = i; queue.push(j) }
+      }
+    }
+    if (end < 0) continue
+    const workerId = edge.source === 'mochi' ? edge.target : edge.source
+    const worker = localHits.targets.find(item => item.id === workerId)
+    const title = rootMessage ? edge.source === 'mochi' ? `Root → ${worker?.title ?? workerId}` : `${worker?.title ?? workerId} → root` : `${edge.source} → ${edge.target}`
+    const details = [
+      ...(edge.messageState === 'observed' ? ['Worker output observed by Bridge; root read status unknown'] : []),
+      ...(edge.messageState === 'sent' ? ['Bridge sent; worker read status unknown'] : []),
+      edge.preview || 'Message preview unavailable',
+    ]
+    const owner = registerHit({ id: `peer:${edge.source}:${edge.target}`, title, details })
+    const color = mix(P.surface1, P.teal, edge.strength)
+    c.withHit(owner, () => {
+      for (let i = end;; i = prev[i]!) {
+        c.set(i % c.W, Math.floor(i / c.W), rootMessage && i === end ? P.yellow : color)
+        peerBlocked[i] = 1
+        const sibling = (Math.floor(i / c.W) ^ 1) * c.W + i % c.W
+        if (sibling < peerBlocked.length) peerBlocked[sibling] = 1
+        if (prev[i] === i) break
+      }
+    })
+  }
+  return finish()
 }
 
 /** What is playing now, for the legend. */
@@ -526,8 +770,9 @@ export function eventName(input: SceneInput): string | undefined {
 
 /** The scene as a Raster's cells (one half block per cell, top pixel fg, bottom bg) and its
  * floor: the bottom row's most common colour, so a passing car doesn't change it. */
-export function sceneFrame(input: SceneInput): { cells: string; floor: number } {
-  const px = scenePixels(input)
+export function sceneFrame(input: SceneInput, selected: SceneSelection | null = null): { cells: string; floor: number; hits: SceneHitMap } {
+  const hits: SceneHitMap = { columns: input.width, rows: SCENE_ROWS, owners: [], targets: [] }
+  const px = scenePixels(input, [], hits)
   const W = input.width
   const words = new Uint32Array(W * SCENE_ROWS * 3)
   for (let r = 0; r < SCENE_ROWS; r++) {
@@ -546,7 +791,31 @@ export function sceneFrame(input: SceneInput): { cells: string; floor: number } 
     counts.set(color, n)
     if (n > (counts.get(floor) ?? 0)) floor = color
   }
-  return { cells: bytesToBase64(new Uint8Array(words.buffer)), floor }
+  if (selected) {
+    const bounds = sceneCardBounds(W, SCENE_ROWS, { ...selected, details: selected.target.details })
+    if (bounds) {
+      const inner = Math.max(0, bounds.width - 2)
+      const hint = '/wake detail'
+      // shortcut: Raster accepts width-1 BMP glyphs only; /wake detail keeps full Unicode until the API supports wide cells.
+      const printable = (text: string, width: number) => truncate(Array.from(text.normalize('NFC'))
+        .filter(char => cells(char) !== 0)
+        .map(char => char.codePointAt(0)! <= 0xffff && cells(char) === 1
+          && !/[\p{Cc}\p{Cf}\p{Cs}\p{Cn}\p{Zl}\p{Zp}]/u.test(char) ? char : '?').join(''), width)
+      const title = printable(selected.target.title, Math.max(0, inner - hint.length - 1))
+      const lines = [title.padEnd(Math.max(0, inner - hint.length)) + hint,
+        ...selected.target.details.slice(0, 2).map(line => printable(line, inner))]
+      for (let y = 0; y < bounds.height; y++) {
+        const text = (lines[y] ?? '').padEnd(inner)
+        for (let x = 0; x < bounds.width; x++) {
+          const at = ((bounds.top + y) * W + bounds.left + x) * 3
+          words[at] = x === 0 || x === bounds.width - 1 ? 0x20 : text.charCodeAt(x - 1)
+          words[at + 1] = y === 0 ? 0xcdd6f4 : 0xa6adc8
+          words[at + 2] = 0x11111b
+        }
+      }
+    }
+  }
+  return { cells: bytesToBase64(new Uint8Array(words.buffer)), floor, hits }
 }
 
 export const sceneCells = (input: SceneInput) => sceneFrame(input).cells

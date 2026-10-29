@@ -1,4 +1,4 @@
-import type { WakePreset, WakePulseKind } from '../../types'
+import type { WakePreset, WakePulseKind, WakeSceneHit } from '../../types'
 import { type Canvas, hash, mix } from '../pixels'
 
 // The contract every landscape implements, and the shared kit they draw with.
@@ -52,6 +52,11 @@ export type Look = {
   wind: number // km/h
   seed: number // per place: vary layouts by it
   working: boolean // Claude is mid-turn
+  crewZones?: { x: number; y: number; w: number; h: number }[]
+  crewAnchors?: number[]
+  crewSpriteZones?: { x: number; y: number; w: number; h: number }[]
+  crewGround?: number
+  hitTargets?: WakeSceneHit[]
 }
 
 /** One turn as a structure: its tool calls in order, where it stands, how big. */
@@ -66,7 +71,7 @@ export type Building = {
 
 /** A crew member: the seed is who it is (its place, lane and motion come from it, never from its place in the list); the harness picks
  *  the family (kind), the model the class, and a maker with its own family (Claude inside agy) lends one mark its colour. */
-export type Job = { isStale: boolean; seed: number; kind?: 'codex' | 'agy' | 'claude' | 'opencode'; tier?: 1 | 2 | 3 | 4; maker?: 'claude' }
+export type Job = { isStale: boolean; seed: number; kind?: 'codex' | 'agy' | 'claude' | 'opencode'; tier?: 1 | 2 | 3 | 4; maker?: 'claude'; signal?: boolean; hit?: WakeSceneHit; hitOwner?: number }
 
 /** Each backend keeps a distinct accent; agy's mauve reads on day and night skies, unlike blue; OpenCode's green, unlike the sky's own blues. */
 export const jobAccent = (job: Job, codex: number): number => (job.kind === 'agy' ? P.mauve : job.kind === 'claude' ? P.pink : job.kind === 'opencode' ? P.green : codex)

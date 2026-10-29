@@ -34,10 +34,12 @@ def delay(attempt):
     return random.uniform(ceiling / 2, ceiling)
 
 
-def run(job, state, path, backend, prompt, resume, extra):
-    from .core import POLL, load_state, log, runner_started, save
+def run(job, state, path, backend, prompt, resume, extra, *, root_prompt=False):
+    from .core import POLL, load_state, log, runner_started, save, stamp
 
     for count in range(MAX_RETRIES + 1):
+        attempt_prompt = prompt
+        attempt_started = stamp()
         recorded = []
         token = ATTEMPT.set(recorded)
         error = None
@@ -52,6 +54,19 @@ def run(job, state, path, backend, prompt, resume, extra):
             failure = None
         reason = (failure.get("error") or failure.get("message") or failure) if failure else error
         if reason is None:
+            if root_prompt and attempt_prompt.strip() and any(
+                event.get("kind") == "turn_completed" and not failed(event) for event in recorded
+            ):
+                from .peers import message_fields
+
+                log(
+                    job,
+                    "root_prompt",
+                    level="info",
+                    at=attempt_started,
+                    recorded_at=stamp(),
+                    **message_fields(attempt_prompt),
+                )
             if state.pop("retry", None) is not None:
                 save(path, state)
             return True
@@ -96,4 +111,5 @@ def run(job, state, path, backend, prompt, resume, extra):
         state.pop("retry", None)
         save(path, state)
         prompt = "" if list((job / "steer").glob("[0-9]*.md")) else "Continue."
+        root_prompt = False
         resume = True

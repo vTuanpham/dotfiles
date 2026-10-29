@@ -124,9 +124,10 @@ def test_all_once_survives_crash_and_repeated_configuration(world):
     assert not collect(root).wake_events
 
 
-def test_default_reminder_once_clears_on_ack_without_waking_even_with_info(world, monkeypatch, capsys):
+def test_default_reminder_wakes_once_and_clears_on_ack(world, monkeypatch, capsys):
     root, clock = world
     a = job(root)
+    job(root, "owner/other", running=True)
     groups.configure(a.parent, "crew", WakePolicy(wake="quiet"), ["a"])
     event(a)
     clock[0] += 899
@@ -134,14 +135,291 @@ def test_default_reminder_once_clears_on_ack_without_waking_even_with_info(world
     clock[0] += 1
     snapshot = collect(root)
     reminder = snapshot.group_events[0]
-    assert reminder.kind == "completion_reminder" and not reminder.wakes and not reminder.informational
+    assert reminder.kind == "completion_reminder" and reminder.wakes and not reminder.informational
     assert snapshot.oldest_unacknowledged_completion_age_seconds == 900
     monkeypatch.setattr(watch.time, "sleep", lambda _: None)
-    watch.watch(["owner"], until_event=True, include_info=True)
-    assert "completion_reminder" in capsys.readouterr().out
+    watch.watch(["owner"], until_event=True)
+    output = capsys.readouterr().out
+    assert "completion_reminder" in output and "watch: wake events" in output
     assert not collect(root).wake_events
     acknowledge(a)
     assert not collect(root).group_events and collect(root).unacknowledged_completions == 0
+
+
+def test_saved_unseen_informational_reminder_becomes_a_wake(world):
+    root, clock = world
+    a = job(root)
+    groups.configure(a.parent, "crew", WakePolicy(wake="quiet"), ["a"])
+    event(a)
+    clock[0] += 900
+    collect(root)
+    path = a.parent / "group-wakes.json"
+    saved = json.loads(path.read_text())
+    saved["notices"][0]["wakes"] = False
+    path.write_text(json.dumps(saved))
+    snapshot = collect(root)
+    assert snapshot.wake_events[0].kind == "completion_reminder"
+    groups.seen(a.parent, snapshot.wake_events[0].id)
+    assert not collect(root).wake_events
+
+
+def test_quiet_unread_reminder_keeps_watch_alive_after_workers_stop(world, monkeypatch, capsys):
+    root, clock = world
+    a = job(root)
+    groups.configure(a.parent, "crew", WakePolicy(wake="quiet", remind_seconds=15), ["a"])
+    event(a)
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    assert watch.watch(["owner"], until_event=True) is True
+    output = capsys.readouterr().out
+    assert "completion_reminder" in output and "no running jobs left" not in output
+    assert clock[0] == 2000000016.0
+
+
+def test_completion_wake_rearm_delivers_unread_reminder_after_workers_stop(world, monkeypatch, capsys):
+    root, clock = world
+    a = job(root)
+    event(a)
+    initial = clock[0]
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    assert watch.watch(["owner"], until_event=True) is True
+    assert "completion_batch" in capsys.readouterr().out
+    assert not any(j.running for j in collect(root).jobs)
+
+    assert watch.watch(["owner"], until_event=True) is True
+    output = capsys.readouterr().out
+    assert "completion_reminder" in output
+    assert clock[0] == initial + 900
+
+
+def test_acknowledging_before_deadline_ends_rearmed_reminder_watch(world, monkeypatch, capsys):
+    root, clock = world
+    a = job(root)
+    event(a)
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    assert watch.watch(["owner"], until_event=True) is True
+    capsys.readouterr()
+    acknowledge(a)
+    before = clock[0]
+
+    assert watch.watch(["owner"], until_event=True) is True
+    output = capsys.readouterr().out
+    assert "completion_reminder" not in output and "no running jobs left" in output
+    assert clock[0] == before + 8
+    assert collect(root).unacknowledged_completions == 0
+
+
+def test_codex_watch_continues_to_unread_reminder_without_rearming(world, monkeypatch, capsys):
+    root, clock = world
+    a = job(root)
+    groups.configure(a.parent, "crew", WakePolicy(settle_seconds=0, remind_seconds=15), ["a"])
+    event(a)
+    calls = []
+
+    class Delivery:
+        def deliver(self, owners, reason, scheduled=False):
+            calls.append(reason)
+
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-root")
+    monkeypatch.setattr(watch.root_wake, "prepare", lambda _: Delivery())
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    assert watch.watch(["owner"], until_event=True, timeout=5) is True
+    output = capsys.readouterr().out
+    assert "completion_batch" in output and "completion_reminder" in output
+    assert calls == ["event", "event"]
+    assert clock[0] == 2000000016.0
+
+
+def test_codex_quiet_watch_waits_for_scheduled_reminder_past_timeout(world, monkeypatch, capsys):
+    root, clock = world
+    a = job(root)
+    groups.configure(a.parent, "crew", WakePolicy(wake="quiet", settle_seconds=0, remind_seconds=15), ["a"])
+    event(a)
+    calls = []
+
+    class Delivery:
+        def deliver(self, owners, reason, scheduled=False):
+            calls.append(reason)
+
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-root")
+    monkeypatch.setattr(watch.root_wake, "prepare", lambda _: Delivery())
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    assert watch.watch(["owner"], until_event=True, timeout=5) is True
+    output = capsys.readouterr().out
+    assert "completion_reminder" in output and "passed without a wake" not in output
+    assert calls == ["event"] and clock[0] == 2000000016.0
+
+
+def test_codex_reminder_watch_still_wakes_for_new_urgent_events(world, monkeypatch, capsys):
+    root, clock = world
+    a = job(root)
+    b = job(root, "owner/b")
+    groups.configure(a.parent, "crew", WakePolicy(settle_seconds=0, remind_seconds=15), ["a"])
+    event(a)
+    calls = []
+
+    class Delivery:
+        def deliver(self, owners, reason, scheduled=False):
+            calls.append(clock[0])
+
+    def tick(seconds):
+        if not (b / "live.jsonl").exists():
+            event(b, "question", level="urgent", text="new decision")
+        clock[0] += seconds
+
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-root")
+    monkeypatch.setattr(watch.root_wake, "prepare", lambda _: Delivery())
+    monkeypatch.setattr(watch.time, "sleep", tick)
+
+    assert watch.watch(["owner"], until_event=True, timeout=5) is True
+    output = capsys.readouterr().out
+    assert "new decision" in output and "completion_reminder" in output
+    assert calls == [2000000000.0, 2000000002.0, 2000000016.0]
+
+
+def test_codex_watch_cancels_continuation_when_initial_delivery_acknowledges(world, monkeypatch, capsys):
+    root, clock = world
+    a = job(root)
+    groups.configure(a.parent, "crew", WakePolicy(settle_seconds=0, remind_seconds=15), ["a"])
+    event(a)
+    calls = []
+
+    class Delivery:
+        def deliver(self, owners, reason, scheduled=False):
+            calls.append(reason)
+
+    acknowledged = False
+
+    def ack_during_reminder_wait(seconds):
+        nonlocal acknowledged
+        if not acknowledged:
+            acknowledge(a)
+            acknowledged = True
+        clock[0] += seconds
+
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-root")
+    monkeypatch.setattr(watch.root_wake, "prepare", lambda _: Delivery())
+    monkeypatch.setattr(watch.time, "sleep", ack_during_reminder_wait)
+
+    assert watch.watch(["owner"], until_event=True) is True
+    output = capsys.readouterr().out
+    assert "completion_batch" in output and "completion_reminder" not in output
+    assert calls == ["event"] and clock[0] == 2000000010.0
+    assert collect(root).unacknowledged_completions == 0
+
+
+def test_codex_ack_cancels_reminder_but_running_worker_obeys_original_timeout(
+    world, monkeypatch, capsys
+):
+    root, clock = world
+    a = job(root)
+    job(root, "owner/b", running=True)
+    groups.configure(a.parent, "crew", WakePolicy(settle_seconds=0, remind_seconds=15), ["a"])
+    event(a)
+    calls = []
+
+    class Delivery:
+        def deliver(self, owners, reason, scheduled=False):
+            calls.append((reason, scheduled))
+            if reason == "event":
+                acknowledge(a)
+
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-root")
+    monkeypatch.setattr(watch.root_wake, "prepare", lambda _: Delivery())
+    monkeypatch.setattr(watch.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    assert watch.watch(["owner"], until_event=True, timeout=5) is False
+    output = capsys.readouterr().out
+    assert "completion_batch" in output and "passed without a wake" in output
+    assert calls == [("event", True), ("timeout", False)]
+    assert clock[0] == 2000000006.0
+
+
+def test_codex_repeat_reminders_continue_until_acknowledged(world, monkeypatch, capsys):
+    root, clock = world
+    a = job(root)
+    groups.configure(
+        a.parent, "crew", WakePolicy(settle_seconds=0, remind_seconds=15, repeat_reminders=True), ["a"]
+    )
+    event(a)
+    calls = []
+
+    class Delivery:
+        def deliver(self, owners, reason, scheduled=False):
+            calls.append(reason)
+            if len(calls) == 3:
+                acknowledge(a)
+
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-root")
+    monkeypatch.setattr(watch.root_wake, "prepare", lambda _: Delivery())
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    assert watch.watch(["owner"], until_event=True) is True
+    output = capsys.readouterr().out
+    assert output.count("completion_reminder") == 4
+    assert calls == ["event", "event", "event"]
+    assert collect(root).unacknowledged_completions == 0
+
+
+def test_codex_watch_does_not_continue_without_a_reminder_schedule(world, monkeypatch, capsys):
+    root, clock = world
+    a = job(root)
+    groups.configure(a.parent, "crew", WakePolicy(wake="quiet", remind_seconds=None), ["a"])
+    event(a)
+    calls = []
+
+    class Delivery:
+        def deliver(self, owners, reason, scheduled=False):
+            calls.append(reason)
+
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-root")
+    monkeypatch.setattr(watch.root_wake, "prepare", lambda _: Delivery())
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    assert watch.watch(["owner"], until_event=True) is True
+    assert "no running jobs left" in capsys.readouterr().out
+    assert calls == [] and clock[0] == 2000000008.0
+
+
+def test_codex_reminder_schedule_survives_watch_failure_and_restart(world, monkeypatch, capsys):
+    root, clock = world
+    a = job(root)
+    groups.configure(a.parent, "crew", WakePolicy(settle_seconds=0, remind_seconds=15), ["a"])
+    event(a)
+    attempts = []
+
+    class FailedDelivery:
+        def deliver(self, owners, reason, scheduled=False):
+            attempts.append(reason)
+            raise RuntimeError("synthetic native transport failure")
+
+    monkeypatch.setenv("CODEX_THREAD_ID", "codex-root")
+    monkeypatch.setattr(watch.root_wake, "prepare", lambda _: FailedDelivery())
+    with pytest.raises(RuntimeError, match="synthetic native"):
+        watch.watch(["owner"], until_event=True)
+    pending = collect(root)
+    assert pending.wake_events[0].kind == "completion_batch"
+    assert not pending.group_events[0].seen
+
+    class Delivered:
+        calls = []
+
+        def deliver(self, owners, reason, scheduled=False):
+            self.calls.append(reason)
+
+    delivered = Delivered()
+    monkeypatch.setattr(watch.root_wake, "prepare", lambda _: delivered)
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    clock[0] += 15
+    assert watch.watch(["owner"], until_event=True) is True
+    output = capsys.readouterr().out
+    assert "completion_reminder" in output
+    assert attempts == ["event"] and delivered.calls == ["event"]
+    assert not collect(root).wake_events
 
 
 def test_optional_reminder_backoff(world):
@@ -151,11 +429,45 @@ def test_optional_reminder_backoff(world):
     event(a)
     clock[0] += 900
     first = collect(root).group_events[0]
+    assert first.wakes
     groups.seen(a.parent, first.id)
     clock[0] += 1799
-    assert len(collect(root).group_events) == 1
+    snapshot = collect(root)
+    assert len(snapshot.group_events) == 1 and not snapshot.wake_events
     clock[0] += 1
-    assert len(collect(root).group_events) == 2
+    snapshot = collect(root)
+    assert len(snapshot.group_events) == 2 and len(snapshot.wake_events) == 1
+
+
+def test_native_delivery_commits_once_under_concurrent_watches(world):
+    from concurrent.futures import ThreadPoolExecutor
+
+    root, _ = world
+    a = job(root)
+    groups.configure(a.parent, "crew", WakePolicy(settle_seconds=0), ["a"])
+    event(a)
+    notice = collect(root).group_events[0]
+    calls = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(
+            lambda _: groups.deliver([(a.parent, notice.id)], lambda: calls.append(1)), range(2)
+        ))
+    assert sorted(results) == [False, True] and calls == [1]
+
+
+def test_termination_during_native_delivery_leaves_notice_pending(world):
+    root, _ = world
+    a = job(root)
+    groups.configure(a.parent, "crew", WakePolicy(settle_seconds=0), ["a"])
+    event(a)
+    notice = collect(root).group_events[0]
+
+    def terminate():
+        raise SystemExit(9)
+
+    with pytest.raises(SystemExit):
+        groups.deliver([(a.parent, notice.id)], terminate)
+    assert collect(root).wake_events[0].id == notice.id
 
 
 @pytest.mark.parametrize(

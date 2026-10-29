@@ -5,9 +5,10 @@ import os
 import signal
 import sys
 import time
+from contextlib import nullcontext
 
-from . import heavy
-from .core import WORKER_FLAG
+from . import heavy, owner_binding
+from .core import WORKER_FLAG, resolve_job
 
 TERM_GRACE = 5
 
@@ -94,6 +95,20 @@ def cancel(target):
         if len(matches) != 1:
             raise ValueError("ambiguous heavy request; use an id from heavy list" if matches
                              else "no live heavy request matches; use heavy list")
+        selected, request = matches[0]
+    job_name = request.get("job")
+    owner_access = (owner_binding.access(resolve_job(job_name).parent, owner_binding.identity())
+                    if job_name else nullcontext())
+    with owner_access:
+        _cancel_request(folder, target, selected)
+
+
+def _cancel_request(folder, target, selected):
+    with heavy.gate(folder):
+        matches = [(path, row) for path, row in heavy.entries(folder)
+                   if path == selected and target in (request_id(path), path.stem, row.get("job"))]
+        if len(matches) != 1:
+            raise RuntimeError("heavy request changed before cancellation; refresh heavy list")
         path, row = matches[0]
         control = row["control"]
         if not row["running"]:

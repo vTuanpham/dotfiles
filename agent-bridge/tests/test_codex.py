@@ -5,7 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_bridge import codex
+from agent_bridge import codex, core, status
+from agent_bridge.peers import message_fields
 
 
 class FakeRpc:
@@ -103,7 +104,9 @@ def test_rpc_closes_stderr_when_process_start_fails(monkeypatch, tmp_path):
 
 def test_event_mapping_and_inbox(monkeypatch, tmp_path):
     job, path, state = job_state(tmp_path)
-    (job / "inbox" / "7.md").write_text("answer")
+    answer_text = "SERVICE_TOKEN=hidden-value"
+    monkeypatch.setenv("SERVICE_TOKEN", "hidden-value")
+    (job / "inbox" / "7.md").write_text(answer_text)
     peer = job.parent / "peer"
     peer.mkdir()
     (peer / "state.json").write_text("{}")
@@ -144,6 +147,11 @@ def test_event_mapping_and_inbox(monkeypatch, tmp_path):
     assert kinds[:7] == ["turn_started", "message", "message", "peer_sent",
                          "command_start", "command_end", "question"]
     assert "question_answered" in kinds
+    question = next(event for event in logged if event["kind"] == "question")
+    assert question["preview"] == '[{"id":"q1"}]'
+    answer = next(event for event in logged if event["kind"] == "question_answered")
+    assert "preview" not in answer and "size" not in answer
+    assert answer_text not in json.dumps(answer)
     assert logged[0]["kind"] == "turn_started" and logged[0]["at"]
     assert logged[1]["level"] == "urgent"
     assert "turn_completed" in kinds and "approval_declined" in kinds
@@ -152,7 +160,7 @@ def test_event_mapping_and_inbox(monkeypatch, tmp_path):
     start = next(event for event in logged if event["kind"] == "command_start")
     assert start["turnId"] == "turn-1"
     assert state["lastTurnId"] == "turn-1"
-    assert {"id": 7, "result": {"answers": {"q1": {"answers": ["answer"]}}}} in rpc.sent
+    assert {"id": 7, "result": {"answers": {"q1": {"answers": [answer_text]}}}} in rpc.sent
     assert {"id": 8, "result": {"decision": "decline"}} in rpc.sent
     assert {"id": 9, "result": {"permissions": {}}} in rpc.sent
     assert (peer / "steer" / "001.md").read_text() == "[from job] please check\n"
@@ -163,6 +171,8 @@ def test_resume_known_steer_recovery_and_dedup(monkeypatch, tmp_path):
     state.update(threadId="thread-1", inflight={"id": "steer-001", "file": "001.md"})
     (job / "steer" / "001.md").write_text("already delivered")
     (job / "steer" / "002.md").write_text("also delivered")
+    core.log(job, "root_steer", file="001.md", **message_fields("already delivered"))
+    core.log(job, "root_steer", file="002.md", **message_fields("also delivered"))
     rpc = FakeRpc(
         state["cwd"],
         job / "stderr",
@@ -177,6 +187,9 @@ def test_resume_known_steer_recovery_and_dedup(monkeypatch, tmp_path):
     assert not any(method in ("turn/start", "turn/steer") for method, _ in rpc.calls)
     assert "thread/turns/list" in [method for method, _ in rpc.calls]
     assert not any("archive" in method for method, _ in rpc.calls)
+    messages = status.Collector(jobs_root=tmp_path).collect().direct_messages
+    assert [item.preview for item in messages] == ["already delivered", "also delivered"]
+    assert all(item.direction == "root_to_worker" and item.kind == "steer" for item in messages)
 
 
 def test_resume_unknown_inflight_fails(monkeypatch, tmp_path):

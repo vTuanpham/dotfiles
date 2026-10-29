@@ -293,6 +293,7 @@ function roof(c: Canvas, look: Look, b: { x0: number; width: number; height: num
     c.set(b.x0 + 1, y0 - 2, mix(body, P.text, 0.12))
     c.set(b.x0 + 2, y0 - 2, mix(body, P.text, 0.12)) // a water tower
   } else if (style === 9) {
+    look.crewZones?.push({ x: b.x0, y: y0 - 3, w: b.width, h: 3 })
     const neon = NEON[hash(b.index) % NEON.length]!
     const on = look.night > 0.3 && (look.frame + b.index * 7) % 41 > 3 && (look.frame + b.index) % 17 !== 0 // it flickers
     c.set(b.x0 + 1, y0 - 1, P.surface1)
@@ -303,6 +304,7 @@ function roof(c: Canvas, look: Look, b: { x0: number; width: number; height: num
     }
     if (on) for (let x = b.x0 - 1; x <= x1 + 1; x++) c.glow(x, y0 - 2, neon, 0.18)
   } else if (style === 10) {
+    look.crewZones?.push({ x: b.x0, y: y0 - 4, w: b.width, h: 4 })
     const ad = [P.red, P.blue, P.green, P.mauve, P.peach][hash(b.index * 3) % 5]!
     c.set(b.x0 + 1, y0 - 1, P.surface1)
     c.set(x1 - 1, y0 - 1, P.surface1)
@@ -426,6 +428,7 @@ function furniture(c: Canvas, look: Look, right: number) {
         c.set(x, GROUND - 3, mix(P.red, P.white, 0.3))
         break
       case 5:
+        look.crewZones?.push({ x: x - 1, y: GROUND - 5, w: 3, h: 5 })
         for (let y = GROUND - 4; y < GROUND; y++) c.set(x, y, P.overlay0)
         c.set(x + 1, GROUND - 4, P.green)
         c.set(x - 1, GROUND - 4, P.green)

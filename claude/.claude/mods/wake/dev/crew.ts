@@ -25,20 +25,28 @@ const busy = [
   named('wake-opencode', 'opencode', 3), named('fix-tests', 'codex', 3), named('docs-pass', 'agy', 2), named('free-review', 'opencode', 1),
   named('triage', 'claude', 1), named('lint', 'codex', 1), named('ollama-try', 'opencode', 2, true), named('opus-plan', 'agy', 3, false, 'claude'),
 ]
+const dense = Array.from({ length: 12 }, (_, i) => named(`dense-${i}`, family, (i % 4 + 1) as 1 | 2 | 3 | 4))
+const mixed = Array.from({ length: 12 }, (_, i) => named(`mixed-${i}`, (['codex', 'agy', 'claude', 'opencode'] as const)[i % 4]!, (Math.floor(i / 4) + 2) as 2 | 3 | 4))
 const birds = [{ seed: seedOf('agent-a1'), tier: 2 as const }, { seed: seedOf('agent-b2'), tier: 3 as const }]
 const base: SceneInput = {
   width: W, frame: 40, hour: 22, sun: { rise: 5.9, set: 17.5 }, moonPhase: 0.3, season: 'summer', snowy: false, weather: { cloud: 0.2, rain: 0, snow: 0, fog: false, thunder: false, wind: 8 },
   preset: 'city', seed: 12345, turns: Array.from({ length: 8 }, () => ({ kinds: ['read', 'edit', 'run', 'test'] })), live: null, mood: 'idle', jobs: [], agents: [], plan: null, effect: null,
 }
 const lineup = `${family} 1 2 3 4 · ${others.join(' ')} · agy opus, sonnet, argon`
-const places: [string, Partial<SceneInput>][] = [['city night', { preset: 'city', hour: 22 }], ['harbor day', { preset: 'harbor', hour: 13 }], ['desert night', { preset: 'desert', hour: 23 }]]
+const places: [string, Partial<SceneInput>][] = (['city', 'harbor', 'beach', 'mountains', 'countryside', 'forest', 'desert', 'tundra'] as const).flatMap(preset =>
+  ([['day', 13], ['dusk', 17.8], ['night', 22]] as const).map(([time, hour]): [string, Partial<SceneInput>] => [`${preset} ${time}`, { preset, hour }]),
+)
 const sheets: [string, [string, Partial<SceneInput>][]][] = [
   [`${family}-grid`, [...places.map(([name, s]): [string, Partial<SceneInput>] => [`${name} · ${lineup}`, { ...s, jobs: grid }]), ['city night · all stale (amber, dims on the off beat)', { jobs: grid.map(j => ({ ...j, isStale: true })), frame: 46 }]]],
   [`${family}-busy`, [
     ['tundra night · 8 jobs + 2 subagents', { preset: 'tundra', hour: 1, jobs: busy, agents: birds }],
     ['beach day · 8 jobs + 2 subagents', { preset: 'beach', hour: 11, jobs: busy, agents: birds }],
     ['beach day · next beat, one job gone (the rest stay put)', { preset: 'beach', hour: 11, jobs: busy.filter((_, i) => i !== 2), agents: birds, frame: 45 }],
+    ['city day · twelve jobs', { preset: 'city', hour: 13, jobs: dense }],
+    ['harbor rain · twelve jobs', { preset: 'harbor', hour: 13, jobs: dense, weather: { cloud: 0.8, rain: 2, snow: 0, fog: false, thunder: false, wind: 18 } }],
+    ['tundra snow · twelve jobs', { preset: 'tundra', hour: 22, jobs: dense, snowy: true, weather: { cloud: 0.4, rain: 0, snow: 2, fog: false, thunder: false, wind: 5 } }],
   ]],
+  [`${family}-mixed`, (['city', 'harbor', 'beach', 'mountains', 'countryside', 'forest', 'desert', 'tundra'] as const).map(preset => [preset, { preset, hour: 13, jobs: mixed }] as [string, Partial<SceneInput>])],
 ]
 // the balloon festival: six OpenCode jobs of mixed classes, their envelope colours spanning the palette, then all stale
 if (family === 'opencode') {

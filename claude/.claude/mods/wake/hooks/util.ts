@@ -121,8 +121,192 @@ export function commandHead(command: string): string {
   }
 }
 
-export const isTestCommand = (command: string) =>
-  /\b(pytest|vitest|jest|mocha|go test|cargo test|npm (run )?test|pnpm test|yarn test|bun test|plugin test|unittest)\b/.test(command)
+type TestCommand = { words: string[]; next: 'end' | 'and' | 'or' | 'pipe' | 'sequence' }
+
+function testCommands(source: string): TestCommand[] {
+  // Unknown shell structures can change whether a runner executes or what its status means.
+  if (/<<<?|<\(|>\(|\$\(|`/.test(source) || /\b(case|function)\b/.test(source)) return []
+  const commands: TestCommand[] = []
+  let words: string[] = []
+  let word = ''
+  let quote = ''
+  let escaped = false
+  let comment = false
+  let hasConditionalOr = false
+  let hasNegation = false
+  let hasGroup = false
+  const endWord = () => {
+    if (word) words.push(word)
+    word = ''
+  }
+  const endCommand = (next: TestCommand['next'] = 'sequence') => {
+    endWord()
+    if (words.length) commands.push({ words, next })
+    words = []
+  }
+
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i]!
+    const following = source[i + 1]
+    if (comment) {
+      if (char === '\n') { comment = false; endCommand('sequence') }
+      continue
+    }
+    if (escaped) { word += char; escaped = false; continue }
+    if (quote) {
+      if (char === '\\' && quote === '"') { escaped = true; continue }
+      if (char === quote) quote = ''
+      else word += char
+      continue
+    }
+    if (char === '\\') { escaped = true; continue }
+    if (char === "'" || char === '"') { quote = char; continue }
+    if (char === '#' && word === '') { comment = true; continue }
+    if (char === '!' && word === '' && (following === undefined || /[\s(;|&)]/.test(following))) hasNegation = true
+    if (char === '(' || char === ')' || char === '{' || char === '}') {
+      hasGroup = true
+      endCommand(char === ')' || char === '}' ? 'end' : 'sequence')
+      continue
+    }
+    if (char === ';') {
+      endCommand('sequence')
+      while (source[i + 1] === ';') i++
+      continue
+    }
+    if (char === '&') {
+      const and = following === '&'
+      endCommand(and ? 'and' : 'sequence')
+      if (and) i++
+      continue
+    }
+    if (char === '|') {
+      if (following === '|') {
+        hasConditionalOr = true
+        endCommand('or')
+        i++
+      } else endCommand('pipe')
+      continue
+    }
+    if (char === '\n') { endCommand('sequence'); continue }
+    if (/\s/.test(char)) {
+      if (['then', 'do', 'else', 'elif'].includes(word)) {
+        word = ''
+        endCommand('sequence')
+      } else endWord()
+      continue
+    }
+    word += char
+  }
+  endCommand('end')
+  return hasConditionalOr || hasNegation || hasGroup ? [] : commands
+}
+
+const assignment = (value: string) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(value)
+const executableName = (value: string) => value.split('/').at(-1) ?? value
+const testRunners = new Set(['pytest', 'vitest', 'jest', 'mocha', 'unittest'])
+const informationFlags: Record<string, Set<string>> = {
+  pytest: new Set(['--help', '-h', '--version', '-V', '--collect-only', '--collectonly', '--co', '--fixtures', '--fixtures-per-test', '--markers', '--trace-config', '--setup-plan', '--setup-only']),
+  vitest: new Set(['--help', '-h', '--version']),
+  jest: new Set(['--help', '-h', '--version', '--listTests', '--showConfig']),
+  mocha: new Set(['--help', '-h', '--version', '--dry-run']),
+  unittest: new Set(['--help', '-h']),
+}
+
+function runnerExecutesTests(runner: string, args: string[]): boolean {
+  if (runner === 'vitest' && args[0] === 'list') return false
+  return !args.some(argument => {
+    const flag = argument.split('=', 1)[0]!
+    return informationFlags[runner]?.has(argument) || informationFlags[runner]?.has(flag)
+  })
+}
+
+function cargoExecutesTests(args: string[]): boolean {
+  if (args.some(argument => ['--help', '-h'].includes(argument))) return false
+  const separator = args.indexOf('--')
+  return separator < 0 || !args.slice(separator + 1).includes('--list')
+}
+
+function goExecutesTests(args: string[]): boolean {
+  return !args.some(argument => ['-h', '-help', '--help'].includes(argument)
+    || argument === '-list' || argument.startsWith('-list='))
+}
+
+function packageScriptExecutesTests(args: string[]): boolean {
+  return !args.some(argument => ['--help', '-h'].includes(argument))
+}
+
+function argvRunsTests(argv: string[], depth = 0): boolean {
+  if (depth > 5 || argv.length === 0) return false
+  let index = 0
+  while (assignment(argv[index] ?? '')) index++
+  if (argv[index] === '!') return false
+  const executable = executableName(argv[index] ?? '')
+  if (testRunners.has(executable)) return runnerExecutesTests(executable, argv.slice(index + 1))
+  if (/^python(?:3(?:\.\d+)?)?$/.test(executable) || executable === 'py') {
+    if (argv[index + 1] !== '-m' || !['pytest', 'unittest'].includes(argv[index + 2] ?? '')) return false
+    return runnerExecutesTests(argv[index + 2]!, argv.slice(index + 3))
+  }
+  if (executable === 'go' && argv[index + 1] === 'test') return goExecutesTests(argv.slice(index + 2))
+  if (executable === 'cargo' && argv[index + 1] === 'test') return cargoExecutesTests(argv.slice(index + 2))
+  if (['npm', 'pnpm', 'yarn', 'bun'].includes(executable)) {
+    const scriptIndex = argv[index + 1] === 'run' ? index + 2 : index + 1
+    if (argv[scriptIndex] !== 'test') return false
+    return packageScriptExecutesTests(argv.slice(scriptIndex + 1))
+  }
+  if (executable === 'rtk') {
+    const subcommand = argv[index + 1]
+    const skip = subcommand === 'proxy' ? 2 : subcommand === 'test' ? 2 : 1
+    return argvRunsTests(argv.slice(index + skip), depth + 1)
+  }
+  if (executable === 'env') {
+    index++
+    while (index < argv.length) {
+      const item = argv[index] ?? ''
+      if (assignment(item)) { index++; continue }
+      if (['-u', '--unset', '-C', '--chdir'].includes(item)) { index += 2; continue }
+      if (/^(--unset|--chdir)=/.test(item) || item.startsWith('-')) { index++; continue }
+      break
+    }
+    return argvRunsTests(argv.slice(index), depth + 1)
+  }
+  if (executable === 'timeout') {
+    index++
+    while (index < argv.length && (argv[index] ?? '').startsWith('-')) {
+      if (['-k', '--kill-after', '-s', '--signal'].includes(argv[index] ?? '')) index++
+      index++
+    }
+    if (argv[index] && !/^\d/.test(argv[index]!)) return false
+    return argvRunsTests(argv.slice(index + 1), depth + 1)
+  }
+  if (['time', 'nice', 'command', 'sudo'].includes(executable)) {
+    index++
+    while ((argv[index] ?? '').startsWith('-')) index++
+    return argvRunsTests(argv.slice(index), depth + 1)
+  }
+  if (executable === 'uv' && argv[index + 1] === 'run') {
+    index += 2
+    const takesValue = new Set(['--project', '--directory', '--with', '--with-requirements', '--env-file', '--python'])
+    while (index < argv.length && (argv[index] ?? '').startsWith('-')) {
+      if (takesValue.has(argv[index] ?? '')) index++
+      index++
+    }
+    return argvRunsTests(argv.slice(index), depth + 1)
+  }
+  return false
+}
+
+/** Test runners are recognized only in executable position, never in prose or search arguments. */
+export function isTestCommand(source: string): boolean {
+  const commands = testCommands(source)
+  if (!commands.length) return false
+  const runners = commands.flatMap((command, index) => argvRunsTests(command.words) ? [index] : [])
+  if (runners.length !== 1) return false
+  const index = runners[0]!
+  if (index !== commands.length - 1 || commands.at(-1)?.next !== 'end') return false
+  let chainStart = 0
+  for (let i = 0; i < index; i++) if (commands[i]?.next === 'sequence') chainStart = i + 1
+  return !commands.slice(chainStart, index).some(command => command.next === 'or')
+}
 
 /** A short stable id (FNV-1a, base 36). */
 export function hash(text: string): string {

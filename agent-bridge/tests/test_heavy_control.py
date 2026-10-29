@@ -5,12 +5,13 @@ import select
 import signal
 import sys
 import time
+from contextlib import nullcontext
 
 import pytest
 import test_heavy
 from test_heavy import finish, launch, started
 
-from agent_bridge import cli, heavy, heavy_control, status, status_render
+from agent_bridge import cli, core, heavy, heavy_control, owner_binding, status, status_render
 
 host = test_heavy.host
 
@@ -111,7 +112,11 @@ def test_cancel_escalates_for_child_even_after_parent_exits(host, tmp_path, monk
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             state = heavy.PROC / str(pid) / "stat"
-            if not state.exists() or state.read_text().rpartition(")")[2].split()[0] == "Z":
+            try:
+                process_state = state.read_text().rpartition(")")[2].split()[0]
+            except (FileNotFoundError, ProcessLookupError):
+                break
+            if process_state == "Z":
                 break
             time.sleep(.01)
         else:
@@ -272,6 +277,25 @@ def test_pid_identity_mismatch_never_signals(host, tmp_path, monkeypatch):
         assert process.poll() is None
     finally:
         finish([process], [release])
+
+
+def test_stale_root_cannot_cancel_an_owners_heavy_request(host, tmp_path, monkeypatch):
+    owner = core.JOBS / "owner"
+    owner.mkdir(parents=True)
+    owner_binding.record(owner, {"backend": "codex", "session_id": "current-root"})
+    request = tmp_path / "sample-123.request"
+    control = {"group": None, "cancelled": False, "pause_ns": 0}
+    row = {"job": "owner/job", "running": False, "control": control, "pid": None}
+    monkeypatch.setattr(heavy, "prepare", lambda: tmp_path)
+    monkeypatch.setattr(heavy, "gate", lambda _: nullcontext())
+    monkeypatch.setattr(heavy, "entries", lambda _: [(request, row)])
+    monkeypatch.setattr(heavy, "control_path", lambda path: tmp_path / "request.control")
+    monkeypatch.setattr(heavy, "write_state", lambda *_: pytest.fail("stale root changed request"))
+    monkeypatch.setenv("CODEX_THREAD_ID", "stale-root")
+
+    with pytest.raises(owner_binding.RootMismatch):
+        heavy_control.cancel("123")
+    assert not control["cancelled"]
 
 
 def test_atomic_pause_update_survives_interrupted_write(host, monkeypatch):

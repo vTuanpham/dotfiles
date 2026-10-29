@@ -1,19 +1,30 @@
 """The sole status producer. Commands and harnesses render its versioned snapshot."""
 
-import json
 import math
 import os
+import re
 import subprocess
 import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import core, groups, heavy, peers, resources, status_observations, status_resources, waiting
+from . import (
+    core,
+    groups,
+    heavy,
+    owner_binding,
+    peers,
+    resources,
+    status_observations,
+    status_resources,
+    waiting,
+)
 from .acknowledgements import cursor_for, read_owner
 from .assessment import BUSY_WINDOW, SILENCE_SECONDS, assess
 from .core import job_caps, tree_size
 from .status_activity import (
+    NON_ACTIVITY_KINDS,
     busy,
     in_flight,
     pace,
@@ -24,6 +35,7 @@ from .status_activity import (
 from .status_inputs import EventLog, quotas, read_job, tidy, timestamp, unanswered
 from .status_model import (
     Dependency,
+    DirectMessage,
     GroupPressure,
     HeavyQueue,
     HeavyRequest,
@@ -35,6 +47,118 @@ from .status_model import (
     Retention,
     Snapshot,
 )
+
+DIRECT_MESSAGE_WINDOW_SECONDS = 86_400
+DIRECT_MESSAGE_LIMIT = 100
+_STEER_FILE = re.compile(r"[0-9]+\.md\Z")
+
+
+def _legacy_peer_message(raw: dict, text: str, owner: str) -> bool:
+    if raw.get("peerDirected") is True:
+        return True
+    if raw.get("peerDirected") is False:
+        return False
+    head, separator, _body = text.partition(":")
+    if not separator or not head.upper().startswith("TO "):
+        return False
+    recipients = [name.strip().lower() for name in head[3:].split(",")]
+    return bool(recipients) and all(
+        name not in {"root", "coordinator", owner.lower()} for name in recipients
+    )
+
+
+def _message_fields(raw: dict, text: str) -> tuple[int | None, str | None]:
+    if "preview" in raw or "size" in raw:
+        preview = raw.get("preview")
+        return raw.get("size"), peers.preview(preview) if isinstance(preview, str) else None
+    # Legacy logs have no indication that a preview was scrubbed in the worker's environment.
+    return (len(text.encode("utf-8")) if text else None), None
+
+
+def _direct_messages(owner: str, identifier: str, rows, now: float) -> list[DirectMessage]:
+    sent = {
+        raw.get("file"): (raw, event)
+        for raw, event in rows
+        if raw.get("kind") == "steer_sent"
+        and type(raw.get("file")) is str
+        and _STEER_FILE.fullmatch(raw["file"])
+    }
+    result = []
+
+    def add(
+        event, source, target, direction, kind, *, at=None, recorded_at=None,
+        message_id=None, size=None, preview=None,
+    ):
+        at = event.at if at is None else at
+        if at is None:
+            return
+        recorded_at = recorded_at or at
+        age = now - timestamp(recorded_at)
+        if not 0 <= age <= DIRECT_MESSAGE_WINDOW_SECONDS:
+            return
+        result.append(
+            DirectMessage(
+                event.id if message_id is None else message_id,
+                source,
+                target,
+                direction,
+                at,
+                kind,
+                size,
+                preview,
+                recorded_at,
+            )
+        )
+
+    for raw, event in rows:
+        kind = raw["kind"]
+        if kind in {"message", "question"}:
+            if kind == "message" and _legacy_peer_message(raw, event.text, owner):
+                continue
+            size, preview = _message_fields(raw, event.text)
+            add(
+                event,
+                identifier,
+                f"root/{owner}",
+                "worker_to_root",
+                kind,
+                size=size,
+                preview=preview,
+            )
+        elif kind == "root_steer":
+            filename = raw.get("file")
+            delivery = sent.get(filename) if type(filename) is str else None
+            # make_steer allocates across queued and sent files, so this basename binds the
+            # delivery even if a fast runner logs steer_sent before the CLI logs root_steer.
+            if delivery is None:
+                continue
+            delivered_raw, delivered = delivery
+            add(
+                event,
+                f"root/{owner}",
+                identifier,
+                "root_to_worker",
+                "steer",
+                at=delivered.at or event.at,
+                size=delivered_raw.get("size"),
+                preview=peers.preview(delivered_raw["preview"])
+                if isinstance(delivered_raw.get("preview"), str)
+                else None,
+            )
+        elif kind == "root_prompt":
+            add(
+                event,
+                f"root/{owner}",
+                identifier,
+                "root_to_worker",
+                "prompt",
+                recorded_at=raw.get("recorded_at"),
+                size=raw.get("size"),
+                preview=peers.preview(raw["preview"])
+                if isinstance(raw.get("preview"), str)
+                else None,
+            )
+    return result
 
 
 def collect_host(previous=None):
@@ -139,7 +263,7 @@ class Collector:
     def collect(self, owners=None, stall_min=SILENCE_SECONDS // 60, include_quotas=True, storage=False):
         now = time.time()
         self.observed_at = now
-        errors, jobs, wake, recent, messages, retired_items = [], [], [], [], [], []
+        errors, jobs, wake, recent, messages, direct_messages, retired_items = [], [], [], [], [], [], []
         retired = expired = 0
         all_events = []
         scope_jobs, job_scopes = {}, {}
@@ -183,6 +307,7 @@ class Collector:
                 cached.read(job, errors)
                 evs = [raw for raw, _ in cached.rows]
                 events = [e for _, e in cached.rows]
+                direct_messages.extend(_direct_messages(job.parent.name, identifier, cached.rows, now))
                 if not state.get("retiredAt"):
                     all_events.extend(events)
                 pending = [
@@ -209,8 +334,7 @@ class Collector:
                     (
                         e
                         for e in reversed(evs)
-                        if e["kind"] not in {"slow", "stalled", "heavy_wait", "peer_sent",
-                                             "waiting_declared", "long_command", "overdue_wait"}
+                        if e["kind"] not in NON_ACTIVITY_KINDS
                     ),
                     {},
                 )
@@ -423,6 +547,9 @@ class Collector:
         nodes = {j.id for j in jobs}
         messages = [m for m in messages if m.source in nodes and m.target in nodes]
         messages.sort(key=lambda m: (timestamp(m.at), m.source, int(m.id.rsplit(":", 1)[-1])))
+        direct_messages.sort(
+            key=lambda m: (timestamp(m.recorded_at or m.at), m.source, int(m.id.rsplit(":", 1)[-1]))
+        )
         edges = {}
         for m in messages:
             key = m.source, m.target
@@ -441,7 +568,7 @@ class Collector:
         for owner in sorted(owner_names):
             active = [j for j in jobs if j.owner == owner and not j.retired_at]
             try:
-                root_data = json.loads((self.root / owner / "root.json").read_text())
+                root_data = owner_binding.read(self.root / owner)
                 root_at = root_data.get("at")
                 if root_at is not None:
                     timestamp(root_at)
@@ -528,6 +655,7 @@ class Collector:
             quotas(now, errors) if include_quotas else (),
             retention,
             Peers(tuple(sorted(nodes)), tuple(edges.values()), tuple(messages[-100:])),
+            tuple(direct_messages[-DIRECT_MESSAGE_LIMIT:]),
             dependencies,
             tuple(errors),
             groups=tuple(group_views),

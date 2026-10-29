@@ -54,15 +54,16 @@ export function quotaGroups(quotas: WakeQuota[]): { cli: 'codex' | 'agy'; accoun
   return out
 }
 
-export async function scanQuotas($: EngineInterface, opts: { refreshAgy?: boolean } = {}): Promise<WakeQuota[]> {
+export async function scanQuotas($: EngineInterface, opts: { refreshAgy?: boolean; owners?: readonly string[] } = {}): Promise<WakeQuota[]> {
+  if (opts.owners?.length === 0) return []
   if (opts.refreshAgy) {
     // Preserve the existing refresh schedule; consume numbers only from the status contract.
     await $.process.run(['agent-bridge', 'quota', '--backend', 'agy'], { timeoutMs: 180_000 }).catch(() => undefined)
   }
-  const snapshot = await bridgeSnapshot($)
+  const snapshot = await bridgeSnapshot($, false, opts.owners)
   if (!snapshot) throw new Error('Bridge quota status unavailable')
   return snapshot.quotas.filter(q => q.backend === 'codex' || q.backend === 'agy').map(q => ({
     cli: q.backend as 'codex' | 'agy', account: q.account, plan: q.plan ?? '', active: q.active,
-    parts: q.windows.map(w => ({ label: w.label, pct: w.remaining_percent })), status: q.status ?? undefined, freshness: q.freshness,
+    parts: q.windows.map(w => ({ label: w.label, pct: w.remaining_percent, resets: w.resets })), status: q.status ?? undefined, freshness: q.freshness,
   }))
 }

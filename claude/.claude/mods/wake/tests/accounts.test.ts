@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
+import type { EngineInterface } from 'claude-code'
 import { jobLabel, makerOf, modelTier, quotaGroups, scanQuotas } from '../hooks/sources/accounts'
-import { engine, snapshot } from './status-world'
+import { engine, job, snapshot } from './status-world'
 
 test('every job reads cli-agnostic: short model family + effort', () => {
   expect(jobLabel('agy', 'gemini-3.8-flash-high', '')).toEqual({ model: 'flash', effort: 'high' })
@@ -11,7 +12,7 @@ test('every job reads cli-agnostic: short model family + effort', () => {
 })
 
 test('consecutive accounts with the same numbers fold into one group', () => {
-  const base = { cli: 'codex' as const, plan: 'Plus', active: false, parts: [{ label: 'w', pct: 39 }] }
+  const base = { cli: 'codex' as const, plan: 'Plus', active: false, parts: [{ label: 'w', pct: 39, resets: null }] }
   const g = quotaGroups([{ ...base, account: '01' }, { ...base, account: '02', active: true }])
   expect(g.map(x => [x.accounts.join(' '), x.text])).toEqual([['01 02*', 'w39']])
 })
@@ -19,11 +20,37 @@ test('consecutive accounts with the same numbers fold into one group', () => {
 test('quota numbers come only from the snapshot; refresh does not parse its text', async () => {
   const s = snapshot()
   s.quotas = [{ backend: 'agy', account: 'a1', plan: 'Pro', active: false, status: null,
-    freshness: 'stale', windows: [{ label: 'Gh', remaining_percent: 42 }] }]
+    freshness: 'stale', windows: [{ label: 'Gh', remaining_percent: 42, resets: 'in 3 hours' }] }]
   const w = engine(s)
   const result = await scanQuotas(w.$, { refreshAgy: true })
-  expect(result[0]).toMatchObject({ cli: 'agy', account: 'a1', freshness: 'stale', parts: [{ label: 'Gh', pct: 42 }] })
+  expect(result[0]).toMatchObject({ cli: 'agy', account: 'a1', freshness: 'stale', parts: [{ label: 'Gh', pct: 42, resets: 'in 3 hours' }] })
   expect(w.calls).toEqual([['agent-bridge', 'quota', '--backend', 'agy'], ['agent-bridge', 'status', '--json']])
+})
+
+test('scoped quota scans request only owned job history and retain all account quotas', async () => {
+  const scoped = snapshot()
+  scoped.jobs = [job()]
+  scoped.quotas = ['01', '02'].map(account => ({ backend: 'codex', account, plan: null,
+    active: account === '01', status: null, freshness: 'unknown',
+    windows: [{ label: 'w', remaining_percent: 42, resets: null }] }))
+  const calls: string[][] = []
+  const $ = { process: { run: async (args: readonly string[]) => {
+    calls.push([...args])
+    // Unscoped history contains an unrelated invalid record: it must never reach this decoder.
+    const value = args[3] === 'owner' ? scoped : { ...scoped, jobs: [{}] }
+    return { stdout: JSON.stringify(value), exitCode: 0, isStdoutTruncated: false }
+  } } } as unknown as EngineInterface
+  const quotas = await scanQuotas($, { owners: ['owner'] })
+  expect(calls).toEqual([['agent-bridge', 'status', '--json', 'owner']])
+  expect(quotas.map(quota => [quota.account, quota.freshness, quota.parts[0]?.pct])).toEqual([
+    ['01', 'unknown', 42], ['02', 'unknown', 42],
+  ])
+})
+
+test('an empty quota owner selection skips status and scheduled refresh work', async () => {
+  const w = engine(snapshot())
+  expect(await scanQuotas(w.$, { owners: [], refreshAgy: true })).toEqual([])
+  expect(w.calls).toEqual([])
 })
 
 test('modelTier reads the family, not the version or the effort', () => {

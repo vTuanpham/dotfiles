@@ -18,7 +18,7 @@ def test_timeout_gives_up_while_a_runner_is_alive(monkeypatch, tmp_path, capsys)
     monkeypatch.setattr(watcher.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(watcher.time, "sleep", lambda _: None)
     assert watcher.watch(["owner"], until_event=True, timeout=30) is False
-    assert "30s passed with jobs still running" in capsys.readouterr().out
+    assert "30s passed without a wake event" in capsys.readouterr().out
 
 
 def setup_job(tmp_path):

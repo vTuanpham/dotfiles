@@ -51,6 +51,10 @@ def test_schema_validates_produced_cli_snapshots_and_additive_fields(world, monk
     VALIDATE.validate(value)
     assert value["schema_version"] == 1
     assert value["wake_events"][0]["kind"] == "completion_batch"
+    legacy = dict(value)
+    legacy.pop("direct_messages")
+    legacy["schema_minor"] = 2
+    VALIDATE.validate(legacy)
     value["future"] = {"unrecognized": True}
     value["jobs"][0]["future"] = 1
     VALIDATE.validate(value)
@@ -147,10 +151,193 @@ def test_peer_preview_secret_policy(world, monkeypatch):
     a = job_at(world)
     job_at(world, "owner/b")
     monkeypatch.setenv("SERVICE_TOKEN", "example-sensitive-value")
-    for text in ("TOKEN=hidden", "example-sensitive-value", "Bearer hidden", "sk-example"):
+    for text in (
+        "TOKEN=hidden",
+        "example-sensitive-value",
+        "Bearer hidden",
+        "sk-example",
+        "AKIA" + "IOSFODNN7EXAMPLE",
+    ):
         core.route_to_peers(a, f"TO b: {text}")
     assert all(m.preview is None for m in status.Collector().collect().peers.recent_messages)
     assert peers.preview("ordinary\nmessage") == "ordinary message"
+
+
+def test_direct_messages_show_delivered_directions_with_scrubbed_previews(world, monkeypatch):
+    job = job_at(world)
+    job_at(world, "owner/b")
+    monkeypatch.setenv("SERVICE_TOKEN", "hidden-value")
+    steer = "Review the selected run"
+    path = core.make_steer(job, steer)
+    core.log(job, "root_steer", level="info", file=path.name)
+
+    queued = status.Collector().collect()
+    assert queued.direct_messages == ()
+
+    delivered = []
+    assert core.poll_steers(job, lambda text: delivered.append(text))
+    assert delivered == [steer]
+    core.log(job, "message", text="The focused checks passed")
+    worker_secret = "SERVICE_TOKEN=hidden-value"
+    core.log(job, "message", text=worker_secret)
+    answer = "SERVICE_TOKEN=hidden-value"
+    core.log(
+        job,
+        "question_answered",
+        requestId="question-1",
+        **peers.message_fields(answer),
+    )
+    peer_text = "TO b: peer-only note"
+    core.log(job, "message", text=peer_text)
+    core.route_to_peers(job, peer_text)
+
+    snapshot = status.Collector().collect()
+    messages = snapshot.direct_messages
+    root_steer = next(item for item in messages if item.kind == "steer")
+    workers = [item for item in messages if item.kind == "message"]
+    assert root_steer.direction == "root_to_worker"
+    assert root_steer.source == "root/owner" and root_steer.target == "owner/a"
+    assert root_steer.preview == steer and root_steer.size == len(steer.encode())
+    assert len(workers) == 2 and all(item.direction == "worker_to_root" for item in workers)
+    assert workers[0].source == "owner/a" and workers[0].target == "root/owner"
+    assert workers[0].preview == "The focused checks passed"
+    assert workers[1].preview is None and workers[1].size == len(worker_secret.encode())
+    assert not any(item.kind == "question_answer" for item in messages)
+    assert answer not in json.dumps([item.__dict__ for item in messages])
+    secret_event = next(
+        json.loads(line)
+        for line in (job / "live.jsonl").read_text().splitlines()
+        if json.loads(line).get("text") == worker_secret
+    )
+    assert secret_event["preview"] is None and secret_event["size"] == len(worker_secret.encode())
+    assert worker_secret not in json.dumps([m.__dict__ for m in messages])
+    assert "hidden-value" not in json.dumps([m.__dict__ for m in messages])
+    assert snapshot.peers.recent_messages[0].preview == "peer-only note"
+    assert (job / "steer/sent" / path.name).read_text().strip() == steer
+    assert not (job.parent / "ack.json").exists()
+    VALIDATE.validate(json.loads(json.dumps(snapshot.to_dict())))
+
+
+def test_direct_messages_are_bounded_to_recent_delivered_events(world):
+    job = job_at(world)
+    event(job, "message", at="2020-01-01T00:00:00Z", text="old")
+    for index in range(105):
+        core.log(job, "message", text=f"message {index}")
+    snapshot = status.Collector().collect()
+    assert len(snapshot.direct_messages) == 100
+    assert snapshot.direct_messages[0].preview == "message 5"
+    assert snapshot.direct_messages[-1].preview == "message 104"
+
+
+def test_direct_messages_wait_for_confirmed_steer_and_keep_one_identity(world):
+    job = job_at(world)
+    text = "Continue after restart"
+    path = core.make_steer(job, text)
+    core.log(job, "root_steer", file=path.name)
+    state = {"inflight": None}
+    sent = []
+
+    assert core.poll_steers(job, lambda body: sent.append(body), state=state, defer=True)
+    assert status.Collector().collect().direct_messages == ()
+    state = core.load_state(job)
+    assert core.poll_steers(job, lambda body: sent.append(body), state=state, defer=True, redeliver=True)
+    assert status.Collector().collect().direct_messages == ()
+    core.confirm_steer(job, state)
+
+    first = status.Collector().collect().direct_messages
+    second = status.Collector().collect().direct_messages
+    assert len(first) == len(second) == 1
+    assert first[0].id == second[0].id
+    assert first[0].direction == "root_to_worker" and first[0].preview == text
+    assert len(sent) == 2 and all(item.endswith(text) for item in sent)
+
+
+def test_direct_prompt_confirmation_time_keeps_long_turns_visible_and_bounded(world):
+    job = job_at(world)
+    start = "2026-10-24T00:00:00Z"
+    event(job, "root_prompt", at=start, recorded_at=NOW, size=4, preview="work")
+    event(job, "root_prompt", at=start, size=6, preview="legacy")
+    event(job, "root_prompt", at=start, recorded_at="2026-10-25T00:00:00Z", size=3, preview="old")
+    event(job, "root_prompt", at=start, recorded_at="2026-10-28T00:00:00Z", size=6, preview="future")
+    event(job, "root_prompt", at=start, recorded_at="invalid", size=3, preview="bad")
+
+    snapshot = status.Collector().collect()
+    assert [(message.preview, message.at, message.recorded_at) for message in snapshot.direct_messages] == [
+        ("work", start, NOW)
+    ]
+    assert snapshot.errors == ("owner/a: invalid event",)
+    VALIDATE.validate(json.loads(json.dumps(snapshot.to_dict())))
+
+
+def test_scoped_status_filters_before_direct_message_limit(world, monkeypatch, capsys):
+    own = job_at(world)
+    other = job_at(world, "other/a")
+    core.log(own, "message", text="owner message")
+    for index in range(105):
+        core.log(other, "message", text=f"unrelated {index}")
+    monkeypatch.setattr(sys, "argv", ["agent-bridge", "status", "--json", "owner"])
+    cli.main()
+    value = json.loads(capsys.readouterr().out)
+    assert [row["owner"] for row in value["jobs"]] == ["owner"]
+    assert [row["preview"] for row in value["direct_messages"]] == ["owner message"]
+
+
+def test_direct_steer_matches_when_fast_runner_logs_delivery_first(world):
+    job = job_at(world)
+    text = "Fast delivery"
+    path = core.make_steer(job, text)
+    sent = []
+    assert core.poll_steers(job, lambda body: sent.append(body))
+    core.log(job, "root_steer", file=path.name, **peers.message_fields(text))
+
+    messages = status.Collector().collect().direct_messages
+    assert sent == [text]
+    assert len(messages) == 1
+    assert messages[0].kind == "steer" and messages[0].preview == text
+
+
+def test_legacy_peer_heuristic_matches_router_for_mixed_and_spaced_addresses(world):
+    job = job_at(world)
+    job_at(world, "owner/b")
+    mixed = "TO root, b: shared update"
+    core.log(job, "message", text=mixed)
+    core.route_to_peers(job, mixed)
+    event(job, "message", text=" TO b: not routed by the bridge")
+    event(job, "message", text="TO b: legacy peer message")
+
+    snapshot = status.Collector().collect()
+
+    direct = snapshot.direct_messages
+    assert len(direct) == 2
+    assert any(message.preview == mixed for message in direct)
+    assert any(
+        message.preview is None
+        and message.size == len(" TO b: not routed by the bridge".encode())
+        for message in direct
+    )
+    assert [(message.source, message.target) for message in snapshot.peers.recent_messages] == [
+        ("owner/a", "owner/b")
+    ]
+
+
+def test_direct_message_metadata_is_bounded_and_omits_secret_previews(monkeypatch):
+    monkeypatch.setenv("SERVICE_TOKEN", "hidden-value")
+    secret = peers.message_fields("SERVICE_TOKEN=hidden-value")
+    aws_example = "AKIA" + "IOSFODNN7EXAMPLE"
+    aws = peers.message_fields(aws_example)
+    long = peers.message_fields("x" * (peers.MAX_PREVIEW_SCAN_BYTES + 1))
+    assert secret == {"size": len("SERVICE_TOKEN=hidden-value"), "preview": None}
+    assert aws == {"size": len(aws_example), "preview": None}
+    assert long["size"] == peers.MAX_PREVIEW_SCAN_BYTES + 1 and long["preview"] is None
+
+
+def test_legacy_direct_messages_keep_size_but_omit_unverifiable_previews(world):
+    job = job_at(world)
+    body = "Legacy worker message"
+    event(job, "message", text=body)
+    message = status.Collector().collect().direct_messages[0]
+    assert message.preview is None
+    assert message.size == len(body.encode("utf-8"))
 
 
 def test_peer_window_and_bounded_messages(world):

@@ -1,6 +1,7 @@
 import json
 import sys
 from contextlib import nullcontext
+from pathlib import Path
 
 import pytest
 
@@ -129,9 +130,17 @@ def test_detached_prestart_failure_is_logged(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "lock_runner", lambda _: 55)
     monkeypatch.setattr(cli.os, "fork", lambda: 0)
     monkeypatch.setattr(cli.os, "setsid", lambda: None)
-    monkeypatch.setattr(cli.os, "open", lambda *args: 56)
+    real_open = cli.os.open
+
+    def open_detached_stdio(path, *args, **kwargs):
+        if Path(path).name == "root.lock":
+            return real_open(path, *args, **kwargs)
+        return 56
+
+    monkeypatch.setattr(cli.os, "open", open_detached_stdio)
     monkeypatch.setattr(cli.os, "dup2", lambda *args: None)
-    monkeypatch.setattr(cli.os, "close", lambda *args: None)
+    real_close = cli.os.close
+    monkeypatch.setattr(cli.os, "close", lambda fd: None if fd in {55, 56} else real_close(fd))
     monkeypatch.setattr(cli.os, "_exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
     monkeypatch.setattr(
         cli.claude, "run", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("prestart"))

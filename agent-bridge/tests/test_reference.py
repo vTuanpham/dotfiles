@@ -308,6 +308,7 @@ def test_record_keeps_guide_text_and_records_both_hashes(home):
     reference.accept()
     model = reference.GUIDES / "models.md"
     model.write_text(refreshed(REAL) + "\nIntentionally omitted: `new-model`.\n")
+    (reference.GUIDES / "subscriptions.md").write_text(refreshed(SUBSCRIPTIONS))
     before = refresh.documents(reference.GUIDES)
     assert refresh.record(yes=True) == 0
     assert refresh.documents(reference.GUIDES) == before
@@ -347,6 +348,8 @@ def test_record_rejects_invalid_root_edits_without_changing_lock(home, monkeypat
 
 def test_record_requires_confirmation(home, monkeypatch):
     monkeypatch.setattr(refresh.sys.stdin, "isatty", lambda: False)
+    (reference.GUIDES / "models.md").write_text(refreshed(REAL))
+    (reference.GUIDES / "subscriptions.md").write_text(refreshed(SUBSCRIPTIONS))
     with pytest.raises(SystemExit, match="--record --yes"):
         refresh.record()
 

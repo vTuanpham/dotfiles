@@ -6,11 +6,11 @@ import json
 import os
 import re
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 
-from . import core
+from . import core, owner_binding
 from .heavy import write_state
 from .status_inputs import timestamp
 from .status_model import GroupNotice, WakeGroup, WakePolicy
@@ -291,7 +291,7 @@ def evaluate_locked(owner, jobs, events, now, errors, persist):
             text,
             "",
             "",
-            kind != "completion_reminder",
+            True,
             False,
             owner.name,
             group,
@@ -452,7 +452,11 @@ def evaluate_locked(owner, jobs, events, now, errors, persist):
         else e
         for e in events
     ]
-    output = tuple(replace(n, wakes=n.wakes and not n.seen) for n in notices)
+    # Pending reminders saved by older versions were marked informational.
+    output = tuple(
+        replace(n, wakes=(n.wakes or n.kind == "completion_reminder") and not n.seen)
+        for n in notices
+    )
     jobs = [replace(j, group=config["members"].get(j.name, {}).get("group")) for j in jobs]
     return jobs, native, tuple(views), output
 
@@ -467,3 +471,28 @@ def seen(owner, identifier):
         data["notices"] = [replace(n, seen=True) if n.id == identifier else n for n in data["notices"]]
         write_ledger(owner, data)
         return True
+
+
+def deliver(notices, callback, current=None, guard_owners=()):
+    """Only successful delivery marks notices seen; crashes leave them pending."""
+    require_root()
+    owners = sorted({owner for owner, _ in notices})
+    with owner_binding.guard_many([*owners, *guard_owners], current) as bindings:
+        with ExitStack() as stack:
+            for owner in owners:
+                stack.enter_context(locked(owner))
+            data = {owner: ledger(owner) for owner in owners}
+            pending = {
+                (owner, n.id) for owner, state in data.items() for n in state["notices"]
+                if owner_binding.may_claim(bindings[owner], current)
+                and not n.seen and (owner, n.id) in notices
+            }
+            if not pending:
+                return False
+            callback()
+            for owner, state in data.items():
+                state["notices"] = [
+                    replace(n, seen=True) if (owner, n.id) in pending else n for n in state["notices"]
+                ]
+                write_ledger(owner, state)
+            return True

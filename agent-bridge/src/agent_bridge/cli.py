@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import time
+from contextlib import ExitStack
 from pathlib import Path
 
 from . import (
@@ -13,6 +14,7 @@ from . import (
     heavy,
     heavy_control,
     opencode,
+    owner_binding,
     reference,
     refresh,
     resources,
@@ -63,8 +65,8 @@ WATCH = {
     "type": watch_seconds,
     "metavar": "SECONDS",
     "help": (
-        "run detached, then stay until the first urgent event, so one background command covers "
-        "the job (exits 124 after SECONDS, default 1800, with the job still running)"
+        "run detached and wait for the first urgent event (default: 1800s); a Codex watch may "
+        "continue past that timeout while a reminder is scheduled"
     ),
 }
 
@@ -79,20 +81,11 @@ def harness():
 
 def record_root(job):
     owner = Path(job).parent
-    owner.mkdir(parents=True, exist_ok=True)
-    save(owner / "root.json", {"at": stamp(), "harness": harness(), **(root_identity() or {})})
+    owner_binding.record(owner, root_identity())
 
 
 def root_identity():
-    backend = harness()
-    identifier = os.environ.get("CLAUDE_CODE_SESSION_ID" if backend == "claude" else "CODEX_THREAD_ID")
-    if backend == "unknown":
-        backend = os.environ.get("AGENT_BRIDGE_ROOT_HARNESS", "unknown")
-        identifier = os.environ.get("AGENT_BRIDGE_ROOT_SESSION")
-    if (backend not in BACKENDS or not identifier or len(identifier) > 200
-            or any(ord(c) < 32 for c in identifier)):
-        return None
-    return {"backend": backend, "session_id": identifier}
+    return owner_binding.identity()
 
 
 def session_bindings():
@@ -196,14 +189,18 @@ def result_text(job, all_messages=False):
     return "\n\n".join(text for text in messages if text)
 
 
-def run_with_linger(job, state, state_path, backend, prompt, resume, extra, runner_fd=None):
+def run_with_linger(
+    job, state, state_path, backend, prompt, resume, extra, runner_fd=None, *, root_prompt=False
+):
     try:
         while True:
             live_path = job / "live.jsonl"
             before = live_path.stat().st_size if live_path.exists() else 0
-            if not retries.run(job, state, state_path, backend, prompt, resume, extra):
+            if not retries.run(
+                job, state, state_path, backend, prompt, resume, extra, root_prompt=root_prompt
+            ):
                 return
-            if any(e.get("kind") == "root_steer" for e in events(job, before)):
+            if any(e.get("kind") in {"root_steer", "root_prompt"} for e in events(job, before)):
                 state["autoAnswers"] = 0
                 save(state_path, state)
             if backend is agy:
@@ -218,6 +215,7 @@ def run_with_linger(job, state, state_path, backend, prompt, resume, extra, runn
                     state["autoAnswers"] = 0
                     save(state_path, state)
                     prompt, resume = "", True
+                    root_prompt = False
                     continue
                 runner_finished(load_state(job), state_path)
                 if runner_fd is not None:
@@ -255,7 +253,7 @@ def main():
         os.environ.get(WORKER_FLAG)
         and len(sys.argv) > 1
         and not any(flag in sys.argv[1:] for flag in ("-h", "--help"))
-        and sys.argv[1] in {"start", "resume", "steer", "interrupt", "stop", "compact", "retire",
+        and sys.argv[1] in {"start", "resume", "steer", "interrupt", "stop", "compact", "retire", "handoff",
                             "restore", "purge", "sessions", "ack", "group"}
     ):
         print("agent-bridge: delegated workers can't drive agent-bridge jobs", file=sys.stderr)
@@ -403,6 +401,9 @@ def main():
             "job", help="job as <owner>/<name>"
         )
     sub.add_parser("owners", help="list owners, running jobs and unanswered urgent events")
+    sub.add_parser("handoff", help="transfer one owner namespace to this root session").add_argument(
+        "owner", help="owner whose jobs this root will take over"
+    )
     h = sub.add_parser("heavy", help="wait for a shared heavy slot and host headroom, then run a command",
                        description="Heavy: model inference/benchmarks, dataset downloads/extraction, full "
                        "suites, long-lived servers/headless browsers, or >1 GiB/several cores for >1 minute. "
@@ -453,10 +454,7 @@ def main():
     w.add_argument(
         "--timeout",
         type=int,
-        help=(
-            "seconds to wait; exits 124 if the timeout expires before an urgent event or no-runner check, "
-            "otherwise exits 0"
-        ),
+        help="wait limit before exit 124; Codex continues through scheduled unread reminders",
     )
     for name in ("models", "quota"):
         x = sub.add_parser(
@@ -521,6 +519,7 @@ def main():
                         "use --watch=SECONDS, or use --prompt-file"
                     )
     runner_fd = None
+    root_guard = ExitStack()
     try:
         if a.command == "waiting":
             from .status_model import DeclaredWait
@@ -549,23 +548,23 @@ def main():
                 job = resolve_job(a.job)
                 if not (job / "state.json").is_file():
                     raise ValueError("group assignment requires an existing job")
-                record_root(job)
-                groups.assign(job, a.name if a.group_action == "assign" else None)
+                with owner_binding.access(job.parent, root_identity()):
+                    groups.assign(job, a.name if a.group_action == "assign" else None)
                 print(f"group: {a.job} assigned to {a.name if a.group_action == 'assign' else '@ungrouped'}")
             else:
                 owner = resolve_job(f"{groups.name(a.owner)}/placeholder").parent
-                if a.group_action != "list":
-                    record_root(owner / "placeholder")
                 if a.group_action == "set":
                     if a.settle is None:
                         raise ValueError("settle needs a duration; use 0s for immediate each")
                     from .status_model import WakePolicy
 
                     policy = WakePolicy(a.wake, a.settle, a.remind, a.max_wait, a.repeat_reminders)
-                    groups.configure(owner, a.name, policy, a.members)
+                    with owner_binding.access(owner, root_identity()):
+                        groups.configure(owner, a.name, policy, a.members)
                     print(f"group: {a.owner}/{a.name} wake={a.wake} settle={a.settle}s")
                 elif a.group_action == "clear":
-                    groups.clear(owner, a.name)
+                    with owner_binding.access(owner, root_identity()):
+                        groups.clear(owner, a.name)
                     print(f"group: {a.owner}/{a.name} reset to each with 60s settle and 15m reminders")
                 else:
                     data = groups.settings(owner, [])
@@ -613,13 +612,19 @@ def main():
         if a.command == "sessions":
             print(json.dumps(session_bindings()))
             return
+        if a.command == "handoff":
+            owner = resolve_job(f"{groups.name(a.owner)}/placeholder").parent
+            owner_binding.handoff(owner, root_identity())
+            print(f"handoff: {a.owner} now belongs to this root")
+            return
         if a.command == "purge" and not a.job:
             failed = False
             for path in sorted(JOBS.glob("*/*/state.json")):
                 try:
                     job = resolve_job(str(path.parent))
-                    if retirement.purge_due(load_state(job)):
-                        print(retirement.purge(job))
+                    with owner_binding.access(job.parent, root_identity()):
+                        if retirement.purge_due(load_state(job)):
+                            print(retirement.purge(job))
                 except (OSError, ValueError, RuntimeError) as exc:
                     print(f"skipped {path.parent.parent.name}/{path.parent.name}: {exc}", file=sys.stderr)
                     failed = True
@@ -661,7 +666,8 @@ def main():
             from .watch import job_dirs
 
             for job in job_dirs(a.owner):
-                acknowledge(job)
+                with owner_binding.access(job.parent, root_identity()):
+                    acknowledge(job)
                 print(f"acknowledged displayed events: {job.parent.name}/{job.name}")
             return
         if a.command == "owners":
@@ -687,14 +693,15 @@ def main():
             return
         if a.command == "result":
             job = resolve_job(a.job)
-            # Snapshot completions before reading; a concurrently arriving turn stays pending.
-            completion = max((end for end, event in event_lines(job)
-                              if event.get("kind") == "turn_completed"), default=0)
-            print(result_text(job, a.all) if (job / "state.json").exists() else
-                  retirement.archived_result(ARCHIVE, f"{job.parent.name}/{job.name}"))
-            sys.stdout.flush()
-            if completion and not os.environ.get(WORKER_FLAG):
-                acknowledge(job, completion)
+            with owner_binding.access(job.parent, root_identity()):
+                # Snapshot completions before reading; a concurrently arriving turn stays pending.
+                completion = max((end for end, event in event_lines(job)
+                                  if event.get("kind") == "turn_completed"), default=0)
+                print(result_text(job, a.all) if (job / "state.json").exists() else
+                      retirement.archived_result(ARCHIVE, f"{job.parent.name}/{job.name}"))
+                sys.stdout.flush()
+                if completion and not os.environ.get(WORKER_FLAG):
+                    acknowledge(job, completion)
             return
         if a.command in ("models", "quota"):
             if a.backend == "agy":
@@ -707,11 +714,16 @@ def main():
                 codex.models()
             return
         job = resolve_job(a.job)
+        if a.command in ROOT_COMMANDS or a.command == "compact":
+            with owner_binding.guard(job.parent, root_identity()):
+                pass
         if a.command == "retire":
-            print(retirement.retire(job, ARCHIVE, result_text, a.keep_days, a.purge))
+            with owner_binding.access(job.parent, root_identity()):
+                print(retirement.retire(job, ARCHIVE, result_text, a.keep_days, a.purge))
             return
         if a.command in ("restore", "purge"):
-            print(getattr(retirement, a.command)(job))
+            with owner_binding.access(job.parent, root_identity()):
+                print(getattr(retirement, a.command)(job))
             return
         if (job / "state.json").exists() and load_state(job).get("retiredAt"):
             raise RuntimeError(f"job is retired; run agent-bridge restore {a.job} before {a.command}")
@@ -726,21 +738,21 @@ def main():
             before = (job / "live.jsonl").stat().st_size if (job / "live.jsonl").exists() else 0
             from .status import running
 
-            with steer_lock(job):
-                state = load_state(job)
-                if state.get("retiredAt"):
-                    raise RuntimeError(f"job is retired; run agent-bridge restore {a.job} first")
-                record_root(job)
-                path = make_steer(job, text)
-                log(job, "root_steer", level="info", file=path.name)
-                if not a.queue:
-                    try:
-                        runner_fd = lock_runner(job)
-                    except RuntimeError:
-                        pass  # The live runner owns delivery, including its final queue check.
-                    if runner_fd is not None and running(load_state(job)):
-                        os.close(runner_fd)
-                        runner_fd = None
+            with owner_binding.access(job.parent, root_identity()):
+                with steer_lock(job):
+                    state = load_state(job)
+                    if state.get("retiredAt"):
+                        raise RuntimeError(f"job is retired; run agent-bridge restore {a.job} first")
+                    path = make_steer(job, text)
+                    log(job, "root_steer", level="info", file=path.name)
+                    if not a.queue:
+                        try:
+                            runner_fd = lock_runner(job)
+                        except RuntimeError:
+                            pass  # The live runner owns delivery, including its final queue check.
+                        if runner_fd is not None and running(load_state(job)):
+                            os.close(runner_fd)
+                            runner_fd = None
             if a.queue:
                 print(f"queued: {path}; deliver with agent-bridge resume {a.job}")
                 return
@@ -749,13 +761,13 @@ def main():
                 return follow(job, before, a.watch)
             a.detach, a.prompt_file = True, None
         if a.command in ("interrupt", "stop"):
-            record_root(job)
-            (job / a.command).touch()
+            with owner_binding.access(job.parent, root_identity()):
+                (job / a.command).touch()
             return
         if a.command == "compact" and load_state(job)["backend"] not in ("codex", "claude"):
             raise RuntimeError("compact is supported only by codex and claude")
-        if a.command in ROOT_COMMANDS and a.command != "steer":
-            record_root(job)
+        if a.command in ROOT_COMMANDS or a.command == "compact":
+            root_guard.enter_context(owner_binding.access(job.parent, root_identity(), start=True))
         if runner_fd is None:
             runner_fd = lock_runner(job)
         if state_path.exists() and load_state(job).get("retiredAt"):
@@ -839,6 +851,9 @@ def main():
             (job / "prompt.md").write_text(prompt + "\n", encoding="utf-8")
         else:
             prompt = read_prompt(job / "prompt.md")
+        record_root_prompt = bool(prompt) and (
+            a.command == "start" or (a.command == "resume" and bool(a.prompt_file))
+        )
         save(state_path, state)
         if a.command in {"start", "resume"}:
             configured = groups.settings(job.parent, [])["members"].get(job.name)
@@ -901,7 +916,10 @@ def main():
             live_offset = live_path.stat().st_size if live_path.exists() else 0
             try:
                 fd, runner_fd = runner_fd, None
-                run_with_linger(job, state, state_path, backend, prompt, resume, extra, fd)
+                run_with_linger(
+                    job, state, state_path, backend, prompt, resume, extra, fd,
+                    root_prompt=record_root_prompt,
+                )
             except Exception as exc:
                 print(f"agent-bridge: {exc}", file=sys.stderr, flush=True)
                 logged = False
@@ -928,12 +946,17 @@ def main():
             os._exit(0)
         print(job)
         fd, runner_fd = runner_fd, None
-        run_with_linger(job, state, state_path, backend, prompt, resume, extra, fd)
+        run_with_linger(
+            job, state, state_path, backend, prompt, resume, extra, fd,
+            root_prompt=record_root_prompt,
+        )
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         if runner_fd is not None:
             os.close(runner_fd)
         print(f"agent-bridge: {exc}", file=sys.stderr)
         raise SystemExit(1)
+    finally:
+        root_guard.close()
 
 
 def follow(job, before, seconds):

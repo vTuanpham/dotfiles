@@ -8,7 +8,7 @@ from datetime import datetime
 from . import agy, resources
 from .acknowledgements import INFORMATIONAL_ONLY_KINDS, event_lines, urgent
 from .core import command_env, load_state, tree_size
-from .status_model import Event, Quota, QuotaWindow, TidyItem
+from .status_model import MESSAGE_PREVIEW_LIMIT, Event, Quota, QuotaWindow, TidyItem
 
 AGY_QUOTA_FRESH_SECONDS = 600
 
@@ -37,6 +37,7 @@ class EventLog:
             raise ValueError("unsafe job log")
         fields = {
             "at",
+            "recorded_at",
             "kind",
             "text",
             "message",
@@ -48,6 +49,8 @@ class EventLog:
             "peerDirected",
             "source",
             "target",
+            "file",
+            "requestId",
             "size",
             "preview",
             "message_kind",
@@ -64,12 +67,30 @@ class EventLog:
                 at = raw.get("at")
                 if at is not None:
                     timestamp(at)
+                if raw.get("recorded_at") is not None:
+                    timestamp(raw["recorded_at"])
                 for key in ("text", "message", "question", "status"):
                     if raw.get(key) is not None and type(raw[key]) is not str:
                         raise ValueError("invalid event field")
                 for key in ("tool_use_id", "itemId", "stepId", "tool", "noticeId"):
                     if raw.get(key) is not None and (not isinstance(raw[key], str) or len(raw[key]) > 512):
                         raise ValueError("invalid tool identity")
+                for key in ("file", "requestId"):
+                    if raw.get(key) is not None and (
+                        type(raw[key]) is not str or len(raw[key]) > 512
+                    ):
+                        raise ValueError("invalid message identity")
+                if raw.get("size") is not None and (
+                    type(raw["size"]) is not int or raw["size"] < 0
+                ):
+                    raise ValueError("invalid message size")
+                if raw.get("peerDirected") is not None and type(raw["peerDirected"]) is not bool:
+                    raise ValueError("invalid peer message direction")
+                if raw.get("preview") is not None and (
+                    type(raw["preview"]) is not str
+                    or len(raw["preview"]) > MESSAGE_PREVIEW_LIMIT
+                ):
+                    raise ValueError("invalid message preview")
                 text = raw.get("text") or raw.get("question") or raw.get("message") or ""
                 event = Event(
                     f"{self.job_id}:{self.identity}:{end}",
@@ -150,7 +171,9 @@ def unanswered(job, evs):
     if blocking and any(e.get("kind") == "stopped" for e in evs[blocking[-1] + 1 :]):
         return 0
     last = max(
-        (i for i, e in enumerate(evs) if e.get("kind") in ("steer_sent", "root_steer", "question_answered")),
+        (i for i, e in enumerate(evs) if e.get("kind") in (
+            "steer_sent", "root_steer", "question_answered"
+        )),
         default=-1,
     )
     return sum(i > last for i in blocking)

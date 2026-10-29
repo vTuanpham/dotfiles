@@ -149,6 +149,9 @@ def log(job, kind, level=None, **fields):
         except (OSError, ValueError):
             pass  # state damage must never prevent a native failure/message reaching the log
     if kind == "message" and isinstance(fields.get("text"), str):
+        from .peers import message_fields
+
+        fields.update(message_fields(fields["text"]))
         head, sep, _ = fields["text"].partition(":")
         if sep and head.upper().startswith("TO "):
             recipients = [n.strip().lower() for n in head[3:].split(",")]
@@ -301,6 +304,9 @@ def capped(cmd, state=None):
 def runner_started(state, path):
     state["runnerPid"] = os.getpid()
     save(path, state)
+    from .owner_binding import release_start_guard
+
+    release_start_guard()
 
 
 def runner_finished(state, path):
@@ -334,6 +340,9 @@ def poll_steers(job, send, known=None, state=None, defer=False, redeliver=False,
         if path.stem.isdecimal() and (text := path.read_text(encoding="utf-8").strip()):
             cid = f"steer-{path.stem}"
             if known is not None and f"steer-{path.stem}" in known:
+                from .peers import message_fields
+
+                log(job, "steer_sent", file=path.name, **message_fields(text))
                 os.replace(path, sent / path.name)
                 continue
             if state is not None:
@@ -349,11 +358,13 @@ def poll_steers(job, send, known=None, state=None, defer=False, redeliver=False,
                 send(text)
             if defer:
                 return True
+            from .peers import message_fields
+
+            log(job, "steer_sent", file=path.name, **message_fields(text))
             os.replace(path, sent / path.name)
             if state is not None:
                 state["inflight"] = None
                 save(Path(job) / "state.json", state)
-            log(job, "steer_sent", file=path.name)
             return True
     return False
 
@@ -365,8 +376,24 @@ def confirm_steer(job, state):
     path = Path(job) / "steer" / inflight["file"]
     sent = path.parent / "sent"
     sent.mkdir(exist_ok=True)
+    # Record confirmed delivery before clearing the recovery checkpoint; a restart can replay this id safely.
+    content = None
+    for source in (path, sent / path.name):
+        if source.is_symlink() or not source.is_file():
+            continue
+        try:
+            content = source.read_text(encoding="utf-8").strip()
+            break
+        except OSError:
+            continue
+    if content is None:
+        fields = {"size": None, "preview": None}
+    else:
+        from .peers import message_fields
+
+        fields = message_fields(content)
+    log(job, "steer_sent", file=inflight["file"], **fields)
     if path.exists():
         os.replace(path, sent / path.name)
     state["inflight"] = None
     save(Path(job) / "state.json", state)
-    log(job, "steer_sent", file=inflight["file"])

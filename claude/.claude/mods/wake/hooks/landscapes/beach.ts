@@ -1,6 +1,6 @@
 import { type Canvas, hash, mix, sprite } from '../pixels'
 import { type Building, byPhase, KIND_COLOR, type Landscape, type Look, P, SCENE_H, editsOf, farTone, foliage, lightWindows, wave, jobAccent } from './kit'
-import { airJobs, boat, stations } from './crew'
+import { airJobs, packBoats, placeBoat, stations } from './crew'
 
 // Beach: a tropical shore. Turns are huts on the back of the sand (striped cabana, thatched
 // bungalow, lifeguard tower, awning cafe, tiki bar); the sea rolls behind them with a far
@@ -388,14 +388,24 @@ export const beach: Landscape = {
   jobs(c, look, jobs, right) {
     const count = Math.max(1, Math.floor((right - 14) / 20)) // each boat keeps its own stretch of sea by who it is
     const lane = (right - 14) / count
-    for (const [job, slot] of stations(jobs.filter(job => (job.kind ?? 'codex') === 'codex'), count)) {
-      const t = look.frame + job.seed * 97
+    const boats = stations(jobs.filter(job => (job.kind ?? 'codex') === 'codex'), count).map(([job, slot]) => {
+      const t = job.seed * 97
       const x = Math.round(4 + ((slot % count) + (Math.floor(slot / count) % 2) * 0.5) * lane + (job.seed % 5) + 3 * Math.sin(t * 0.04 + job.seed))
       const y = HORIZON - (Math.sin(t * 0.12 + job.seed) > 0.3 ? 1 : 0)
-      boat(c, look, x, y, job)
-      for (let k = 1; k < 4; k++) c.glow(x - k, y + 6, P.white, 0.5 - k * 0.12) // its wake
+      return { job, x, y }
+    })
+    const crowded = jobs.length * 9 > right * Math.max(1, GROUND - 3)
+    const overflow = crowded ? boats.splice(3).map(({ job }) => job) : []
+    const packed = crowded ? packBoats(c, look, boats) : undefined
+    for (const [i, { job, x, y }] of boats.entries()) {
+      const placed = packed ? packed[i] : placeBoat(c, look, x, y, job, crowded)
+      if (placed) for (let k = 1; k < 4; k++) {
+        const x = placed.x - k, wakeY = y + 6
+        if (!(look.crewZones ?? []).some(z => x >= z.x && x < z.x + z.w && wakeY >= z.y && wakeY < z.y + z.h)) c.glow(x, wakeY, P.white, 0.5 - k * 0.12)
+      }
+      else overflow.push(job)
     }
-    airJobs(c, look, jobs.filter(job => (job.kind ?? 'codex') !== 'codex'), right) // agy, Claude and OpenCode crew stay in the air over the sea
+    airJobs(c, look, [...jobs.filter(job => (job.kind ?? 'codex') !== 'codex'), ...overflow], right)
   },
 
   foreground(c, look, right) {
