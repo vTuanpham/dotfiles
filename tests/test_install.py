@@ -34,13 +34,15 @@ class InstallTests(unittest.TestCase):
 
             self.assertEqual(first.returncode, 0, first.stderr)
             for name in (".zshrc", ".claude/CLAUDE.md", ".config/systemd/user/agent-bridge-reference.timer",
-                         ".local/libexec/chatgpt-browser-idle.py", ".codex/skills/codex-wake"):
+                         ".local/libexec/chatgpt-browser-idle.py", ".codex/skills/codex-wake",
+                         ".config/systemd/user/agent-lab-gc.timer",
+                         ".config/systemd/user/agent-lab-gc.service"):
                 link = Path(tmp) / name
                 self.assertTrue(link.is_symlink(), name)
                 self.assertTrue(str(link.resolve()).startswith(str(root)), name)
             for skill in ("correct", "benchmark-checklist", "create-verification-skill",
                           "maintain-verification-skill", "how", "why", "blast-radius", "arena", "unslop",
-                          "python-project"):
+                          "python-project", "agent-lab"):
                 source = root / "agents/.agents/skills" / skill
                 self.assertTrue((source / "SKILL.md").is_file(), skill)
                 for directory in (".agents/skills", ".claude/skills", ".gemini/config/skills"):

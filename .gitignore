@@ -29,6 +29,10 @@ node_modules/
 /backups/
 /.local/state/
 
+# Private host-tooling feedback; keep the former flat path excluded for older sessions.
+/feedback.local/
+/FEEDBACK.local.md
+
 # Browser profiles and generated native-host configuration stay on their host.
 NativeMessagingHosts/
 extension-host-config.json

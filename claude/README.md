@@ -24,6 +24,10 @@ the benefit; a warm cache does not make an oversized conversation free.
 
 ## Hooks
 
+The settings snapshot selects `/bin/bash` for Claude's Bash tool through
+[`CLAUDE_CODE_SHELL`](https://code.claude.com/docs/en/env-vars). Interactive Zsh
+keeps its native parsing; agent compatibility does not change `.zshenv` options.
+
 `settings.json` defines two `PreToolUse` hooks, the same ones Codex runs (`codex/.codex/hooks.json`):
 
 | Matcher | Command | What it does |

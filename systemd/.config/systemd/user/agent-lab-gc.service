@@ -1,0 +1,8 @@
+[Unit]
+Description=Remove expired, retired agent-lab experiments
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/agent-lab gc --apply
+UMask=0077
+Nice=10

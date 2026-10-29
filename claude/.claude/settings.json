@@ -4,6 +4,7 @@
   },
   "model": "opus",
   "env": {
+    "CLAUDE_CODE_SHELL": "/bin/bash",
     "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/wake"
   },
   "hooks": {

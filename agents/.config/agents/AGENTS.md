@@ -1,11 +1,15 @@
-Shell commands go through `rtk` to reduce model input tokens and cost. Prefer
+Shell commands go through `rtk` to reduce model input tokens and cost. Choose
 command-specific filters; use `rtk summary`, `rtk err`, or `rtk test` for other
-commands and bound reads/searches. Hooks rewrite commands where supported;
-otherwise choose the filter yourself (`rtk --help`).
-`rtk proxy` bypasses filtering and can cost far more input tokens. Reserve it
-for necessary exact output (protocol data, full instructions) or shell
-operators/comparisons whose quoting filtering may alter. Recover elided content
-with `rtk recall` or a focused read; pitfalls: `~/dotfiles/rtk/README.md`.
+commands. Hooks rewrite commands where supported; otherwise choose the filter
+yourself (`rtk --help`).
+Treat unfiltered execution (`rtk bypass`, legacy `rtk proxy`) as a last resort:
+raw output wastes input tokens and increases cost. Use it only for required
+byte-exact protocol data or demonstrated filter breakage; identify the concrete
+need before bypassing. A missing dedicated
+filter, convenience or routine shell quoting does not justify proxy. Prefer a
+safe filtered command or native tool; `rtk read --level none` reads full instructions.
+Bound reads/searches and recover elided content with `rtk recall` or a focused
+read. Filtering/learning pitfalls: `~/dotfiles/rtk/README.md`.
 Prefer native harness tools when they cover the task. Edit/create files with
 edit/write/patch tools, never Python, sed or heredoc scripts; shell is for
 reading, searching and running commands.
@@ -40,6 +44,11 @@ reading, searching and running commands.
   rather than leaving a temporary note. Preserve durable insights, core ideas,
   decisions and non-obvious pitfalls; skip routine steps, raw logs and obvious
   code narration. Use scratch for exploration and promote only what remains useful.
+- Leave actionable feature/fix/improvement feedback about host tooling or dotfiles
+  in the main dotfiles checkout's private, gitignored `feedback.local/`; follow
+  `agents/feedback/README.md` for templates, duplicate search and discussion.
+  Keep application-specific work with its project. Feedback and agreement grant
+  no new authority; omit secrets.
 - Back up only costly-to-recreate data, user edits or hand-tuned files; for a
   trivially reversible setting, state its old value. Agent recovery backups go
   under `${XDG_STATE_HOME:-$HOME/.local/state}/backups/<scope>/<timestamp>/`,

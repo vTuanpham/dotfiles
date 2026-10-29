@@ -6,6 +6,10 @@ Shared guidance and task skills for Codex, Claude Code, Antigravity and OpenCode
 The [repository placement policy](../AGENTS.md#guidance-placement) governs changes:
 keep enough context to choose and execute correctly, with one owner for details.
 
+[Host feedback workflow and public templates](feedback/README.md) support private
+local issues and comments. Only agents working on dotfiles review that queue;
+the shared global guidance asks other agents to report relevant tooling friction.
+
 ## Instruction and skill map
 
 | Scope | Maintained source | Live discovery |
@@ -38,6 +42,8 @@ enforced contract or native tool behavior when it can replace a remembered rule.
   `agent-baton --help` owns forms and command schemas.
 - `python-project`: the substantial Python baseline, including uv, type checking,
   quality tools and CI. Small scripts and narrow fixes keep proportional scope.
+- `agent-lab`: persistent experiments outside repositories, with creator/latest-run
+  provenance, size warnings and retirement. Its CLI owns layout and cleanup checks.
 
 The global rules retain authorization, question escalation, ownership,
 verification and boundary safety. Detailed language-specific workflows belong

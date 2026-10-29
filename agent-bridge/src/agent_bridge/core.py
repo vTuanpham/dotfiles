@@ -264,8 +264,12 @@ def command_env(**extra):
 
 def worker_env(job=None, **extra):
     """Filtered backend environment plus the bridge worker identity and CLI restrictions."""
+    state_home = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+    if not state_home.is_absolute():
+        state_home = Path.home() / ".local/state"
+    lab_home = os.environ.get("AGENT_LAB_HOME", str(state_home / "agent-lab"))
     return {
-        **command_env(**extra),
+        **command_env(**{"AGENT_LAB_HOME": lab_home, **extra}),
         "AGENT_BRIDGE_HOST_PID_NAMESPACE": os.readlink("/proc/self/ns/pid"),
         WORKER_FLAG: "1",
         **({"AGENT_BRIDGE_JOB": f"{Path(job).parent.name}/{Path(job).name}"} if job else {}),

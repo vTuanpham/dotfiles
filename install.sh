@@ -54,7 +54,7 @@ step_tools() {
 step_uvtools() {
   if ! have uv; then say "  uv is missing: run the tools step first"; return 0; fi
   local tool
-  for tool in codex-wake agent-bridge agent-baton agent-inbox portlink; do
+  for tool in codex-wake agent-bridge agent-baton agent-inbox portlink agent-lab; do
     if uv tool list 2>/dev/null | grep -q "^$tool "; then say "  $tool installed"; else act uv tool install --editable "$REPO/$tool"; fi
   done
 }
@@ -103,10 +103,12 @@ LINKS=(
   "gemini/.gemini/config/skills/agent-bridge .gemini/config/skills/agent-bridge"
   "systemd/.config/systemd/user/agent-bridge-reference.service .config/systemd/user/agent-bridge-reference.service"
   "systemd/.config/systemd/user/agent-bridge-reference.timer .config/systemd/user/agent-bridge-reference.timer"
+  "systemd/.config/systemd/user/agent-lab-gc.service .config/systemd/user/agent-lab-gc.service"
+  "systemd/.config/systemd/user/agent-lab-gc.timer .config/systemd/user/agent-lab-gc.timer"
   "systemd/.config/environment.d/999-local-bin.conf .config/environment.d/999-local-bin.conf"
 )
 PSTACK_SKILLS=(correct benchmark-checklist create-verification-skill maintain-verification-skill how why blast-radius arena unslop)
-for skill in "${PSTACK_SKILLS[@]}" python-project; do
+for skill in "${PSTACK_SKILLS[@]}" python-project agent-lab; do
   for directory in .agents/skills .claude/skills .gemini/config/skills; do
     LINKS+=("agents/.agents/skills/$skill $directory/$skill")
   done
@@ -140,11 +142,14 @@ step_links() {
 step_systemd() {
   if ! have systemctl; then say "  no systemctl here"; return 0; fi
   act systemctl --user daemon-reload
-  if systemctl --user is-enabled agent-bridge-reference.timer >/dev/null 2>&1; then
-    say "  agent-bridge-reference.timer enabled"
-  else
-    act systemctl --user enable --now agent-bridge-reference.timer
-  fi
+  local timer
+  for timer in agent-bridge-reference.timer agent-lab-gc.timer; do
+    if systemctl --user is-enabled "$timer" >/dev/null 2>&1; then
+      say "  $timer enabled"
+    else
+      act systemctl --user enable --now "$timer"
+    fi
+  done
   say "  the Codex reset tracker unit comes from its own repo: see README, 'What starts on its own'"
 }
 

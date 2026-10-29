@@ -51,6 +51,7 @@ question for you, passed tests (fireworks), a failed command (storm), a finished
 - **[Agent Baton](agent-baton/README.md)**: questions, choices and private secret handoffs.
 - **[Agent Inbox](agent-inbox/README.md)**: your existing root conversations, chat and questions, on your phone.
 - **[Codex Wake](codex-wake/README.md)**: native session wake-ups from background commands and task events.
+- **[Agent Lab](agent-lab/README.md)**: persistent experiments, provenance, size warnings and safe retirement.
 - **[Wake](claude/README.md#wake-mod-live)**: the Claude-only landscape, crew and quota rows shown above.
 - **[Shared instructions](agents/README.md)**: one `AGENTS.md` plus the Bridge and Baton briefings.
 
@@ -146,6 +147,7 @@ does the linking). Every package README opens with its kind.
 | [agent-inbox](agent-inbox/README.md) | uv tool + user service | Phone chat for existing root conversations; editable uv tool |
 | [portlink](portlink/README.md) | uv tool | Private preview URLs, QR codes and automatic route expiry |
 | [codex-wake](codex-wake/README.md) | uv tool | Native Codex task notifications from commands, hooks and event producers |
+| [agent-lab](agent-lab/README.md) | uv tool + live skill and timer | Persistent experiment folders, provenance and retirement cleanup |
 | [systemd](systemd/README.md) | Live + reference | User units, reference timer and service PATH |
 | [chrome](chrome/README.md) | Live + manual | Global Chrome extensions; ChatGPT browser transport from WSL |
 | [github](github/README.md) | Live + manual | Native GitHub tools using the GitHub CLI credential store |
@@ -157,7 +159,7 @@ does the linking). Every package README opens with its kind.
 The reference timer, catalog cron job and the
 [reset tracker](https://github.com/vTuanpham/codex-reset-tracker) service already
 have their own owners; no extra startup script is needed. The installer enables the
-reference timer and adds the catalog cron line. Tracker setup, Tailscale forwards
+reference and retired-lab cleanup timers and adds the catalog cron line. Tracker setup, Tailscale forwards
 and hidden Windows startup tasks are described in
 [systemd](systemd/README.md#startup-and-timers).
 

@@ -52,6 +52,20 @@ def test_pass_through_and_explicit_deny_are_exact_and_deny_wins(parent_env):
     assert "OTHER_TOKEN" not in core.worker_env(OTHER_TOKEN="fixture")
 
 
+def test_lab_registry_stays_on_host_when_worker_home_is_isolated(parent_env, tmp_path):
+    expected = str(Path(parent_env["HOME"]) / ".local/state/agent-lab")
+    env = core.worker_env(tmp_path / "owner/job", HOME=str(tmp_path / "isolated"))
+    assert env["AGENT_LAB_HOME"] == expected
+    parent_env["XDG_STATE_HOME"] = str(tmp_path / "state")
+    assert core.worker_env()["AGENT_LAB_HOME"] == str(tmp_path / "state/agent-lab")
+    parent_env["XDG_STATE_HOME"] = "relative"
+    assert core.worker_env()["AGENT_LAB_HOME"] == expected
+    parent_env["AGENT_LAB_HOME"] = str(tmp_path / "chosen")
+    assert core.worker_env()["AGENT_LAB_HOME"] == str(tmp_path / "chosen")
+    parent_env["AGENT_BRIDGE_DENY_ENV"] = "AGENT_LAB_HOME"
+    assert "AGENT_LAB_HOME" not in core.worker_env()
+
+
 @pytest.mark.parametrize("name", ["AGENT_BRIDGE_PASS_ENV", "AGENT_BRIDGE_DENY_ENV"])
 @pytest.mark.parametrize("value", ["*", "API_KEY,,OTHER", "not a variable=fixture"])
 def test_invalid_policy_does_not_echo_its_contents(parent_env, name, value, capsys):
@@ -86,6 +100,7 @@ def test_backend_spawn_keeps_file_auth_without_parent_keys(parent_env, monkeypat
     def launch(command, **kwargs):
         env = kwargs["env"]
         assert "UNRELATED_API_KEY" not in env
+        assert env["AGENT_LAB_HOME"] == str(home / ".local/state/agent-lab")
         assert env[core.WORKER_FLAG] == "1"
         if backend == "codex":
             auth = Path(env["CODEX_HOME"]) / "auth.json"

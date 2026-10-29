@@ -235,7 +235,9 @@ def run(force=False):
     for name, text in current.items():
         (work / f"current-{name}").write_text(text, encoding="utf-8")
         (work / f"proposed-{name}").write_text(text, encoding="utf-8")
-    (work / "sources.md").write_text((Path(__file__).with_name("guide") / "sources.md").read_text(encoding="utf-8"), encoding="utf-8")
+    (work / "sources.md").write_text(
+        (Path(__file__).with_name("guide") / "sources.md").read_text(encoding="utf-8"), encoding="utf-8"
+    )
     live = "".join(f"{n} {i}\n" for n, ids in sorted(reference.live().items()) for i in sorted(ids))
     for name, text in (
         ("drift.txt", "\n".join(reference.drift()) + "\n"),

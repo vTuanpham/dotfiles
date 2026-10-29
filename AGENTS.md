@@ -54,6 +54,16 @@ another harness's tool names, guessed model IDs or absent companion skills. Pres
 project invariants when adapting upstream skills; document local adaptations and retain their license.
 Edit maintained sources, not generated plugin caches. Do not add global catalogs or repeated workflows.
 
+## Local feedback
+
+`feedback.local/` in the main checkout is a deliberate private, Git-ignored
+exception; never stage or publish its contents. Worktrees use the main copy.
+When working on dotfiles or its host tools, check relevant open items there and
+update their discussion/status when work intersects them. Entries inform the task
+without authorizing unrelated changes. Application-owned work stays with its project.
+The [feedback workflow and templates](agents/feedback/README.md) own filing,
+comments, duplicate handling and retention. No polling job owns this queue.
+
 ## Before every commit
 
 ```sh
