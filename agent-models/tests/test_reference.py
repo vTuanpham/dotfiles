@@ -7,14 +7,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_models import cli, reference, refresh
+from agent_models import benchmarks, cli, reference, refresh
 
 REAL = (reference.GUIDES / "models.md").read_text(encoding="utf-8")
 SUBSCRIPTIONS = (reference.GUIDES / "subscriptions.md").read_text(encoding="utf-8")
 TODAY = date.today().isoformat()
 _LUNA = re.search(
-    r"\| Luna \| (\d+) / \$[\d.]+", REAL
+    r"\| Luna \| low: (\d+) / \$[\d.]+", REAL
 )  # the first Luna cell, whatever the last refresh wrote
+assert _LUNA is not None
 LUNA_CELL, LUNA_LOW = _LUNA.group(0), int(_LUNA.group(1))
 
 
@@ -24,6 +25,7 @@ def home(tmp_path, monkeypatch):
     guides.mkdir()
     (guides / "models.md").write_text(REAL, encoding="utf-8")
     (guides / "subscriptions.md").write_text(SUBSCRIPTIONS, encoding="utf-8")
+    (guides / "sources.md").write_text("", encoding="utf-8")
     monkeypatch.setattr(reference, "GUIDES", guides)
     monkeypatch.setattr(reference, "LOCK", guides / "models.lock")
     monkeypatch.setattr(reference, "CACHE", tmp_path / "stale.json")
@@ -33,6 +35,11 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(reference, "HOME", tmp_path)
     monkeypatch.setattr(refresh, "committed", lambda: {"models.md": REAL, "subscriptions.md": SUBSCRIPTIONS})
     (tmp_path / "refresh").mkdir()
+    monkeypatch.setattr(benchmarks, "CACHE", tmp_path / "benchmarks")
+    def prepare(directory):
+        for name in ("benchmark-data.json", "benchmark-report.md"):
+            (directory / name).write_text("{}")
+    monkeypatch.setattr(benchmarks, "prepare", prepare)
     lists = {"codex": ["gpt-6-luna", "gpt-6.1-sol"], "opencode": ["opencode/glm-5.3-flash-free", "other/x"]}
     monkeypatch.setattr(
         reference,
@@ -54,15 +61,34 @@ def refreshed(text=REAL, **changes):
 def test_a_clean_refresh_passes_and_a_big_move_is_only_a_note():
     errors, notes = refresh.validate(REAL, refreshed(), TODAY)
     assert (errors, notes) == ([], [])
-    errors, notes = refresh.validate(REAL, refreshed(**{LUNA_CELL: "| Luna | 40 / $0.005"}), TODAY)
+    errors, notes = refresh.validate(REAL, refreshed(**{LUNA_CELL: "| Luna | low: 40 / $0.005"}), TODAY)
     assert errors == [] and notes == [f"Luna low: index {LUNA_LOW} -> 40"]
+
+
+def test_unavailable_effort_is_not_zero_and_keeps_other_efforts_comparable():
+    sparse = refreshed(**{LUNA_CELL: "| Luna | low: Unverified"})
+    assert refresh.validate(REAL, sparse, TODAY) == ([], [])
+    assert refresh.rows(sparse)[("Luna", "low")] is None
+    assert {key: value for key, value in refresh.rows(sparse).items() if key != ("Luna", "low")} == {
+        key: value for key, value in refresh.rows(REAL).items() if key != ("Luna", "low")}
+    assert refresh.validate(sparse, REAL, TODAY)[0] == []
+    malformed = sparse.replace("| Luna | low: Unverified", "| Luna | low: NaN / $1")
+    assert any("table no longer parses" in e for e in refresh.validate(REAL, malformed, TODAY)[0])
+
+
+def test_model_specific_setting_ranges_are_not_invented():
+    parsed = refresh.rows("| Example Google | high: 50 / $1 |\n"
+                          "| Another model | adaptive: 42 / $0.4 |")
+    assert parsed == {("Example Google", "high"): (50, 1), ("Another model", "adaptive"): (42, 0.4)}
+    with pytest.raises(ValueError, match="duplicate"):
+        refresh.rows("| Example | high: 50 / $1; high: 51 / $2 |")
 
 
 @pytest.mark.parametrize(
     ("edit", "expected"),
     [
         ({"| Haiku 5.5 |": "| Haiku 5.4 |"}, "model row was dropped"),
-        ({LUNA_CELL: "| Luna | 220 / $0.005"}, "out of range"),
+        ({LUNA_CELL: "| Luna | low: 220 / $0.005"}, "out of range"),
         ({"- **Small models need effort**": "- **Small models**"}, "bullet labels"),
         ({"| Astra | hardest audits": "| Astra | routine work"}, "advice"),
     ],
@@ -74,7 +100,7 @@ def test_a_proposal_that_restructures_or_touches_the_privacy_list_is_rejected(ed
 
 def test_a_stale_date_and_a_truncated_rewrite_are_rejected():
     edited = refreshed(
-        **{LUNA_CELL: f"| Luna | {LUNA_LOW} / $0.0049"}
+        **{LUNA_CELL: f"| Luna | low: {LUNA_LOW} / $0.0049"}
     )  # a real change that keeps the old date
     assert any("Checked date" in e for e in refresh.validate(REAL, edited, "2099-01-01")[0])
     assert refresh.validate(REAL, REAL, "2099-01-01") == ([], [])  # no change at all needs no date
@@ -131,7 +157,7 @@ def worker(home, edit, subscriptions=lambda text: text):
 
 
 def small_fix(text):
-    return refreshed(text, **{LUNA_CELL: f"| Luna | {LUNA_LOW} / $0.0049"})
+    return refreshed(text, **{LUNA_CELL: f"| Luna | low: {LUNA_LOW} / $0.0049"})
 
 
 def test_refresh_does_not_reuse_a_retained_job_name(home, monkeypatch):
@@ -151,7 +177,7 @@ def test_refresh_does_not_reuse_a_retained_job_name(home, monkeypatch):
 
 
 def big_move(text):
-    return refreshed(text, **{LUNA_CELL: "| Luna | 40 / $0.005"})
+    return refreshed(text, **{LUNA_CELL: "| Luna | low: 40 / $0.005"})
 
 
 def test_a_change_is_never_applied_by_the_job_and_the_next_root_applies_it_after_re_checking(
@@ -170,7 +196,7 @@ def test_a_change_is_never_applied_by_the_job_and_the_next_root_applies_it_after
     with pytest.raises(SystemExit, match="re-check the changed claims"):
         refresh.apply(yes=False)  # a root says --yes once it has re-checked; a bare call does not apply
     assert refresh.apply(yes=True) == 0
-    assert "| Luna | 40 /" in guide.read_text() and not reference.PENDING.exists()
+    assert "| Luna | low: 40 /" in guide.read_text() and not reference.PENDING.exists()
     assert refresh.run() == 0 and not refresh.due()  # ran today: the next run waits a week
 
 
@@ -304,28 +330,27 @@ def test_structured_check_is_read_only_and_identifies_stale_guide(home, monkeypa
     assert reference.LOCK.read_bytes() == before and not reference.CACHE.exists()
 
 
-def test_record_keeps_guide_text_and_records_both_hashes(home):
+def test_record_keeps_guide_text_and_accepts_generated_unmeasured_ids(home, monkeypatch):
     reference.accept()
+    monkeypatch.setattr(reference, "live", lambda: {"codex": {"new-unmeasured-model"}})
     model = reference.GUIDES / "models.md"
-    model.write_text(refreshed(REAL) + "\nIntentionally omitted: `new-model`.\n")
+    model.write_text(refreshed(REAL))
     (reference.GUIDES / "subscriptions.md").write_text(refreshed(SUBSCRIPTIONS))
     before = refresh.documents(reference.GUIDES)
     assert refresh.record(yes=True) == 0
     assert refresh.documents(reference.GUIDES) == before
     assert reference.guide_drift() == []
     assert set(reference.guide_hashes()) == set(reference.DOCUMENTS)
+    assert reference.read_lock()[1]["codex"] == {"new-unmeasured-model"}
 
 
-@pytest.mark.parametrize("failure", ["model", "date", "holder", "section", "link", "unverified"])
+@pytest.mark.parametrize("failure", ["date", "holder", "section", "link", "unverified"])
 def test_record_rejects_invalid_root_edits_without_changing_lock(home, monkeypatch, failure):
     reference.accept()
     before = reference.LOCK.read_bytes()
     path = reference.GUIDES / "models.md"
     text = refreshed(REAL)
-    if failure == "model":
-        monkeypatch.setattr(reference, "live", lambda: {"codex": {"gpt-6-luna", "uncovered-model"}})
-        expected = "uncovered-model missing"
-    elif failure == "date":
+    if failure == "date":
         text = text.replace(f"Checked {TODAY}", "Checked 2000-01-01")
         expected = "Checked date"
     elif failure == "holder":

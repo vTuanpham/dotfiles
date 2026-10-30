@@ -19,7 +19,8 @@ LOCK = GUIDES / "models.lock"  # refreshed <date>; guide <file> <sha256>; <backe
 CACHE = HOME / "stale.json"
 PENDING = HOME / "refresh" / "pending"  # holds the directory of a proposal waiting for the user
 MAX_AGE_DAYS = 30
-LISTERS = {name: (lambda backend=name: inventory.show(backend)) for name in ("codex", "agy", "opencode")}
+LISTERS = {name: (lambda backend=name: inventory.show(backend))
+           for name in ("codex", "claude", "agy", "opencode")}
 ONLY = {"opencode": "opencode/"}  # the free tier is what the reference covers, not every provider
 
 

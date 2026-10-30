@@ -9,7 +9,7 @@ Application features, business logic and project benchmarks belong to that
 project's own issues or maintained docs.
 
 ```text
-dotfiles/
+dotfiles-with-agency/
 ├── agents/feedback/                 public standards
 │   ├── issue.template.md
 │   └── comment.template.md

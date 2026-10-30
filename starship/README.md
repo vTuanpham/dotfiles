@@ -28,5 +28,5 @@ The preview uses **SauceCodePro NFP SemiBold, 12 pt**, matching the
 the `gruvbox_dark` palette is defined in `starship.toml`.
 
 Windows PowerShell reads this tracked file directly through `STARSHIP_CONFIG` pointing at
-`\\wsl$\<distro>\home\<user>\dotfiles\starship\.config\starship.toml`; Windows cannot follow the Stow
+`\\wsl$\<distro>\home\<user>\dotfiles-with-agency\starship\.config\starship.toml`; Windows cannot follow the Stow
 symlink, so use the tracked path. WSL stays the owner and there is no Windows copy.

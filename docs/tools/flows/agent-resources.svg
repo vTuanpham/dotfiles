@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="410" viewBox="0 0 1040 410" role="img" aria-labelledby="title desc">
+  <title id="title">Shared admission for heavy commands</title>
+  <desc id="desc">Native agents, Bridge workers and shells declare heavy command needs to one local queue. Available headroom, inherited budgets and fairness determine admission. Waiting commands retain their place; admitted commands run in the foreground. Process exit releases reservations through kernel locks.</desc>
+  <defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7" fill="none" stroke="#737f7c" stroke-width="1.2"/></marker></defs>
+  <rect width="1040" height="410" fill="#faf9f6"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#263733">
+    <text x="36" y="38" font-size="11" letter-spacing="2.4" fill="#68766f">AGENT RESOURCES</text>
+    <text x="36" y="78" font-family="Georgia, serif" font-size="30">Make room before heavy work.</text>
+    <text x="36" y="184" font-size="21" font-weight="700">Declared need</text>
+    <text x="36" y="211" font-size="14" fill="#68766f">Root · worker · shell</text>
+    <path d="M226 179H326" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <rect x="348" y="137" width="263" height="91" rx="13" fill="#eaf0eb"/>
+    <text x="479" y="171" text-anchor="middle" font-size="22" font-weight="700">Shared queue</text>
+    <text x="479" y="198" text-anchor="middle" font-size="13" fill="#56675d">Headroom · inherited budgets · fairness</text>
+    <path d="M611 179H751" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <text x="681" y="161" text-anchor="middle" font-size="13" fill="#68766f">fits</text>
+    <text x="777" y="184" font-size="21" font-weight="700">Foreground command</text>
+    <text x="777" y="211" font-size="14" fill="#68766f">Run concurrently when capacity fits</text>
+    <path d="M479 228V286" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <text x="493" y="262" font-size="12" fill="#68766f">wait</text>
+    <text x="479" y="317" text-anchor="middle" font-size="19" fill="#506b90">Queued / paused</text>
+    <path d="M394 309H311V204H336" stroke="#a4ada7" stroke-width="1.3" fill="none" stroke-dasharray="3 5" marker-end="url(#arrow)"/>
+    <path d="M887 233V311H626" stroke="#a4ada7" stroke-width="1.3" fill="none" marker-end="url(#arrow)"/>
+    <text x="749" y="298" text-anchor="middle" font-size="13" fill="#68766f">Exit releases the reservation</text>
+    <path d="M36 353H1004" stroke="#d3d8d1"/>
+    <text x="36" y="384" font-size="13" fill="#68766f">Cooperative admission; sandbox permissions and kernel resource caps remain in force.</text>
+  </g>
+</svg>

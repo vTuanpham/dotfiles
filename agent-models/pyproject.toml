@@ -3,7 +3,10 @@ name = "agent-models"
 version = "0.1.0"
 description = "Shared model references and reviewed reference maintenance"
 requires-python = ">=3.11,<3.15"
-dependencies = ["agent-accounts==0.1.0"]
+dependencies = [
+    "agent-accounts==0.1.0",
+    "polars==2.1.0",
+]
 
 [tool.uv.sources]
 agent-accounts = { path = "../agent-accounts", editable = true }

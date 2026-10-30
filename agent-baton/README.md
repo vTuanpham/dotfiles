@@ -11,7 +11,7 @@ opens from a Windows notification or phone alert. State lives in `~/.local/state
 *The real toast and page, with an example site and fake values; regenerate with `docs/tools/baton_gif.py`.*
 
 ```sh
-uv tool install --editable ~/dotfiles/agent-baton
+uv tool install --editable ~/dotfiles-with-agency/agent-baton
 agent-baton --help             # the workflow; agents read it when they need it
 agent-baton doctor             # checks the toast, typing, hooks and the phone path, and says what to fix
 ```

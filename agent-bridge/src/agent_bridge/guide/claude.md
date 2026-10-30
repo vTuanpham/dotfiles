@@ -1,6 +1,6 @@
 # claude backend (Claude Code CLI)
 
-- **Models**: the CLI lists aliases `sonnet`, `opus` and `haiku` (marked as aliases); Claude Code has no documented model-list command. Sonnet effort is `low|medium|high`. It spends the user's Claude quota.
+- **Models**: `model-guide models --backend claude --json` reads resolved aliases and per-model effort ranges from native initialization without a prompt. Verify the worker's account and included allowance separately; a listed model can require paid credits. It spends the user's Claude quota.
   - Use it for taste-heavy work: UI/TUI layout and visual design (its taste beats every Codex model except Astra).
   - Also use it for work that needs live collaboration, or when Codex is out of quota and the user is away.
 - **Sandbox**: workspace-write runs Claude's bwrap sandbox (writes limited to cwd plus writable roots, full network) with the auto-mode classifier on top. read-only denies edits and every command outside Claude's read-only set. Denials are logged as urgent.
@@ -10,7 +10,7 @@
 
 ## Account selection
 
-`cswap` manages native Claude logins; see `~/dotfiles/claude/README.md#accounts`.
+`cswap` manages native Claude logins; see `~/dotfiles-with-agency/claude/README.md#accounts`.
 Inspect `cswap list --json`, switch an authorized account between sessions, then
 run `agent-accounts refresh --backend claude` for the shared allowance view.
 Bridge does not enable auto-rotation or map a global active account to every

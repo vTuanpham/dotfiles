@@ -10,7 +10,7 @@ import time
 
 
 IDLE_SECONDS = 300
-GUIDE = "~/dotfiles/chrome/README.md#visible-agent-tabs"
+GUIDE = "~/dotfiles-with-agency/chrome/README.md#visible-agent-tabs"
 TOOLS = {"mcp__node_repl__js", "mcp__node_repl__js_reset"}
 
 

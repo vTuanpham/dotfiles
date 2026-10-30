@@ -8,8 +8,9 @@
   <g font-family="Arial, Helvetica, sans-serif" fill="#263733">
     <text x="36" y="37" font-size="11" letter-spacing="2.4" fill="#68766f">CONFIGURATION</text>
     <text x="36" y="75" font-family="Georgia, serif" font-size="30">How files reach your home</text>
-    <text x="36" y="189" font-family="monospace" font-size="23">dotfiles/</text>
-    <text x="36" y="214" font-size="13" fill="#68766f">The working tree</text>
+    <text x="36" y="174" font-family="monospace" font-size="18">dotfiles-</text>
+    <text x="36" y="199" font-family="monospace" font-size="18">with-agency/</text>
+    <text x="36" y="225" font-size="13" fill="#68766f">The working tree</text>
     <path d="M190 177H222V124H409" fill="none" stroke="#737f7c" stroke-width="1.4" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
     <path d="M190 193H409" fill="none" stroke="#737f7c" stroke-width="1.4" marker-end="url(#arrow)"/>
     <path d="M190 209H222V266H409" fill="none" stroke="#737f7c" stroke-width="1.4" marker-end="url(#arrow)"/>

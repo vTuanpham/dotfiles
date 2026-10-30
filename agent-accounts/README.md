@@ -2,12 +2,7 @@
 
 [← Packages](../README.md#packages) · **uv tool** · account observations
 
-```text
-Existing provider caches ── agent-accounts ─┬─ Wake quota rows
-                                          └─ Bridge status
-
-Selected native session ───────────────────── Inbox session quota
-```
+![Cached allowances and native status feed shared account observations; Inbox gets quota from its selected native session.](../docs/images/account-context.gif)
 
 Read account inventory without scanning jobs, messages or peer history.
 The JSON contract carries account aliases, provider, windows, observation time
@@ -31,6 +26,12 @@ Claude's percentages are used allowance; this boundary converts them to remainin
 rounds down and never treats unavailable, elapsed or missing windows as free quota.
 The active mark records the account at the last refresh; it is not session identity.
 Native account selection stays in [cswap](../claude/README.md#accounts).
+
+Model-guide searches also use the provider context helper: quota observations
+plus Claude's native auth-status plan/billing profile, with identity fields
+removed. These hints are read dynamically, not stored in the benchmark snapshot
+or hardcoded as model entitlements. Existing sessions can retain a different
+account from the current profile.
 
 Refresh uses the selected account's existing file login and validates the result
 before atomically replacing its private quota cache. It never signs in, switches

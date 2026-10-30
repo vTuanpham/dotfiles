@@ -44,7 +44,7 @@ The terminal inset uses **SauceCodePro NFP SemiBold, 12 pt**, matching the
 Linux/WSL with a working `systemd --user` manager, a current Tailscale CLI and `uv`:
 
 ```sh
-uv tool install --editable ~/dotfiles/portlink
+uv tool install --editable ~/dotfiles-with-agency/portlink
 portlink doctor
 ```
 

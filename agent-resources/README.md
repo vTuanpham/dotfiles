@@ -2,12 +2,7 @@
 
 [← Packages](../README.md#packages) · **uv tool** · host resource admission
 
-```text
-Native agent ───┐
-Bridge worker ──┼── shared queue ── headroom available ── foreground command
-Shell command ─┘        │
-                  pause / cancel
-```
+![Heavy commands declare their needs to a shared queue, wait for headroom and run in the foreground; process exit releases the reservation.](../docs/images/agent-resources.gif)
 
 Cooperative admission for memory-heavy or sustained multi-core commands. Kernel
 locks hold reservations across exec and release them on process exit. This is

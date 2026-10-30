@@ -108,9 +108,9 @@ approval requirements still apply. Baton's
 Install and use (a uv tool, editable from this checkout):
 
 ```sh
-uv tool install --with-editable ~/dotfiles/codex-wake \
-  --with-editable ~/dotfiles/agent-models --with-editable ~/dotfiles/agent-resources \
-  --with-editable ~/dotfiles/agent-accounts --editable ~/dotfiles/agent-bridge
+uv tool install --with-editable ~/dotfiles-with-agency/codex-wake \
+  --with-editable ~/dotfiles-with-agency/agent-models --with-editable ~/dotfiles-with-agency/agent-resources \
+  --with-editable ~/dotfiles-with-agency/agent-accounts --editable ~/dotfiles-with-agency/agent-bridge
 agent-bridge --help            # compact command map and workflow rules
 agent-bridge guide workflow    # Bridge routing, watching, steering and cleanup
 model-guide read models       # generic model strength, effort and costs

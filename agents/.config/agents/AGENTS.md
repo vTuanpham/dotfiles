@@ -15,7 +15,7 @@ filter the final consumer or the whole pipeline once. Preserve quoting,
 redirections, `&&`/`||`/`;` and exit status; never pipe RTK's display summaries
 into data-processing commands.
 Bound reads/searches and recover elided content with `rtk recall` or a focused
-read. Filtering/learning pitfalls: `~/dotfiles/rtk/README.md`.
+read. Filtering/learning pitfalls: `~/dotfiles-with-agency/rtk/README.md`.
 Prefer native harness tools when they cover the task. Edit/create files with
 edit/write/patch tools, never Python, sed or heredoc scripts; shell is for
 reading, searching and running commands.
@@ -62,8 +62,8 @@ reading, searching and running commands.
   under `${XDG_STATE_HOME:-$HOME/.local/state}/backups/<scope>/<timestamp>/`,
   outside repositories, with owner-only permissions and original paths/restore
   details. Leave application-managed backups alone.
-- Browser lifecycle: `~/dotfiles/chrome/README.md#visible-agent-tabs`.
-  Remote previews: `portlink --help` (`~/dotfiles/portlink/README.md`).
+- Browser lifecycle: `~/dotfiles-with-agency/chrome/README.md#visible-agent-tabs`.
+  Remote previews: `portlink --help` (`~/dotfiles-with-agency/portlink/README.md`).
 
 ## Communication and verification
 
@@ -90,7 +90,7 @@ reading, searching and running commands.
 - Stop/wait for owned processes through native job or terminal handles; otherwise
   verify an explicit PID or exact process name. Full-command `pgrep`/`pkill`
   matching can select the invoking shell or waiter; use verified ancestor
-  exclusion where supported. Guard behavior: `~/dotfiles/shell/README.md#agent-process-matching`.
+  exclusion where supported. Guard behavior: `~/dotfiles-with-agency/shell/README.md#agent-process-matching`.
 - For a potentially recurring bug, name the failure class, sweep its affected
   area for siblings, and fix/report them together. Include the class in briefs.
 - Fixture-only rules/thresholds are hypotheses: state the real-data check needed
@@ -158,6 +158,6 @@ reading, searching and running commands.
 - Substantial Python repositories: use the `python-project` skill for the
   baseline; follow existing equivalent tooling and use proportional checks for
   small scripts.
-- `~/dotfiles` is public: before editing/committing, read its `AGENTS.md` for
+- `~/dotfiles-with-agency` is public: before editing/committing, read its `AGENTS.md` for
   live/snapshot ownership and excluded credentials, personal identifiers,
   machine-local trust/approvals. Stage explicit paths, never `git add -A`.

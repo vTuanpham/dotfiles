@@ -9,7 +9,7 @@ WSL distro named `Ubuntu`; change the distro and home path for your machine.
 ## Terminal configuration
 
 Windows PowerShell reads the shared Starship configuration directly from
-`\\wsl$\<distro>\home\<user>\dotfiles\starship\.config\starship.toml` through
+`\\wsl$\<distro>\home\<user>\dotfiles-with-agency\starship\.config\starship.toml` through
 `STARSHIP_CONFIG` in its profile. Use that tracked file rather than the
 `~/.config/starship.toml` Stow symlink: Windows cannot resolve that symlink on
 this machine. WSL remains the configuration owner; no Windows copy is needed.

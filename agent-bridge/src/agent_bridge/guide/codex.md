@@ -1,11 +1,11 @@
 # codex backend
 
 ## Models
-Use the newest model of each family (highest version wins; never older or spark); pass exact IDs because a bare family name can select the wrong metadata.
-- **Luna**: cheap bulk worker for coding, implementation, bounded sweeps and bug-finding audits (`xhigh|max` for audits). Effort `high|xhigh|max` only. Cheap per token but thinks long, so wall time can exceed Sol's.
-- **Sol**: clearly stronger than Luna: tricky implementation, deep diagnosis, review. Effort `medium|high|xhigh`.
-- **Terra**: fast model for visual, UI and computer-use work and for writing; faster than Sol. Start at `medium|high`.
-- **Astra**: the strongest Codex model, for the hardest audits, architecture questions and read-only brainstorming. Effort `low|medium|high` (xhigh/max when the user asks). It draws more quota per job, so size jobs to match.
+Use `model-guide models --backend codex --json` for current IDs, native effort
+ranges and generated benchmark coverage. Pass exact IDs; family names can resolve
+different metadata. The model-selection skill owns task fit and effort advice,
+including small-worker reasoning and domain-specific cost/time tradeoffs. CLI
+inventory can be wider than a native subagent tool's selectable models.
 
 Read `model-guide read subscriptions` only when the choice depends on a plan or allowance. Check the live account with `codex-auth list`; use `model-guide read models` for generic model/effort advice.
 

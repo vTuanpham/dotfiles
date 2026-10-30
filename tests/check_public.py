@@ -7,7 +7,7 @@
 
 Only added lines are judged, so old content never blocks a commit. Personal names that must never appear
 (your email, real name, private project names) live outside the repository, one per line, in
-~/.config/dotfiles/private-terms.txt (override with DOTFILES_PRIVATE_TERMS); a file that lists them
+~/.config/dotfiles-with-agency/private-terms.txt (override with DOTFILES_PRIVATE_TERMS); a file that lists them
 cannot itself be tracked. Prints where and why, never the matching text."""
 
 import argparse
@@ -39,7 +39,7 @@ SELF = {"tests/check_public.py", "tests/test_public.py"}  # they spell out the v
 
 
 def private_terms():
-    path = Path(os.environ.get("DOTFILES_PRIVATE_TERMS", "~/.config/dotfiles/private-terms.txt")).expanduser()
+    path = Path(os.environ.get("DOTFILES_PRIVATE_TERMS", "~/.config/dotfiles-with-agency/private-terms.txt")).expanduser()
     if not path.is_file():
         return []
     lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())

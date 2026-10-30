@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="510" viewBox="0 0 1040 510" role="img" aria-labelledby="title desc">
+  <title id="title">Model selection from native controls and domain evidence</title>
+  <desc id="desc">Native model identities and effort ranges, benchmark domain scores with cost and time, and local account observations inform a task shortlist. The agent chooses a supported model and effort, using native delegation or Bridge for another harness. Account observations do not establish the selected session's access.</desc>
+  <defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7" fill="none" stroke="#737f7c" stroke-width="1.2"/></marker></defs>
+  <rect width="1040" height="510" fill="#faf9f6"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#263733">
+    <text x="36" y="38" font-size="11" letter-spacing="2.4" fill="#68766f">MODEL GUIDE</text>
+    <text x="36" y="79" font-family="Georgia, serif" font-size="32">Choose for the work.</text>
+    <text x="36" y="107" font-size="15" fill="#68766f">Task fit · supported controls · quality, cost and time</text>
+    <path d="M36 135H1004M346 157V260M697 157V260" stroke="#d3d8d1" fill="none"/>
+    <circle cx="43" cy="166" r="5" fill="#23786f"/>
+    <text x="60" y="172" font-size="20" font-weight="700">Native catalogs</text>
+    <text x="36" y="205" font-size="14">Codex · Claude · agy · OpenCode</text>
+    <text x="36" y="232" font-size="14" fill="#68766f">Exact IDs, resolved aliases, efforts</text>
+    <text x="36" y="254" font-size="12" fill="#68766f">No prompt or inference call</text>
+    <circle cx="377" cy="166" r="5" fill="#506b90"/>
+    <text x="394" y="172" font-size="20" font-weight="700">Domain evidence</text>
+    <text x="370" y="205" font-size="14">Arena · LiveBench · AA · Vals</text>
+    <text x="370" y="232" font-size="14" fill="#68766f">Scores, measured settings, cost/time</text>
+    <text x="370" y="254" font-size="12" fill="#68766f">Source, release and retrieval date</text>
+    <circle cx="727" cy="166" r="5" fill="#a35e43"/>
+    <text x="744" y="172" font-size="20" font-weight="700">Account context</text>
+    <text x="720" y="205" font-size="14">Existing caches + native status</text>
+    <text x="720" y="232" font-size="14" fill="#68766f">Plan, billing, windows, freshness</text>
+    <text x="720" y="254" font-size="12" fill="#68766f">Confirm the selected session's access</text>
+    <path d="M177 273V300H470V323" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <path d="M520 273V323" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <path d="M865 273V300H570V323" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <rect x="351" y="334" width="338" height="83" rx="14" fill="#eaf0eb"/>
+    <text x="520" y="366" text-anchor="middle" font-size="22" font-weight="700">A task-sized shortlist</text>
+    <text x="520" y="393" text-anchor="middle" font-size="14" fill="#56675d">Quality leaders + efficient choices</text>
+    <path d="M351 375H248" stroke="#737f7c" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <path d="M689 375H785" stroke="#737f7c" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <text x="36" y="370" font-size="18" font-weight="700">Native delegation</text>
+    <text x="36" y="396" font-size="14" fill="#68766f">Within the same harness</text>
+    <text x="807" y="370" font-size="18" font-weight="700">Agent Bridge</text>
+    <text x="807" y="396" font-size="14" fill="#68766f">To another harness</text>
+    <path d="M36 449H1004" stroke="#d3d8d1"/>
+    <text x="36" y="480" font-size="13" fill="#68766f">Generated coverage keeps unmatched models visible. Missing measurements and effort ranges stay unknown.</text>
+  </g>
+</svg>

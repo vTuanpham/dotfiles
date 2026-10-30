@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="430" viewBox="0 0 1040 430" role="img" aria-labelledby="title desc">
+  <title id="title">Events resume the selected Codex conversation</title>
+  <desc id="desc">codex-wake run preflights delivery, waits for a command and notifies on exit. Event producers use send directly. Both use the selected conversation's native task channel. A worker recovering an idle root first verifies its parent and fresh idle state. Native completion and Bridge watch already deliver their own events.</desc>
+  <defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7" fill="none" stroke="#737f7c" stroke-width="1.2"/></marker></defs>
+  <rect width="1040" height="430" fill="#faf9f6"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#263733">
+    <text x="36" y="38" font-size="11" letter-spacing="2.4" fill="#68766f">CODEX TASK NOTIFICATIONS</text>
+    <text x="36" y="78" font-family="Georgia, serif" font-size="30">An event brings the conversation back.</text>
+    <text x="36" y="148" font-size="19" font-weight="700">Build · watcher · timer</text>
+    <path d="M258 143H331" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <text x="352" y="149" font-family="monospace" font-size="18">run</text>
+    <text x="352" y="172" font-size="12" fill="#68766f">preflight → command exits</text>
+    <text x="36" y="227" font-size="19" font-weight="700">Event producer</text>
+    <path d="M258 222H331" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <text x="352" y="228" font-family="monospace" font-size="18">send</text>
+    <path d="M535 143H567V183H589" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <path d="M416 222H567V183" stroke="#a4ada7" stroke-width="1.4" fill="none"/>
+    <rect x="609" y="144" width="185" height="78" rx="13" fill="#eaf0eb"/>
+    <text x="701" y="177" text-anchor="middle" font-size="20" font-weight="700">Native task</text>
+    <text x="701" y="201" text-anchor="middle" font-size="14" fill="#56675d">channel</text>
+    <path d="M794 183H854" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <text x="876" y="175" font-size="18" font-weight="700">Selected</text>
+    <text x="876" y="200" font-size="18" font-weight="700">conversation</text>
+    <path d="M36 277H1004" stroke="#d3d8d1"/>
+    <text x="36" y="314" font-size="17" font-weight="700">Worker waiting on an idle root?</text>
+    <text x="36" y="342" font-size="13" fill="#68766f">Bounded retries → verify parent + fresh idle state → one native wake</text>
+    <text x="36" y="397" font-size="12" fill="#68766f">Capture the target before launch. Native completion and Bridge watch need no extra wrapper. Notifications grant no approval.</text>
+  </g>
+</svg>

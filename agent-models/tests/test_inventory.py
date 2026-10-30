@@ -36,18 +36,17 @@ def test_reference_check_does_not_start_provider_processes(monkeypatch, tmp_path
 
 
 def test_models_marks_and_sorts_free_first(monkeypatch, capsys):
+    def run(*args, **kwargs):
+        kwargs["stdout"].write(json.dumps({"data": [
+            {"providerID": provider, "id": model, "enabled": True, "variants": []}
+            for provider, model in (("paid", "model"), ("opencode", "example-free"),
+                                     ("opencode", "glm-5.3-flash-free"), ("opencode", "big-pickle"))]}))
+        return type("Result", (), {"returncode": 0})()
+
     monkeypatch.setattr(
         inventory.subprocess,
         "run",
-        lambda *args, **kwargs: type(
-            "Result",
-            (),
-            {
-                "stdout": "paid/model\nopencode/example-free\nopencode/glm-5.3-flash-free\n"
-                "opencode/big-pickle\n",
-                "returncode": 0,
-            },
-        )(),
+        run,
     )
     inventory.show("opencode")
     assert capsys.readouterr().out.splitlines() == [

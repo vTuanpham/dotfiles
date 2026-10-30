@@ -1,15 +1,14 @@
-<h1 align="center"><img src="docs/images/hero.gif" alt="dotfiles: a workspace where AI agents work together, hand off to you when it matters, and a small town grows above your prompt. Four animated pixel landscapes from Wake, and cards for Wake, Bridge, Baton and install.sh." width="100%"></h1>
+<h1 align="center"><img src="docs/images/hero.gif" alt="Dotfiles with agency: a workspace where AI agents work together, hand off to you when it matters, and a small town grows above your prompt. Four animated pixel landscapes from Wake, and cards for Wake, Bridge, Baton and install.sh." width="100%"></h1>
 
 <p align="center">
 <a href="#in-use">In use</a> · <a href="#agent-tools">Agent tools</a> · <a href="#restore">Restore</a> · <a href="#configuration-flow">Configuration flow</a> · <a href="#packages">Packages</a> · <a href="#checks">Checks</a>
 </p>
 
-A WSL2 Ubuntu setup: Bash/Zsh, terminals, Neovim, and shared tooling for Claude Code,
-Codex, Antigravity and OpenCode. Published as a reference; review paths, the WSL distro
-and Windows fonts before restoring it.
+A WSL2 Ubuntu setup with a shared shell, editor and agent tools for Codex, Claude Code,
+Antigravity and OpenCode. Review paths, the WSL distro and Windows fonts before restoring.
 
 ```sh
-git clone https://github.com/vTuanpham/dotfiles ~/dotfiles && cd ~/dotfiles
+git clone https://github.com/vTuanpham/dotfiles-with-agency ~/dotfiles-with-agency && cd ~/dotfiles-with-agency
 ./install.sh            # preview only: nothing changes
 ./install.sh --apply    # then apply the steps it listed
 ```
@@ -21,21 +20,11 @@ quota above the Claude Code prompt.
 
 <img src="docs/images/wake-dock.gif" alt="Wake's beach scene animating above the session's activity, crew and account quota rows, a prompt and the Claude Code status line. Call-outs name what each sprite is: street lamps are plan steps, a boat is a Codex worker, a bird is a Claude subagent, a constellation is an agy worker, the rising building is the current turn and Mochi shows the session's mood." width="100%">
 
-Call-outs name what each thing is, and follow it as it moves. Below the scene are the
-activity, crew and quota rows, then the prompt and the Claude Code status line (model and
-effort, folder and branch, context, 5-hour and 7-day limits, cost). `h` is five-hour, `w`
-weekly, `*` the active account. All account identifiers and quota values in these
-illustrations are synthetic, not a subscription inventory. agy's `G`, `C`, `A`
-are Gemini, Claude/GPT and Argon.
-[Crew and quota details](claude/README.md#crew-and-quota-rows).
-
-Eight landscapes, with time, weather and session state drawn into the scene: work, a
-question for you, passed tests (fireworks), a failed command (storm), a finished job
-(shooting star), sleep. `/wake tour` visits them all; `/wake scene <name>` pins one.
+[Scene, crew and quota legend](claude/README.md#crew-and-quota-rows).
 
 <img src="docs/images/wake-landscapes.gif" alt="Eight animated Wake landscapes: city at work, harbor awaiting input, beach with workers, mountains with fireworks after passed tests, idle countryside, rainy forest after a failure, desert with a shooting star after a completed job, and sleeping winter tundra." width="100%">
 
-[Scene behavior and commands](claude/README.md#landscapes-and-session-state).
+[Eight landscapes, time, weather and session state](claude/README.md#landscapes-and-session-state).
 
 ### Shared shell prompt
 
@@ -45,48 +34,41 @@ question for you, passed tests (fireworks), a failed command (storm), a finished
 
 ## Agent tools
 
-![Agent Baton carries questions between you and the root; Agent Bridge carries work between the root and workers. Wake observes the session and its workers in Claude Code. Shared instructions apply across harnesses.](docs/images/agent-tools.gif)
+![Inbox carries chat and controls; Baton carries questions and secrets; native delegation and Bridge connect workers. Shared model, account, resource and lab tools support the session.](docs/images/agent-tools.gif)
 
-- **[Model references](agent-models/README.md)**: model selection and independent reference maintenance.
-- **[Agent resources](agent-resources/README.md)**: shared host admission for heavy commands.
-- **[Account observations](agent-accounts/README.md)**: cached allowance without job-history coupling.
-- **[Agent Bridge](agent-bridge/README.md)**: persistent jobs, live steering, resource limits.
-- **[Agent Baton](agent-baton/README.md)**: questions, choices and private secret handoffs.
-- **[Agent Inbox](agent-inbox/README.md)**: your existing root conversations, chat and questions, on your phone.
-- **[Codex task notifications](codex-wake/README.md)**: native session wake-ups from background commands and task events.
-- **[Agent Lab](agent-lab/README.md)**: persistent experiments, provenance, size warnings and safe retirement.
-- **[Wake](claude/README.md#wake-mod-live)**: the Claude-only landscape, crew and quota rows shown above.
-- **[Shared instructions](agents/README.md)**: one `AGENTS.md` plus the Bridge and Baton briefings.
+[Bridge](agent-bridge/README.md) delegates across harnesses;
+[shared skills](agents/README.md) route model choice, native delegation and verification.
 
-Model-selection and delegation skills route general decisions to shared references or
-native harness controls. The CLIs document execution through `agent-bridge guide workflow` and
-`agent-baton --help`; exact permission grants stay local.
-[Claude](claude/README.md#hooks) and [Codex](codex/README.md) document the shared
-RTK/Baton hooks and their trust setup. All four harnesses invoke the shared
-[shell-process guard](shell/README.md#agent-process-matching) through native hooks/plugins.
+### Model selection
+
+![Model Guide combines current native controls, domain evidence and account observations before delegation.](docs/images/model-selection.gif)
+
+`model-guide benchmarks --backend codex --domain backend --limit 3 --brief`
+shows quality leaders and efficient alternatives.
+[Native controls, domain evidence and account context](agent-models/README.md).
 
 ### Questions on your PC or phone
 
 <img src="docs/images/baton.gif" alt="Agent Baton in four steps: a Windows notification arrives, the one-use form opens, the human types an email and password, and the form replies that the agent can type them for ten minutes." width="100%">
 
-The real toast and page, with an example site and fake values. Baton also sends an
-urgent phone push; the same form opens over Tailscale. Replies return to their
-originating session. [Phone setup](agent-baton/README.md#phone-alerts-and-remote-handoff)
-· [Question types and reminders](agent-baton/README.md#unanswered-questions).
+Phone pushes and session-isolated replies. [Setup](agent-baton/README.md#phone-alerts-and-remote-handoff)
+· [Questions and private handoffs](agent-baton/README.md#unanswered-questions).
 
 ### Your sessions on your phone
 
 <img src="agent-inbox/docs/hero.svg" alt="Agent Inbox drawn on a phone in three scenes: chat with folded tool steps and an inline image, a slash menu of native commands, and a question form with attached images." width="100%">
 
-[Agent Inbox](agent-inbox/README.md) shows the root conversations already running on your
-machine. [Connections, pairing and delivery](agent-inbox/README.md#connect-a-harness).
+[Agent Inbox: pairing, live chat and native controls](agent-inbox/README.md#connect-a-harness).
 
-### Plugin: ponytail
+### Local previews, anywhere
 
-[Ponytail](https://github.com/DietrichGebert/ponytail) asks agents to use the smallest
-complete solution. The Claude and Codex snapshots enable it; its own plugin hooks
-supply the session banner. Use `/ponytail lite|full|ultra` or say "stop ponytail".
-See each harness's README for installation and hook trust.
+<img src="portlink/docs/preview.svg" alt="Portlink opens a private preview from a local app, folder or file on a phone over Tailscale, with a QR and automatic expiry." width="100%">
+
+[Portlink](portlink/README.md): private, expiring links to an app, build folder or file.
+
+Behind the scenes: [resource admission](agent-resources/README.md),
+[account observations](agent-accounts/README.md), [persistent labs](agent-lab/README.md)
+and [Codex notifications](codex-wake/README.md).
 
 ## Restore
 
@@ -96,9 +78,7 @@ See each harness's README for installation and hook trust.
 ./install.sh --apply links   # or choose specific steps
 ```
 
-The installer adds apt tools, standalone installers, editable uv tools, npm globals,
-live links, missing snapshots, hooks and scheduled jobs. Existing config files that
-differ are left alone; hook/plugin merges keep the live content and leave a backup.
+Existing files that differ are preserved; hook/plugin merges retain live settings and leave a backup.
 
 Still manual:
 
@@ -108,36 +88,25 @@ Still manual:
 - The external plugins and preview tools listed in [shell](shell/README.md),
   [Neovim](nvim/README.md) and [Ranger](ranger/README.md), before using those configs.
 
-Credentials belong in `~/.config/shell/secrets.local.sh`, provisioned separately
-with mode `0600` inside a `0700` directory. Authentication stores, browser profiles,
-history and private backups stay outside this repository. See
-[shell setup](shell/README.md#credentials) for the include and backup details.
+Credentials and machine-local state stay outside Git.
+[Private credentials and permissions](shell/README.md#credentials).
 
 ## Configuration flow
 
 ![Configuration paths: live links share the working-tree file, snapshots copy only into missing destinations, and hook entries merge on request. Credentials and machine-local state stay outside Git.](docs/images/file-flow.gif)
 
-Live links are the same files as the working tree; snapshots never
-flow back automatically. Generated changes stay uncommitted; publishing still takes
-an explicit commit and push. [AGENTS.md](AGENTS.md) gives the handling rules for each
-kind of file.
-
-Before staging, inspect the diff and run `python3 -B tests/check_public.py --changed`.
-The pre-commit hook checks staged content for known secrets, personal identifiers
-and machine-local state. Keep private names in the local
-`~/.config/dotfiles/private-terms.txt`; review images and unfamiliar personal details
-by hand. Stage explicit paths. Enable the hook with `./install.sh --apply githooks`.
+Snapshots never flow back automatically; generated changes stay uncommitted.
+[Handling and publication rules](AGENTS.md) · [Public-data checks](tests/README.md).
 
 ## Packages
 
-One folder per package, with paths that mirror `$HOME` (Stow-style; `install.sh`
-does the linking). Every package README opens with its kind.
+One folder per package; paths mirror `$HOME`. Each README states its install flow.
 
 | Package | Kind | Contents |
 | --- | --- | --- |
 | [shell](shell/README.md) | Live | Bash/Zsh startup, environment, aliases, CUDA and private credential include |
 | [starship](starship/README.md) | Live | Shared prompt |
-| [agents](agents/README.md) | Live | Shared instructions, Bridge/Baton and nine pstack engineering skills |
+| [agents](agents/README.md) | Live | Shared instructions and engineering skills |
 | [git](git/README.md), [npm](npm/README.md) | Snapshot | Git preferences, global ignore and npm prefix |
 | [nvim](nvim/README.md) | Snapshot | LazyVim config, plugin lock and Ghost/WSL image support |
 | [ranger](ranger/README.md) | Snapshot | Inline previews, Windows media opener and file icons |
@@ -163,12 +132,8 @@ does the linking). Every package README opens with its kind.
 
 ## What starts on its own
 
-The reference timer, catalog cron job and the
-[reset tracker](https://github.com/vTuanpham/codex-reset-tracker) service already
-have their own owners; no extra startup script is needed. The installer enables the
-reference and retired-lab cleanup timers and adds the catalog cron line. Tracker setup, Tailscale forwards
-and hidden Windows startup tasks are described in
-[systemd](systemd/README.md#startup-and-timers).
+[Timers, catalog refresh, lab cleanup and startup tasks](systemd/README.md#startup-and-timers)
+· [Codex reset tracker](https://github.com/vTuanpham/codex-reset-tracker).
 
 ## Checks
 
@@ -181,11 +146,9 @@ python3 -B tests/test_install.py
 python3 -B tests/test_shell_startup.py
 ```
 
-The installer checks use a throwaway home. See [tests](tests/README.md) for scope,
-[Ranger](ranger/README.md) for its media check, and the tool READMEs for their
-`uv run pytest` suites. Restore only the steps you need, keep private backups
-outside the checkout, and resolve conflicts deliberately: `install.sh` never
-overwrites a file that differs.
+[Test scope](tests/README.md); package READMEs list their own checks.
+[Ponytail](https://github.com/DietrichGebert/ponytail) is enabled in the Claude/Codex snapshots;
+its setup and hook trust live in those harness READMEs.
 
 ## License
 

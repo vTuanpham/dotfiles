@@ -3,9 +3,9 @@ Checked 2026-10-27. Read this only when the choice depends on a plan, allowance 
 
 ### Find live account state
 - `codex-auth list`: selected account and API-refreshed allowance by default; `--skip-api` reads local data with unknown freshness. Mask emails when reporting. Live output may label the $100 tier differently from the pricing page. Codex `/status` and the vendor usage dashboard show limits and reset times.
-- `cswap list --json`: managed Claude accounts and usage (percent used); `agent-accounts refresh --backend claude` publishes numbered remaining allowance for Wake/Bridge. For account selection and concurrent-session limits, read `~/dotfiles/claude/README.md#accounts`. Claude's `/status` remains authoritative for the selected conversation.
+- `cswap list --json`: managed Claude accounts and usage (percent used); `agent-accounts refresh --backend claude` publishes numbered remaining allowance for Wake/Bridge. For account selection and concurrent-session limits, read `~/dotfiles-with-agency/claude/README.md#accounts`. Claude's `/status` remains authoritative for the selected conversation.
 - `agent-accounts refresh`: refresh account buckets; `model-guide models --backend agy --account ACCOUNT`: account-specific IDs, effort, cost tiers and buckets.
-- `model-guide models --backend X`: backend inventory, not proof of included usage. `opencode models` and OpenCode's console show provider access and billing. Claude's `/status` and model picker establish live access; `model-guide` lists Claude aliases only.
+- `model-guide models --backend X`: backend inventory, not proof of included usage. Add `--json` for resolved identities, native effort metadata and generated benchmark coverage. Claude initialization resolves aliases without inference; OpenCode's native API lists enabled models/variants for the current directory; agy leaves separate effort ranges unknown. The selected session's status, picker and billing controls establish live access.
 
 ### Codex / ChatGPT
 The [pricing page](https://learn.chatgpt.com/docs/pricing) lists:
@@ -52,6 +52,8 @@ OpenCode can also use external providers; their billing and data terms are separ
 
 ### Claude / Claude Code
 [Pro/Max support](https://support.claude.com/en/articles/11145838) documents shared claude.ai/Code five-hour and weekly limits. Max has a separate Fable weekly limit. Fixed message counts and per-tier model lists are **Unverified** in that source; inspect the picker rather than assuming Opus access.
+
+Access detail checked 2026-10-30 against the [current pricing comparison](https://claude.com/pricing): Pro lists Fable through **usage credits**; Max 5x/20x lists it within 50% of weekly limits. This is a billing distinction, not a hardcoded model ban. Treat included usage, separately paid credits, organization restrictions, rollout and exhausted quota separately; local plan labels alone do not establish permission to spend credits. Opus is listed on Pro and Max. Recheck the native picker and billing controls before launch.
 
 | Tier | Allowance/access |
 |---|---|

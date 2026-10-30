@@ -2,6 +2,7 @@ import copy
 import json
 import subprocess
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +12,33 @@ from agent_accounts.readers import claude_quotas
 AT = "2026-10-30T10:00:00Z"
 RESET = "2026-10-31T10:00:00Z"
 NOW = datetime.fromisoformat(AT).timestamp()
+
+
+def test_context_reads_native_plan_without_exposing_identity_or_inventing_access(monkeypatch):
+    monkeypatch.setattr(providers, "snapshot", lambda: ((), []))
+    data = {"loggedIn": True, "subscriptionType": "future-vendor-plan", "authMethod": "claude.ai",
+            "apiProvider": "firstParty", "email": "private@example.invalid", "orgId": "private-org"}
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout=json.dumps(data))
+
+    monkeypatch.setattr(providers.subprocess, "run", run)
+    result = providers.context()
+    assert result["profiles"]["claude"]["subscriptionType"] == "future-vendor-plan"
+    assert calls == [["claude", "auth", "status", "--json"]]
+    assert "private@example.invalid" not in json.dumps(result) and "private-org" not in json.dumps(result)
+    assert "unverified" in result["scope"] and "eligible_models" not in result
+
+
+def test_context_auth_failure_keeps_cache_and_marks_native_profile_unavailable(monkeypatch):
+    monkeypatch.setattr(providers, "snapshot", lambda: ((), ["codex quota unavailable"]))
+    monkeypatch.setattr(providers.subprocess, "run",
+                        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout=""))
+    result = providers.context()
+    assert result["profiles"] == {}
+    assert result["errors"] == ["codex quota unavailable", "Claude native profile unavailable"]
 
 
 def document():

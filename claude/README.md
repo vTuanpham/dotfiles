@@ -76,7 +76,7 @@ keeps its native parsing; agent compatibility does not change `.zshenv` options.
 
 `install.sh --apply hooks` adds any of these that your live `~/.claude/settings.json` lacks, keeps everything
 else in it, and leaves a private recovery copy under
-`${XDG_STATE_HOME:-$HOME/.local/state}/backups/dotfiles/<timestamp>/`. The guard fails closed only while a `pass` request
+`${XDG_STATE_HOME:-$HOME/.local/state}/backups/dotfiles-with-agency/<timestamp>/`. The guard fails closed only while a `pass` request
 is out. Claude also loads the `ponytail` plugin (`enabledPlugins` and `extraKnownMarketplaces` in
 `settings.json`; see "Plugin: ponytail" in the top-level README), which ships hooks of its own.
 
@@ -192,7 +192,7 @@ stale reading or one without a known sample time.
 Use the live mod in place:
 
 ```sh
-ln -s ~/dotfiles/claude/.claude/mods ~/.claude/mods
+ln -s ~/dotfiles-with-agency/claude/.claude/mods ~/.claude/mods
 ```
 
 `settings.json` loads it in every session through

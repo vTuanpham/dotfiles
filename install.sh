@@ -220,11 +220,11 @@ merge_hooks() { # merge_hooks <snapshot in the repo> <live file under $HOME>
     merged=$(jq --slurpfile s "$snap" "$HOOKS_JQ" "$live")
   fi
   if [[ -f $live && $(jq -S . <<<"$merged") == "$(jq -S . "$live")" ]]; then say "  ~/$2 already has the hooks"; return 0; fi
-  say "  ~/$2 gains the hooks and plugins it lacks (a private recovery copy goes under state/backups/dotfiles/)"
+  say "  ~/$2 gains the hooks and plugins it lacks (a private recovery copy goes under state/backups/dotfiles-with-agency/)"
   if ((APPLY)); then
     if [[ -f $live ]]; then (
       umask 077
-      local backup_root="${XDG_STATE_HOME:-$HOME/.local/state}/backups/dotfiles" backup
+      local backup_root="${XDG_STATE_HOME:-$HOME/.local/state}/backups/dotfiles-with-agency" backup
       install -d -m 700 "$backup_root"
       backup=$(mktemp -d "$backup_root/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")
       install -d -m 700 "$backup/$(dirname "$2")"
@@ -252,8 +252,8 @@ step_githooks() {
   else
     act git -C "$REPO" config core.hooksPath .githooks
   fi
-  if [[ ! -f $HOME/.config/dotfiles/private-terms.txt ]]; then
-    say "  no ~/.config/dotfiles/private-terms.txt: list the names that must never be committed, one per line"
+  if [[ ! -f $HOME/.config/dotfiles-with-agency/private-terms.txt ]]; then
+    say "  no ~/.config/dotfiles-with-agency/private-terms.txt: list the names that must never be committed, one per line"
   fi
 }
 

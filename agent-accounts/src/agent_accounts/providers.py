@@ -6,6 +6,7 @@ import re
 import subprocess
 import tempfile
 import time
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -63,6 +64,36 @@ def snapshot(now=None, *, root=None, environ=None, claude_cache=None):
         except (OSError, ValueError, TypeError):
             errors.append("agy quota cache invalid")
     return tuple(result), errors
+
+
+def context():
+    """Local profile hints, not a claim about an already-running session's identity."""
+    quotas, errors = snapshot()
+    profiles = {}
+    try:
+        run = subprocess.run(["claude", "auth", "status", "--json"], capture_output=True,
+                             text=True, timeout=10)
+        if run.returncode or len(run.stdout.encode()) > 65536:
+            raise ValueError("Claude auth status unavailable")
+        data = loads(run.stdout)
+        if type(data) is not dict or type(data.get("loggedIn")) is not bool:
+            raise ValueError("invalid Claude auth status")
+        profile = {"logged_in": data["loggedIn"]}
+        for key in ("authMethod", "apiProvider", "subscriptionType"):
+            value = data.get(key)
+            if value is not None and (type(value) is not str or not re.fullmatch(r"[\w .-]{1,100}", value)):
+                raise ValueError("invalid Claude profile value")
+            profile[key] = value
+        profiles["claude"] = profile
+    except (OSError, ValueError, subprocess.SubprocessError):
+        errors.append("Claude native profile unavailable")
+    return {"quotas": [asdict(row) for row in quotas], "profiles": profiles, "errors": errors,
+            "scope": "local profiles; current session account binding unverified",
+            "access": "Plan labels are observed, not hardcoded. Active-profile markers do not prove "
+                      "an existing session uses that account. Confirm native session account, model "
+                      "picker and billing mode before selecting. Optional paid credits are not "
+                      "included allowance or permission to spend.",
+            "reference": "model-guide read subscriptions"}
 
 
 def refresh_claude(*, cache=None, environ=None):

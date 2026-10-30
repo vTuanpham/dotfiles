@@ -1,4 +1,4 @@
-# Dotfiles: rules for agents working in this repository
+# Dotfiles with agency: rules for agents working in this repository
 
 This repository is public. Only public-facing material belongs in it; anything personal or tied to one machine
 stays out.
@@ -82,7 +82,7 @@ skills): an installer appends a PATH line, an agent adds a note. Those edits sit
 `git add -A`.
 
 The hook is enabled with `./install.sh --apply githooks` (it sets `core.hooksPath`). Never bypass it with
-`--no-verify`. The check reads the names that must never appear from `~/.config/dotfiles/private-terms.txt`,
+`--no-verify`. The check reads the names that must never appear from `~/.config/dotfiles-with-agency/private-terms.txt`,
 which lives outside the repository; add a name there as soon as a new private project or account appears.
 It reports where and why, never the matching text.
 

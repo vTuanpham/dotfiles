@@ -112,7 +112,7 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(commands.count('python3 -I "$HOME/.local/libexec/agent-process-guard.py"'), 1)
             self.assertTrue(result["enabledPlugins"]["ponytail@ponytail"])  # the plugin and its marketplace
             self.assertIn("ponytail", result["extraKnownMarketplaces"])
-            backups = list((home / ".local/state/backups/dotfiles").glob("*/.claude/settings.json"))
+            backups = list((home / ".local/state/backups/dotfiles-with-agency").glob("*/.claude/settings.json"))
             self.assertEqual(len(backups), 1)
             self.assertEqual(json.loads(backups[0].read_text())["model"], "mine")
             self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
@@ -159,7 +159,7 @@ class InstallTests(unittest.TestCase):
             live.write_text(json.dumps({"mine": {"Stop": []}}))
             self.assertEqual(install(home, "--apply", "hooks").returncode, 0)
             self.assertEqual(json.loads(live.read_text())["mine"], {"Stop": []})
-            backups = list((home / ".local/state/backups/dotfiles").glob("*/.gemini/config/hooks.json"))
+            backups = list((home / ".local/state/backups/dotfiles-with-agency").glob("*/.gemini/config/hooks.json"))
             self.assertEqual(len(backups), 1)
 
     def test_the_cron_line_is_a_valid_five_field_entry(self):

@@ -24,4 +24,4 @@ When exploration is finished, `retire ID --summary OUTCOME` starts a 14-day grac
 period; `restore ID` cancels it. GC previews by default and refuses live command
 leases, mounts and Git checkouts/worktrees. Applied GC permanently removes only
 eligible retired labs; the user timer uses the same rules. See
-`~/dotfiles/agent-lab/README.md` for storage, provenance and recovery boundaries.
+`~/dotfiles-with-agency/agent-lab/README.md` for storage, provenance and recovery boundaries.

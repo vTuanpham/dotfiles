@@ -51,4 +51,4 @@ after two unanswered messages spaced over at least three minutes:
    to duplicate it. This never answers a question or grants approval.
 
 For installation, producers and compatibility details, see
-`~/dotfiles/codex-wake/README.md`.
+`~/dotfiles-with-agency/codex-wake/README.md`.

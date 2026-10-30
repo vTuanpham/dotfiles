@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="410" viewBox="0 0 1040 410" role="img" aria-labelledby="title desc">
+  <title id="title">Account observations and session identity</title>
+  <desc id="desc">Existing quota caches and native profile status supply sanitized observations to Model Guide, Wake and Bridge. Inbox gets account allowance from its selected native session instead. An active machine profile does not identify an existing conversation's account.</desc>
+  <defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7" fill="none" stroke="#737f7c" stroke-width="1.2"/></marker></defs>
+  <rect width="1040" height="410" fill="#faf9f6"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#263733">
+    <text x="36" y="38" font-size="11" letter-spacing="2.4" fill="#68766f">AGENT ACCOUNTS</text>
+    <text x="36" y="78" font-family="Georgia, serif" font-size="30">An observation has a source.</text>
+    <circle cx="42" cy="134" r="5" fill="#506b90"/>
+    <text x="59" y="140" font-size="19" font-weight="700">Quota caches</text>
+    <text x="36" y="165" font-size="13" fill="#68766f">Windows · observed time · freshness</text>
+    <circle cx="42" cy="207" r="5" fill="#a35e43"/>
+    <text x="59" y="213" font-size="19" font-weight="700">Native profile status</text>
+    <text x="36" y="238" font-size="13" fill="#68766f">Plan · authentication · billing provider</text>
+    <path d="M291 139H353V177H405" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <path d="M291 212H353V177" stroke="#a4ada7" stroke-width="1.4" fill="none"/>
+    <rect x="416" y="133" width="227" height="87" rx="13" fill="#eaf0eb"/>
+    <text x="529" y="167" text-anchor="middle" font-size="20" font-weight="700">agent-accounts</text>
+    <text x="529" y="195" text-anchor="middle" font-size="13" fill="#56675d">Allowlisted observation fields</text>
+    <path d="M643 177H739V139H785" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <path d="M739 177V213H785" stroke="#a4ada7" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <text x="806" y="145" font-size="19" font-weight="700">Model Guide</text>
+    <text x="806" y="169" font-size="13" fill="#68766f">Selection context</text>
+    <text x="806" y="219" font-size="19" font-weight="700">Wake · Bridge</text>
+    <text x="806" y="243" font-size="13" fill="#68766f">Cached allowance</text>
+    <path d="M36 275H1004" stroke="#d3d8d1" stroke-dasharray="3 5"/>
+    <text x="36" y="304" font-size="11" letter-spacing="1.8" fill="#68766f">SELECTED CONVERSATION</text>
+    <text x="36" y="340" font-size="19" font-weight="700">Native session account</text>
+    <path d="M291 333H785" stroke="#737f7c" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+    <text x="806" y="340" font-size="19" font-weight="700">Inbox session quota</text>
+    <text x="36" y="383" font-size="13" fill="#68766f">An active profile on the machine does not identify an existing conversation's account.</text>
+  </g>
+</svg>

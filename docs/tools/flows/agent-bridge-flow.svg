@@ -20,7 +20,7 @@
     <text x="610" y="142" font-size="14" fill="#68766f">Implementation</text>
     <circle cx="397" cy="183" r="4" fill="#a35e43"/>
     <text x="416" y="190" font-size="20" font-weight="700">Claude Code</text>
-    <text x="610" y="190" font-size="14" fill="#68766f">Tests</text>
+    <text x="610" y="190" font-size="14" fill="#68766f">UI / writing</text>
     <circle cx="397" cy="231" r="4" fill="#506b90"/>
     <text x="416" y="238" font-size="20" font-weight="700">Antigravity</text>
     <text x="610" y="238" font-size="14" fill="#68766f">Research</text>

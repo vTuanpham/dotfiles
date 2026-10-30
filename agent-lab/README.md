@@ -6,16 +6,7 @@ Persistent experiments for any harness or language. Ordinary files stay outside
 projects and survive terminal restarts; creator and latest-run provenance stay
 with them. Project changes still belong in their repository or a Git worktree.
 
-```text
-                     keep
-                   ┌───────► kept
-                   │           │ restore
-new ──► active ◄────┼───────────┘
-          │  ▲     │
-   retire │  │ restore
-          ▼  │
-        retired ── grace period ──► gc preview ── --apply ──► removed
-```
+![A lab moves from active to kept or retired; restore preserves its files, and expired retirement passes guarded cleanup before deletion.](../docs/images/agent-lab.gif)
 
 ## Use
 

@@ -8,20 +8,12 @@ the model goes idle. The command is `codex-wake`; Claude's visual
 [Wake mod](../claude/README.md#wake-mod-live) is a separate feature.
 No Bridge installation is required.
 
-```mermaid
-flowchart LR
-    A[Build · watcher · timer] -->|command exits| R[codex-wake run]
-    B[Hook · event producer] -->|notification| S[codex-wake send]
-    R --> C[Native Codex task message]
-    S --> C
-    D[Bridge watch] -->|shared Python client| C
-    C --> E[Original conversation resumes]
-```
+![Command completion and external events use Codex's native task channel to resume the selected conversation; worker recovery verifies an idle parent before sending one wake.](../docs/images/codex-notifications.gif)
 
 ## Use
 
 ```sh
-uv tool install --editable ~/dotfiles/codex-wake
+uv tool install --editable ~/dotfiles-with-agency/codex-wake
 codex-wake check
 codex-wake send --message "The preview is ready for review."
 codex-wake run --message "Build finished; inspect its terminal output." -- make build

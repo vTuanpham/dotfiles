@@ -101,7 +101,7 @@ def test_agent_can_use_the_baton_cli_but_never_hand_it_back():
     ):
         assert "Only the human" in verdict("Bash", command=command)
     for command in (  # "back" in a path, a reason or a search is not the subcommand
-        "cd ~/dotfiles/agent-baton && rg back src",
+        "cd ~/dotfiles-with-agency/agent-baton && rg back src",
         "agent-baton ask --window Sign --reason 'come back later' email=Email",
     ):
         assert verdict("Bash", command=command) is None

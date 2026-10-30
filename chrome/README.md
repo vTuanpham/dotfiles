@@ -25,8 +25,8 @@ Install (needs sudo; both documented system paths, so any channel finds them):
 
 ```sh
 sudo install -d -m 755 /usr/share/google-chrome/extensions /opt/google/chrome/extensions
-sudo install -m 644 -t /usr/share/google-chrome/extensions ~/dotfiles/chrome/extensions/*.json
-sudo install -m 644 -t /opt/google/chrome/extensions ~/dotfiles/chrome/extensions/*.json
+sudo install -m 644 -t /usr/share/google-chrome/extensions ~/dotfiles-with-agency/chrome/extensions/*.json
+sudo install -m 644 -t /opt/google/chrome/extensions ~/dotfiles-with-agency/chrome/extensions/*.json
 ```
 
 Start or restart **normal Chrome in the profile you use** afterwards. The JSONs
