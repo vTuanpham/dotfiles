@@ -72,14 +72,13 @@ class OpenCode:
         if not cancel:
             question.validate(answer)
         if permission:
-            # 2.0.3 uses `reply`; newer online documentation calls this field `decision`.
             operation = path + opencode_permissions.permission_path(identifier) + "/reply"
-            payload = {"reply": "reject" if cancel else answer["decision"]}
+            payload = {"decision": "reject" if cancel else answer["decision"]}
         else:
-            operation = path + opencode_forms.form_path(identifier) + ("/cancel" if cancel else "/reply")
+            operation = path + opencode_forms.form_path(identifier) + ("" if cancel else "/reply")
             payload = None if cancel else {"answer": answer}
         try:
-            api.call("POST", operation, payload)
+            api.call("DELETE" if cancel and not permission else "POST", operation, payload)
         except ApiRejected as error:
             if error.status in (404, 409):
                 # A withdrawal can race the last read. Only the native pending list proves it gone.

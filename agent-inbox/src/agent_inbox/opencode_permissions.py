@@ -1,4 +1,4 @@
-"""OpenCode 2.0.3 permission requests projected as explicit, one-time decisions."""
+"""OpenCode permission requests projected as explicit, one-time decisions."""
 
 import json
 import re
@@ -21,7 +21,7 @@ def permission_path(identifier):
 
 
 def decode_permission(value, session_id):
-    fields(value, ("id", "sessionID", "action", "resources"), ("save", "metadata", "source", "agent"))
+    fields(value, ("id", "sessionID", "action", "resources"), ("save", "metadata", "source", "message"))
     permission_path(value["id"])
     if value["sessionID"] != session_id:
         raise ValueError("Native permission belongs to a different session")
@@ -39,12 +39,13 @@ def decode_permission(value, session_id):
     for key in ("metadata", "source"):
         if key in value and type(value[key]) is not dict:
             raise ValueError("Invalid native permission metadata")
-    if "agent" in value:
-        text(value["agent"], "permission agent", 200)
+    description = _literal(json.dumps(resources, ensure_ascii=False))
+    if "message" in value:
+        description = _literal(text(value["message"], "permission message", 16384)) + "\n\n" + description
     return QuestionForm(value["id"], "Permission: " + _literal(action), [FormField(
         "decision", "Decision", "string", required=True,
         choices=[Choice("once", "Allow once"), Choice("reject", "Deny")],
-        description=_literal(json.dumps(resources, ensure_ascii=False)),
+        description=description,
     )])
 
 

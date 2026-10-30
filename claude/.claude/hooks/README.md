@@ -1,4 +1,12 @@
-# Root stop safety net (live)
+# Claude hooks (live)
+
+## Process matching
+
+The shared [process-match guard](../../../shell/README.md#agent-process-matching)
+rejects self-matching `pgrep`/`pkill` patterns before Bash executes. It is owned by
+the shell package and also used by Codex; it is separate from the root Stop hook.
+
+## Root stop safety net
 
 `bridge-stop.py` is linked to `~/.claude/hooks/bridge-stop.py` by
 `install.sh --apply links`. SessionStart and Stop entries are merged from the

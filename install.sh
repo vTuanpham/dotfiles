@@ -25,7 +25,7 @@ same() { [[ $(tr -d '\r' <"$1") == "$(tr -d '\r' <"$2")" ]]; }
 # --- apt ---------------------------------------------------------------------------------------------------
 step_apt() {
   # package[:command]: a tool counts as present if its command resolves, even when it came from pip or a script
-  local want=(stow zsh tmux ranger ffmpeg imagemagick:convert poppler-utils:pdftoppm x11-utils:xwininfo libxtst6 bubblewrap:bwrap jq curl git gh)
+  local want=(stow zsh tmux ranger ffmpeg imagemagick:convert poppler-utils:pdftoppm x11-utils:xwininfo libxtst6 bubblewrap:bwrap jq curl git gh shfmt)
   local missing=() entry pkg cmd
   for entry in "${want[@]}"; do
     pkg=${entry%%:*}
@@ -40,7 +40,7 @@ step_apt() {
 step_tools() {
   have uv || act bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
   have starship || act bash -c 'curl -sS https://starship.rs/install.sh | sh -s -- -y'
-  have opencode || act bash -c 'curl -fsSL https://opencode.ai/install | bash'
+  have opencode || act bash -c 'curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.2.2 --no-modify-path'
   if ! have tailscale; then
     act bash -c 'curl -fsSL https://tailscale.com/install.sh | sh'
     say "  then sign in: sudo tailscale up"
@@ -50,9 +50,10 @@ step_tools() {
   have nvim || say "  note: nvim is not on PATH (the nvim package is a snapshot only)"
 }
 
-# --- uv tools from this repo ---------------------------------------------------------------------------------
+# --- upstream and repository uv tools ------------------------------------------------------------------------
 step_uvtools() {
   if ! have uv; then say "  uv is missing: run the tools step first"; return 0; fi
+  if have cswap; then say "  claude-swap installed"; else act uv tool install claude-swap==0.29.0; fi
   local tool
   local dependencies=()
   for tool in agent-accounts agent-models agent-resources codex-wake agent-bridge agent-baton agent-inbox portlink agent-lab; do
@@ -91,6 +92,8 @@ LINKS=(
   "shell/.cuda_paths .cuda_paths"
   "shell/.config/shell/aliases.sh .config/shell/aliases.sh"
   "shell/.config/shell/env.sh .config/shell/env.sh"
+  "shell/.local/libexec/agent-process-guard.py .local/libexec/agent-process-guard.py"
+  "opencode/.config/opencode/plugins/agent-process-guard.js .config/opencode/plugins/agent-process-guard.js"
   "starship/.config/starship.toml .config/starship.toml"
   "agents/.config/agents/AGENTS.md .config/agents/AGENTS.md"
   "agents/.agents/skills/agent-baton .agents/skills/agent-baton"
@@ -206,12 +209,20 @@ HOOKS_JQ='
 
 merge_hooks() { # merge_hooks <snapshot in the repo> <live file under $HOME>
   local snap="$REPO/$1" live="$HOME/$2" merged
-  if [[ ! -f $live ]]; then say "  ~/$2 is missing: the snapshots step copies it"; return 0; fi
-  merged=$(jq --slurpfile s "$snap" "$HOOKS_JQ" "$live")
-  if [[ $(jq -S . <<<"$merged") == "$(jq -S . "$live")" ]]; then say "  ~/$2 already has the hooks"; return 0; fi
+  if [[ ${3:-} == named ]]; then
+    if [[ -f $live ]]; then
+      merged=$(jq --slurpfile s "$snap" '$s[0] + .' "$live")
+    else
+      merged=$(jq . "$snap")
+    fi
+  else
+    if [[ ! -f $live ]]; then say "  ~/$2 is missing: the snapshots step copies it"; return 0; fi
+    merged=$(jq --slurpfile s "$snap" "$HOOKS_JQ" "$live")
+  fi
+  if [[ -f $live && $(jq -S . <<<"$merged") == "$(jq -S . "$live")" ]]; then say "  ~/$2 already has the hooks"; return 0; fi
   say "  ~/$2 gains the hooks and plugins it lacks (a private recovery copy goes under state/backups/dotfiles/)"
   if ((APPLY)); then
-    (
+    if [[ -f $live ]]; then (
       umask 077
       local backup_root="${XDG_STATE_HOME:-$HOME/.local/state}/backups/dotfiles" backup
       install -d -m 700 "$backup_root"
@@ -220,7 +231,8 @@ merge_hooks() { # merge_hooks <snapshot in the repo> <live file under $HOME>
       install -m 600 "$live" "$backup/$2"
       printf '%s\n' "Original path: $live" "Original mode: $(stat -c %a "$live")" \
         'Review the current file before restoring this copy; reapply its original mode.' >"$backup/README.txt"
-    )
+    ); fi
+    mkdir -p "$(dirname "$live")"
     printf '%s\n' "$merged" >"$live"
   fi
 }
@@ -229,6 +241,7 @@ step_hooks() {
   if ! have jq; then say "  jq is missing: run the apt step first"; return 0; fi
   merge_hooks claude/.claude/settings.json .claude/settings.json
   merge_hooks codex/.codex/hooks.json .codex/hooks.json
+  merge_hooks gemini/.gemini/config/hooks.json .gemini/config/hooks.json named
   say "  Codex asks you to trust new hooks: open it and run /hooks"
 }
 

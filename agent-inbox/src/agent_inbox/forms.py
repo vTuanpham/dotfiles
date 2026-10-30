@@ -28,6 +28,7 @@ class FormField:
     when: list[Condition] = field(default_factory=list)
     constraints: dict[str, str | int | float] = field(default_factory=dict)
     description: str = ""
+    hidden: bool = False
 
     def active(self, answer):
         for condition in self.when:

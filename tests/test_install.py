@@ -35,6 +35,8 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stderr)
             for name in (".zshrc", ".claude/CLAUDE.md", ".config/systemd/user/agent-models-reference.timer",
                          ".local/libexec/chatgpt-browser-idle.py", ".codex/skills/codex-wake",
+                         ".local/libexec/agent-process-guard.py",
+                         ".config/opencode/plugins/agent-process-guard.js",
                          ".config/systemd/user/agent-lab-gc.timer",
                          ".config/systemd/user/agent-lab-gc.service"):
                 link = Path(tmp) / name
@@ -107,6 +109,7 @@ class InstallTests(unittest.TestCase):
             self.assertIn("mine", commands)
             self.assertEqual(commands.count("agent-baton guard"), 2)  # the Bash group and the browser-tool group
             self.assertIn("rtk hook claude", commands)
+            self.assertEqual(commands.count('python3 -I "$HOME/.local/libexec/agent-process-guard.py"'), 1)
             self.assertTrue(result["enabledPlugins"]["ponytail@ponytail"])  # the plugin and its marketplace
             self.assertIn("ponytail", result["extraKnownMarketplaces"])
             backups = list((home / ".local/state/backups/dotfiles").glob("*/.claude/settings.json"))
@@ -137,6 +140,27 @@ class InstallTests(unittest.TestCase):
             self.assertIn("mine", [h["command"] for g in hooks["Stop"] for h in g["hooks"]])
             for name in ("Stop", "Interrupt", "SessionEnd"):
                 self.assertIn("chatgpt-browser-idle.py", hooks[name][0]["hooks"][-1]["command"])
+
+    def test_antigravity_named_hooks_preserve_local_entries_and_disabled_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            live = home / ".gemini/config/hooks.json"
+            self.assertEqual(install(home, "hooks").returncode, 0)
+            self.assertFalse(live.exists())
+            self.assertEqual(install(home, "--apply", "hooks").returncode, 0)
+            first = live.read_bytes()
+            self.assertIn("run_command", first.decode())
+            self.assertEqual(install(home, "--apply", "hooks").returncode, 0)
+            self.assertEqual(live.read_bytes(), first)
+            local = {"mine": {"Stop": []}, "agent-process-guard": {"enabled": False}}
+            live.write_text(json.dumps(local))
+            self.assertEqual(install(home, "--apply", "hooks").returncode, 0)
+            self.assertEqual(json.loads(live.read_text()), local)
+            live.write_text(json.dumps({"mine": {"Stop": []}}))
+            self.assertEqual(install(home, "--apply", "hooks").returncode, 0)
+            self.assertEqual(json.loads(live.read_text())["mine"], {"Stop": []})
+            backups = list((home / ".local/state/backups/dotfiles").glob("*/.gemini/config/hooks.json"))
+            self.assertEqual(len(backups), 1)
 
     def test_the_cron_line_is_a_valid_five_field_entry(self):
         line = re.search(r"local line='([^']+)'", script.read_text()).group(1)

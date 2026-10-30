@@ -1,6 +1,6 @@
 # claude
 
-[← Packages](../README.md#packages) · **Snapshot + live** · [Hooks](#hooks) · [Remote questions](#remote-questions-and-notifications) · [Wake mod](#wake-mod-live)
+[← Packages](../README.md#packages) · **Snapshot + live** · [Accounts](#accounts) · [Hooks](#hooks) · [Remote questions](#remote-questions-and-notifications) · [Wake mod](#wake-mod-live)
 
 Claude Code configuration under `~/.claude`. Each part has its own kind:
 
@@ -11,6 +11,43 @@ Claude Code configuration under `~/.claude`. Each part has its own kind:
 | Hook and plugin entries | Merged into the live `settings.json` | `install.sh --apply hooks` |
 | [Root stop safety net](.claude/hooks/README.md) | Script is a live link; entries merge into settings | `install.sh --apply links`, then `install.sh --apply hooks` |
 | [Wake mod](#wake-mod-live) | Live link; reloads as its files change | `install.sh --apply links` |
+
+## Accounts
+
+[claude-swap](https://github.com/realiti4/claude-swap) (`cswap`) owns native Claude
+account selection, like `codex-auth` does for Codex. The installer adds the reviewed
+CLI release through uv; account stores and settings remain private on each host.
+
+```text
+cswap ── explicit allowance refresh ── agent-accounts cache ─┬─ Wake
+                                                           └─ Bridge
+Claude session ────────────────────────────────────────────── Inbox quota
+```
+
+```sh
+cswap add                              # save the current login without logging out
+cswap list --json                      # inspect managed accounts and usage
+cswap switch 2                         # select an authorized account
+agent-accounts refresh --backend claude # update the shared allowance view
+```
+
+Adding another account: use Claude's normal login flow, then `cswap add` again.
+Do not log out first: logout can revoke the saved account's refresh token.
+Account numbers are local to cswap; shared observations omit addresses and aliases.
+
+Switch between sessions; verify Claude's `/status` and reconnect Remote Control
+if it drops. Automatic rotation is not enabled. Before considering parallel
+account launches, check the upstream [session-token report](https://github.com/realiti4/claude-swap/issues/515):
+in 0.29.0, a preset `CLAUDE_CONFIG_DIR` bypasses the same-account protection.
+Do not use `cswap run` from a redirected profile or run one account through both
+the default login and a session profile. `--require-session` refuses the ordinary
+same-account fast path but does not repair that preset-directory case.
+
+On Linux/WSL, account data lives in `${XDG_DATA_HOME:-$HOME/.local/share}/claude-swap`.
+Its `.enc` files are Base64 with private file permissions, not encrypted vaults;
+exports are plaintext credentials. Keep this directory and exports outside Git.
+Upgrade deliberately with `uv tool install claude-swap==VERSION` after checking
+the release; nothing installs an autoswitch service or modifies the Claude launcher.
 
 ## Cache and thread reuse
 
@@ -28,11 +65,12 @@ The settings snapshot selects `/bin/bash` for Claude's Bash tool through
 [`CLAUDE_CODE_SHELL`](https://code.claude.com/docs/en/env-vars). Interactive Zsh
 keeps its native parsing; agent compatibility does not change `.zshenv` options.
 
-`settings.json` defines two `PreToolUse` hooks, the same ones Codex runs (`codex/.codex/hooks.json`):
+`settings.json` defines Bash checks and a browser guard, shared with Codex (`codex/.codex/hooks.json`):
 
 | Matcher | Command | What it does |
 | --- | --- | --- |
 | `Bash` | `rtk hook claude` | Runs the command through RTK so its output is filtered before the agent reads it |
+| `Bash` | `agent-process-guard.py` | Parses shell commands and rejects full-command process matches that include the invoking ancestry; [behavior](../shell/README.md#agent-process-matching) |
 | `Bash` | `agent-baton guard` | Denies the agent `agent-baton back` and `cancel`, and, while a `pass` request is out, any shell route to the browser or screen |
 | MCP tools whose names contain browser, chrome, computer, playwright, puppeteer, cua or devtools | `agent-baton guard` | Blocks those tools while a `pass` request is out, and never lets them open a password manager |
 
@@ -141,7 +179,10 @@ account numbers, never emails, with bars for remaining quota. `h` is five-hour,
 `w` weekly and `m` monthly; Codex plans report different windows (Plus `h w`, Pro `w`).
 agy's `G`, `C`, `A` are Gemini, Claude/GPT and Argon buckets. Codex numbers come
 from the local `codex-auth` cache and can be stale; agy numbers come from each
-account's cache, refreshed with `agent-accounts refresh`.
+account's cache, refreshed with `agent-accounts refresh`. Claude rows use cswap account
+numbers and the last explicit `agent-accounts refresh --backend claude`; they show
+remaining five-hour, weekly and model-specific windows. Cached active-account marks
+describe that refresh, not the account of every running conversation.
 
 `*` marks the active account; `?` means its quota is unknown, and `~` marks a
 stale reading or one without a known sample time.

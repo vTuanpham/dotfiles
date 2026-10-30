@@ -26,6 +26,7 @@ const jobs: WakeChip[] = cases.map(([title, backend, model, state, extra], i) =>
 }))
 const quotas: WakeQuota[] = [
   { cli: 'codex', account: '01', active: true, plan: '', freshness: 'unknown', parts: [{ label: 'h', pct: 70, resets: null }, { label: 'w', pct: 30, resets: null }] },
+  { cli: 'claude', account: '01', active: true, plan: '', freshness: 'fresh', parts: [{ label: 'h', pct: 74, resets: null }, { label: 'w', pct: 38, resets: null }] },
   { cli: 'agy', account: 'a1', active: false, plan: '', freshness: 'fresh', parts: [{ label: 'Gw', pct: 100, resets: 'in 2 hours' }, { label: 'Cw', pct: 25, resets: null }] },
 ]
 

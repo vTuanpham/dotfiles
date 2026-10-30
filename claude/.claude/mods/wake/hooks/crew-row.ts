@@ -229,12 +229,12 @@ export function crewRows(jobs: WakeChip[], now: number, width: number): CrewRow[
   })
 }
 
-const mark = (quota: WakeQuota) => (quota.cli === 'agy' ? '✦' : '◈')
+export const quotaMark = (quota: WakeQuota) => MARK[quota.cli]!
 
 export function quotaText(quota: WakeQuota): string {
   // The stale-cache '~' only means something beside numbers; a dead account has none to be stale.
   const stale = !quota.status && quota.freshness && quota.freshness !== 'fresh' ? '~' : ''
-  return `${mark(quota)}${quota.account}${quota.active ? '*' : ''}${stale} ${quota.status ?? (quota.parts.length ? quota.parts.map(p => `${p.label}${Math.round(p.pct)}%${bar(p.pct / 100)}`).join(' ') : '?')}`
+  return `${quotaMark(quota)}${quota.account}${quota.active ? '*' : ''}${stale} ${quota.status ?? (quota.parts.length ? quota.parts.map(p => `${p.label}${Math.round(p.pct)}%${bar(p.pct / 100)}`).join(' ') : '?')}`
 }
 
 /** Neighbouring accounts of one CLI in the same dead state read once: '◈03–06 ✕ expired', not four times. */
@@ -249,7 +249,7 @@ function foldDead(quotas: WakeQuota[]): QuotaChunk[] {
     if (j === i) { parts.push({ text: quotaText(quota), quotas: [quota] }); continue }
     const group = quotas.slice(i, j + 1)
     const names = group.map(q => q.account)
-    parts.push({ text: `${mark(quota)}${names[0]}–${names.at(-1)} ✕ ${quota.status}`, quotas: group })
+    parts.push({ text: `${quotaMark(quota)}${names[0]}–${names.at(-1)} ✕ ${quota.status}`, quotas: group })
     i = j
   }
   return parts

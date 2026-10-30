@@ -2,7 +2,8 @@
 Checked 2026-10-27. Read this only when the choice depends on a plan, allowance or retention policy. For strengths and effort advice, use [models](models.md) (`model-guide read models`). Prices are published USD prices; region, billing terms and rollout can differ. **Unverified** means the cited sources do not establish the detail; do not infer entitlement from a model listing.
 
 ### Find live account state
-- `codex-auth list`: selected account and cached allowance; mask emails when reporting. Live output may label the $100 tier differently from the pricing page. Codex `/status` and the vendor usage dashboard show limits and reset times.
+- `codex-auth list`: selected account and API-refreshed allowance by default; `--skip-api` reads local data with unknown freshness. Mask emails when reporting. Live output may label the $100 tier differently from the pricing page. Codex `/status` and the vendor usage dashboard show limits and reset times.
+- `cswap list --json`: managed Claude accounts and usage (percent used); `agent-accounts refresh --backend claude` publishes numbered remaining allowance for Wake/Bridge. For account selection and concurrent-session limits, read `~/dotfiles/claude/README.md#accounts`. Claude's `/status` remains authoritative for the selected conversation.
 - `agent-accounts refresh`: refresh account buckets; `model-guide models --backend agy --account ACCOUNT`: account-specific IDs, effort, cost tiers and buckets.
 - `model-guide models --backend X`: backend inventory, not proof of included usage. `opencode models` and OpenCode's console show provider access and billing. Claude's `/status` and model picker establish live access; `model-guide` lists Claude aliases only.
 

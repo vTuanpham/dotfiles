@@ -62,8 +62,8 @@ Model-selection and delegation skills route general decisions to shared referenc
 native harness controls. The CLIs document execution through `agent-bridge guide workflow` and
 `agent-baton --help`; exact permission grants stay local.
 [Claude](claude/README.md#hooks) and [Codex](codex/README.md) document the shared
-RTK/Baton hooks and their trust setup. Antigravity and OpenCode have no hooks
-configured here.
+RTK/Baton hooks and their trust setup. All four harnesses invoke the shared
+[shell-process guard](shell/README.md#agent-process-matching) through native hooks/plugins.
 
 ### Questions on your PC or phone
 
@@ -144,9 +144,9 @@ does the linking). Every package README opens with its kind.
 | [ghostty](ghostty/README.md) | Snapshot, copy by hand | Zsh terminal integration; not in `install.sh` |
 | [rtk](rtk/README.md) | Snapshot | Tool preferences |
 | [desktop](desktop/README.md) | Snapshot | Linux MIME application preferences |
-| [claude](claude/README.md), [codex](codex/README.md) | Snapshot + live | Harness preferences, hooks, skills and, for Claude, Wake |
-| [opencode](opencode/README.md) | Snapshot + live | Interface preferences and the shared-instructions link |
-| [gemini](gemini/README.md) | Live | Antigravity links to the shared instructions and skills |
+| [claude](claude/README.md), [codex](codex/README.md) | Snapshot + live | Harness preferences, native account CLIs (`cswap`, `codex-auth`), hooks, skills and Wake |
+| [opencode](opencode/README.md) | Snapshot + live | Interface preferences, shared instructions and the native process guard |
+| [gemini](gemini/README.md) | Live + merged hooks | Antigravity instructions, skills and native hooks |
 | [agent-bridge](agent-bridge/README.md), [agent-baton](agent-baton/README.md) | uv tool | Cross-harness jobs and human handoff CLIs; editable uv tools |
 | [agent-inbox](agent-inbox/README.md) | uv tool + user service | Phone chat for existing root conversations; editable uv tool |
 | [portlink](portlink/README.md) | uv tool | Private preview URLs, QR codes and automatic route expiry |

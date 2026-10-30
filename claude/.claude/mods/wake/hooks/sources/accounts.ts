@@ -39,7 +39,7 @@ export function modelTier(backend: string, model: string): Tier {
 export const makerOf = (model: string): 'claude' | undefined => (/\b(claude|fable|opus|sonnet|haiku)\b/.test(model.toLowerCase()) ? 'claude' : undefined)
 
 /** Consecutive accounts of one CLI with the same numbers fold into one group, so four idle free accounts read once. */
-export function quotaGroups(quotas: WakeQuota[]): { cli: 'codex' | 'agy'; accounts: string[]; text: string; low: boolean; bad: boolean }[] {
+export function quotaGroups(quotas: WakeQuota[]): { cli: WakeQuota['cli']; accounts: string[]; text: string; low: boolean; bad: boolean }[] {
   const out: ReturnType<typeof quotaGroups> = []
   for (const q of quotas) {
     // agy parts are bucket+window ('Gh', 'Gw'): print each bucket once, then its windows, like codex's 'h39 w39'
@@ -63,8 +63,8 @@ export async function scanQuotas($: EngineInterface, opts: { refreshAgy?: boolea
   const result = await $.process.run(['agent-accounts', 'snapshot'], { timeoutMs: 30_000 }).catch(() => undefined)
   const quotas = result?.exitCode === 0 && !result.isStdoutTruncated ? readAccountSnapshot(result.stdout) : undefined
   if (!quotas) throw new Error('Account observations unavailable')
-  return quotas.filter(q => q.backend === 'codex' || q.backend === 'agy').map(q => ({
-    cli: q.backend as 'codex' | 'agy', account: q.account, plan: q.plan ?? '', active: q.active,
+  return quotas.filter(q => q.backend === 'codex' || q.backend === 'agy' || q.backend === 'claude').map(q => ({
+    cli: q.backend as WakeQuota['cli'], account: q.account, plan: q.plan ?? '', active: q.active,
     parts: q.windows.map(w => ({ label: w.label, pct: w.remaining_percent, resets: w.resets })), status: q.status ?? undefined, freshness: q.freshness,
   }))
 }

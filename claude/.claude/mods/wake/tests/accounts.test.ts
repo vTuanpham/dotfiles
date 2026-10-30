@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { EngineInterface } from 'claude-code'
 import { jobLabel, makerOf, modelTier, quotaGroups, scanQuotas } from '../hooks/sources/accounts'
 import { engine, job, snapshot } from './status-world'
+import { quotaText } from '../hooks/crew-row'
 
 test('every job reads cli-agnostic: short model family + effort', () => {
   expect(jobLabel('agy', 'gemini-3.8-flash-high', '')).toEqual({ model: 'flash', effort: 'high' })
@@ -51,6 +52,20 @@ test('an empty quota owner selection skips status and scheduled refresh work', a
   const w = engine(snapshot())
   expect(await scanQuotas(w.$, { owners: [], refreshAgy: true })).toEqual([])
   expect(w.calls).toEqual([])
+})
+
+test('Claude allowance uses its own account, mark and windows without refreshing cswap', async () => {
+  const s = snapshot()
+  s.quotas = [{ backend: 'claude', account: '01', plan: null, active: true, status: null,
+    freshness: 'stale', windows: [{ label: 'h', remaining_percent: 74, resets: null },
+      { label: 'w', remaining_percent: 0, resets: null }] }]
+  const w = engine(s)
+  const quotas = await scanQuotas(w.$)
+  expect(w.calls).toEqual([['agent-accounts', 'snapshot']])
+  expect(quotas[0]).toMatchObject({ cli: 'claude', account: '01', active: true, freshness: 'stale' })
+  expect(quotaText(quotas[0]!)).toContain('◆01*~ h74%')
+  expect(quotaText(quotas[0]!)).toContain('w0%')
+  expect(quotaGroups(quotas)[0]!.cli).toBe('claude')
 })
 
 test('modelTier reads the family, not the version or the effort', () => {

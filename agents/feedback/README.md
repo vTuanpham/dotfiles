@@ -1,7 +1,10 @@
 # Host tooling feedback
 
-**Public workflow and templates; private records.** Use this queue for dotfiles,
-shared agent tools, shell/terminal integration and host workflow improvements.
+**Public workflow and templates; private records.** Agents using dotfiles or
+shared host tools during unrelated work leave feedback here. Agents already
+developing or maintaining the affected tool track that work in their current
+task and owning docs; this queue is not their task log. It covers shared agent
+tools, shell/terminal integration and host workflow improvements.
 Application features, business logic and project benchmarks belong to that
 project's own issues or maintained docs.
 
@@ -16,7 +19,7 @@ dotfiles/
         └── comments/<unique>.md     one file per contribution
 ```
 
-Global guidance asks agents to leave feedback. The repository's local `AGENTS.md`
+Global guidance asks tool consumers to leave feedback. The repository's local `AGENTS.md`
 asks agents working on dotfiles to review relevant pending issues. There is no
 scheduled poller, remote issue sync or automatic assignment to an arbitrary session.
 

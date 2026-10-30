@@ -152,19 +152,43 @@ test('capabilities hide unavailable controls without guessing from harness names
   assert.throws(()=>ui.run('decodeRoots')({roots:[{...roots[0],capabilities:missing}]}),/recognized format/);
 });
 
-test('active turns queue by default and steering requires an explicit supported choice', async () => {
+test('active turns steer by default and an explicit queue choice stays with that root', async () => {
   const ui=await boot({view:()=>({status:'active',can_send:true,messages:[]})});
   assert.equal(ui.element('steer').hidden,false);
-  ui.type('Queue me');
-  let sending=ui.submit(); await tick();
-  assert.equal(ui.requests[0].data.delivery,undefined);
-  ui.requests[0].finish('queued'); await sending;
-  ui.element('steer').listeners.click();
   assert.equal(ui.element('steer').attributes['aria-pressed'],'true');
-  ui.type('Steer me'); sending=ui.submit(); await tick();
-  assert.equal(ui.requests[1].data.delivery,'steer');
-  ui.requests[1].finish('steered'); await sending;
+  assert.equal(ui.element('send').attributes['aria-label'],'Steer current turn');
+  ui.type('Steer me');
+  let sending=ui.submit(); await tick();
+  assert.equal(ui.requests[0].data.delivery,'steer');
+  ui.requests[0].finish('steered'); await sending;
+  assert.equal(ui.element('steer').attributes['aria-pressed'],'true');
+  ui.element('steer').listeners.click();
   assert.equal(ui.element('steer').attributes['aria-pressed'],'false');
+  ui.type('Queue me'); sending=ui.submit(); await tick();
+  assert.equal(ui.requests[1].data.delivery,'queue');
+  ui.requests[1].finish('queued'); await sending;
+  assert.equal(ui.element('steer').attributes['aria-pressed'],'false');
+  await ui.choose(1);
+  assert.equal(ui.element('steer').attributes['aria-pressed'],'true');
+  await ui.choose(0);
+  assert.equal(ui.element('steer').attributes['aria-pressed'],'false');
+});
+
+test('idle roots and harnesses without steering use their supported queue path', async () => {
+  const idle=await boot({view:()=>({status:'idle',can_send:true,messages:[]})});
+  idle.type('Start a turn');
+  let sending=idle.submit(); await tick();
+  assert.equal(idle.requests[0].data.delivery,'queue');
+  assert.equal(idle.element('send').attributes['aria-label'],'Send');
+  idle.requests[0].finish('queued'); await sending;
+  const unsupported=await boot({roots:[{...roots[0],capabilities:{...capabilities,mid_turn_steering:false}}],
+    view:()=>({status:'active',can_send:true,messages:[]})});
+  unsupported.type('Next turn');
+  sending=unsupported.submit(); await tick();
+  assert.equal(unsupported.requests[0].data.delivery,'queue');
+  assert.equal(unsupported.element('steer').hidden,true);
+  assert.equal(unsupported.element('send').attributes['aria-label'],'Queue message');
+  unsupported.requests[0].finish('queued'); await sending;
 });
 
 test('pairing and authenticated requests refuse redirects and keep credentials on their origin', async () => {
@@ -664,7 +688,7 @@ test('late session details for a previous root are dropped and malformed details
 });
 
 /* --- native question forms --- */
-const field = (key, kind, extra={}) => ({key,label:key,kind,required:false,choices:[],custom:false,default:null,when:[],constraints:null,description:'',...extra});
+const field = (key, kind, extra={}) => ({key,label:key,kind,required:false,hidden:false,choices:[],custom:false,default:null,when:[],constraints:null,description:'',...extra});
 const choices = (...values) => values.map(value => ({value,label:value.toUpperCase()}));
 const json = value => JSON.parse(JSON.stringify(value));
 
@@ -710,6 +734,21 @@ const formUi = ui => {
     button:text => find(card(),node=>node.text===text),
     submit:() => card().listeners.submit({preventDefault() {}})};
 };
+
+test('native hidden fields stay hidden across polling while their defaults round-trip', async () => {
+  const question={id:'hidden',title:'Choose',unavailable:'',fields:[
+    field('context','string',{hidden:true,default:'native-context'}),
+    field('choice','boolean',{required:true,default:false}),
+  ]};
+  const ui=await boot({forms:()=>({forms:[question],unavailable:''})});
+  const form=formUi(ui);
+  assert.equal(form.key('context').hidden,true);
+  await ui.poll();
+  assert.equal(form.key('context').hidden,true);
+  const sending=form.submit(); await tick();
+  assert.deepEqual(ui.answerRequests[0].data.answer,{context:'native-context',choice:false});
+  ui.answerRequests[0].finish('applied'); await sending;
+});
 
 test('native questions render shared links without changing choice values and reject malformed HTML fields', async () => {
   const link='<a href="https://example.test:18000/" target="_blank" rel="noopener noreferrer">Preview</a>';

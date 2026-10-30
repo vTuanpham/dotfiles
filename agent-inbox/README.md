@@ -44,9 +44,10 @@ only the exact HTTPS session URL you supply.
 Registration verifies an existing root on its already-running daemon.
 Its [native APIs](https://learn.chatgpt.com/docs/app-server) provide discovery,
 history, `turn/steer` with the authoritative active turn ID, and the experimental
-`thread/queue/add`. Messages queue by default, including during an active turn.
-Choose **Steer** explicitly to steer the current turn; a finished turn rejects that
-choice rather than silently queueing it. Reading never resumes or clones a conversation.
+`thread/queue/add`. The composer defaults to **Steer** for an active turn; toggle
+it off to queue instead. Idle sessions start a new turn. A turn that finishes
+before dispatch rejects steering rather than silently changing delivery mode.
+Reading never resumes or clones a conversation.
 Model and reasoning changes affect subsequent turns.
 
 When a server reports that paginated history is unsupported, Inbox uses the
@@ -83,7 +84,7 @@ profile and native session IDs.
 <summary><b>OpenCode</b>: running v2 service</summary>
 
 OpenCode uses its already-running [v2 service API](https://dev.opencode.ai/v2/docs/api)
-and currently verifies protocol version 2.0.3. Registration never starts or
+and currently verifies protocol version 2.2.2. Registration never starts or
 reconfigures the service. Models, commands and question IDs come from the selected
 session. Permission requests offer **Allow once** or **Deny**, with no default or
 persistent grant. Inbox rechecks that the request is still pending in the
@@ -91,11 +92,10 @@ selected session before replying; cancelling the question denies it.
 Unsupported terminal menus and external-auth forms stay native.
 Its unarchived list includes saved idle roots: idle does not prove a terminal
 is attached. Provider account identity and allowance are not exposed here.
-Messages use native `delivery: queue` by default; explicit steering uses
-`delivery: steer`. Both receipts confirm admission, not consumption.
+Active turns default to native `delivery: steer`; idle turns and the composer's
+queue choice use `delivery: queue`. Both receipts confirm admission, not consumption.
 The [published API](https://dev.opencode.ai/v2/docs/api) documents these delivery
-values. Its newer permission payload uses `decision`; the checked 2.0.3 service
-uses `reply`, so Inbox keeps that version's contract.
+values; permission replies use its `decision` field.
 
 </details>
 

@@ -11,7 +11,7 @@ import { EFFECT_FRAMES, SCENE_ROWS, type SceneEffect, type SceneHitMap, type Sce
 import { PRESETS, nextRain, skyOf } from './sources/weather'
 import { lookAround, namePlace, pinPreset } from './surroundings'
 import { COLOR, readable, clock, commandHead, hash, isAnswerText, isTestCommand, lines, patchCounts, shortPath, span } from './util'
-import { crewPage, crewRows, quotaRows, quotaText, truncate } from './crew-row'
+import { crewPage, crewRows, quotaMark, quotaRows, quotaText, truncate } from './crew-row'
 import { PeerMessageTracker } from './peer-messages'
 import { LOGOS, modelLogo } from './logos'
 
@@ -24,7 +24,7 @@ import { LOGOS, modelLogo } from './logos'
 const AWAY_MS = 10 * 60_000
 const ASK_AWAY_MS = 3 * 60_000
 const CODEX_POLL_MS = 15_000
-const QUOTA_POLL_MS = 60_000 // codex-auth and agy's quota.json are local caches; agy /usage refreshes every AGY_REFRESH polls
+const QUOTA_POLL_MS = 60_000 // Read provider caches; only agy refreshes on this schedule.
 const AGY_REFRESH = 30
 const ANIMATE_MS = 400
 const SCENE_MS = 50 // the diorama paints 20 a second: half steps of its frame, which motion paces at 10 a second
@@ -909,7 +909,7 @@ export const register: Register = on => {
           {line.map((chunk, chunkIndex) => {
             const scope = `wake-quota-${lineIndex}-${chunkIndex}`
             const quota = chunk.quotas[0]!
-            const mark = quota.cli === 'agy' ? '✦' : '◈'
+            const mark = quotaMark(quota)
             const details = chunk.quotas.flatMap(account => account.status
               ? [`${account.account}: ${account.status}`]
               : account.parts.length

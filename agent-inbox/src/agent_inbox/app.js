@@ -51,7 +51,7 @@ $('theme-toggle').addEventListener('click',()=>{
 showTheme();
 
 function composeState(id=selected.id) {
-  if(!outbox.has(id)) outbox.set(id,{draft:'',images:[],pending:null,delivery:'',sending:false,uploading:false,receipt:'',steer:false});
+  if(!outbox.has(id)) outbox.set(id,{draft:'',images:[],pending:null,delivery:'',sending:false,uploading:false,receipt:'',steer:true});
   return outbox.get(id);
 }
 function messageId() {
@@ -69,7 +69,7 @@ function setDraft(text) { $('message').value=text; fit(); }
 /* One place decides which composer controls are usable, from the selected root's own state. */
 function syncComposer() {
   if(!selected) return;
-  const state=composeState(), open=canSend;
+  const state=composeState(), open=canSend, canSteer=selected.capabilities.mid_turn_steering && status==='active';
   $('message').disabled=!open;
   $('send').disabled=!open || state.sending || state.uploading;
   $('attach').hidden=!selected.capabilities.images;
@@ -81,10 +81,10 @@ function syncComposer() {
   $('check').disabled=state.sending;
   $('receipt').hidden=$('resolve').hidden && $('check').hidden;
   $('send').dataset.busy=state.sending ? '1' : '';
-  $('steer').hidden=!selected.capabilities.mid_turn_steering || status!=='active';
+  $('steer').hidden=!canSteer;
   $('steer').disabled=!open || state.sending || !!state.pending;
   $('steer').setAttribute('aria-pressed',String(state.steer));
-  $('send').setAttribute('aria-label',state.steer && status==='active' ? 'Steer current turn' :
+  $('send').setAttribute('aria-label',state.steer && canSteer ? 'Steer current turn' :
     status==='active' && selected.capabilities.queued_messages ? 'Queue message' : 'Send');
 }
 function renderAttachments() {
@@ -369,7 +369,6 @@ async function deliver(target,state,payload) {
       if(state.draft===body) state.draft='';
       if(JSON.stringify(state.images)===JSON.stringify(images)) state.images=[];
       state.pending=null;
-      state.steer=false;
     }
     if(result.status==='failed') state.pending=null;
   } catch(error) {
@@ -401,7 +400,7 @@ $('compose').addEventListener('submit',async event=>{
     $('delivery').textContent=state.delivery; renderAttachments(); return;
   }
   if(!state.pending) state.pending={id:messageId(),target,text:body,...(images.length?{images}:{}),
-    ...(state.steer && status==='active' && selected.capabilities.mid_turn_steering ? {delivery:'steer'} : {})};
+    delivery:state.steer && status==='active' && selected.capabilities.mid_turn_steering ? 'steer' : 'queue'};
   state.draft=body; await deliver(target,state,state.pending);
 });
 $('check').addEventListener('click',()=>{

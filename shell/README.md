@@ -10,6 +10,7 @@ Bash and Zsh startup.
 | `.bash_profile`, `.profile`, `.bashrc`, `.bash_logout` | Bash startup; `.bash_profile` reads `.profile` |
 | `.config/shell/env.sh` | Shared environment and PATH for both shells; sources the private `~/.config/shell/secrets.local.sh` when it exists |
 | `.config/shell/aliases.sh` | Shared interactive shortcuts and Ranger's directory-return function |
+| `.local/libexec/agent-process-guard.py` | Shared shell-process correctness hook |
 | `.cuda_paths` | CUDA paths, sourced by the environment file |
 
 <img src="docs/startup.svg" alt="Zsh reads .zshenv, then .zprofile for login shells and .zshrc for interactive shells. Bash reads .bash_profile, which reads .profile, which reads .bashrc for interactive shells. Login and interactive files read the shared env.sh, and interactive files also read aliases.sh." width="100%">
@@ -20,6 +21,50 @@ Shared shortcuts preserve arguments: `ga path...` stages explicit paths, and
 `py` runs Python through UV. `pir` is only for requirements-based projects with
 an existing UV environment; projects with a lock use `uv sync` instead. Package
 managers own their caches; no generic cache-deletion shortcut is installed.
+
+## Agent process matching
+
+`agent-process-guard.py` is linked under `~/.local/libexec`. Native hooks invoke
+it automatically before command execution:
+
+| Harness | Integration | Setup |
+| --- | --- | --- |
+| Claude | Bash `PreToolUse` | `./install.sh --apply links hooks` |
+| Codex | Bash `PreToolUse` | Same; trust new hooks through `/hooks` |
+| Antigravity | `run_command` `PreToolUse` | Same; named hooks in `~/.gemini/config/hooks.json` |
+| OpenCode 2.2.2+ | `execute.before` plugin for `shell` | `./install.sh --apply links`; global plugin discovery |
+
+Reload the harness after setup; Antigravity's `/hooks` lists loaded hooks. Agents
+do not invoke the helper themselves. It rejects actual `pgrep`/`pkill` full-command matches
+unless they exclude ancestors (`-A` / `--ignore-ancestors`). The guard never
+executes or rewrites submitted commands, approves requests or signals processes;
+the agent gets a correction before the tool call. Exact-name queries and explicit
+PID operations stay available.
+
+```sh
+pgrep -x worker                 # exact executable name
+pgrep -A -f 'python worker.py'   # full command, excluding the invoking ancestry
+kill -TERM "$owned_pid"         # verify the PID belongs to the intended task first
+```
+
+The guard uses the installed `shfmt` parser, not regex matching over shell text.
+Chains, loops, substitutions and common static wrappers are inspected. Quoted
+examples and log searches remain data. Dynamic commands and externally read scripts
+are outside this mistake guard; it is not a sandbox or authorization boundary.
+Unsupported syntax, a missing parser or a parser error blocks candidate commands
+with a PID-based alternative, while unrelated commands are unaffected.
+
+Ancestor exclusion depends on the procps version: check `pgrep --version` and
+`pgrep --help` before using it. Where unavailable, use exact names or owned PIDs.
+Tests: `python3 -B tests/test_process_guard.py`; parser fixtures never execute the
+commands, and a modern-procps smoke test signals only its own disposable child.
+`bun test tests/test_process_guard_plugin.test.js` exercises OpenCode's adapter
+with the same helper. Hook decisions follow each harness's native denial contract;
+Antigravity's `allow` only defers to its normal permission policy.
+
+Contracts: [Antigravity hooks](https://antigravity.google/docs/hooks),
+[OpenCode server plugins](https://opencode.ai/v2/docs/build/plugins/server/) and
+[plugin discovery](https://opencode.ai/v2/docs/plugins#discover).
 
 ## Credentials
 

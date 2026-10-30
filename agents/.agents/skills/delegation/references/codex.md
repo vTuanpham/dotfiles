@@ -14,4 +14,8 @@ reusable; interrupt it when needed, and use the documented wait operation when
 no useful independent work remains. Preserve file ownership across follow-ups.
 Do not route native Codex work through Bridge or create a second Codex process.
 
+If repeated native messages leave a worker blocked on an idle root, use the
+`codex-wake` skill's bounded parent-recovery workflow. A root briefing a worker
+that may need this recovery should include its native thread ID when available.
+
 Source: [Codex subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents).

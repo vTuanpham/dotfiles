@@ -27,7 +27,8 @@ def commands(api, info):
                                   model["name"] + " · " + name))
     current = json.dumps(info["model"], sort_keys=True) if "model" in info else None
     controls = [Command("model", "Model", "select", options, current, "Next turns"),
-                Command("agent", "Agent", "select", [Choice(text(row["name"], "agent", 200), row["name"])
+                Command("agent", "Agent", "select", [Choice(text(row["id"], "agent id", 200),
+                                                          text(row["name"], "agent name", 200))
                                                        for row in agents if row["mode"] != "subagent"
                                                        and not row.get("hidden", False)], info.get("agent")),
                 Command("interrupt", "Stop turn", "action")]
@@ -48,6 +49,6 @@ def execute(api, path, command, value):
     elif command == "interrupt":
         api.call("POST", path + "/interrupt")
     elif command.startswith("slash:"):
-        api.call("POST", path + "/command", {"command": command[6:], "text": value})
+        api.call("POST", path + "/command", {"name": command[6:], "text": value})
     else:
         raise ValueError("Unsupported native command")

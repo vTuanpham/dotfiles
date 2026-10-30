@@ -46,7 +46,7 @@ class NativeApi:
     def call(self, method, path, body=None):
         self.calls.append((method, path, body))
         parsed = urlsplit(path)
-        if method == "POST":
+        if method in ("POST", "DELETE"):
             if self.error:
                 raise self.error
             if parsed.path.endswith("/prompt"):
@@ -71,8 +71,8 @@ class NativeApi:
             return {"data": [{"id": "model", "providerID": "provider", "name": "Model",
                               "enabled": True, "variants": [{"id": "high"}]}]}
         if parsed.path == "/api/agent":
-            return {"data": [{"name": "build", "mode": "primary"},
-                              {"name": "worker", "mode": "subagent"}]}
+            return {"data": [{"id": "agent_build", "name": "Build", "mode": "primary"},
+                              {"id": "agent_worker", "name": "Worker", "mode": "subagent"}]}
         if parsed.path == "/api/command":
             return {"data": [{"name": "check", "description": "Check project"}]}
         raise AssertionError((method, path))
@@ -159,34 +159,41 @@ def test_native_attachments_render_only_valid_embedded_images():
     ]}})
     result = opencode_history.messages(rows)
     assert result[0].images == result[1].images == [raster(raw.getvalue())]
-    rows[0]["files"][0] = {"uri": "file:///etc/passwd", "mime": "image/png"}
+    rows[0]["files"][0] = {"data": encoded, "mime": "image/png",
+                            "source": {"type": "uri", "uri": "file:///etc/passwd"}}
     result = opencode_history.messages(rows)
-    assert result[0].images is None and "unavailable" in result[0].text
+    assert result[0].images == [raster(raw.getvalue())]
+    del rows[0]["files"][0]["data"]
+    with pytest.raises(ValueError, match="embedded"):
+        opencode_history.messages(rows)
 
 
 def test_native_controls_discovered_per_location_and_validated_before_mutation(api):
     provider = opencode.OpenCode()
     controls = provider.commands(target())
     assert [c.id for c in controls.controls] == ["model", "agent", "interrupt", "slash:check"]
-    assert controls.controls[1].choices[0].value == "build"
+    assert controls.controls[1].choices[0].value == "agent_build"
+    assert controls.controls[1].choices[0].label == "Build"
     assert len(controls.controls[1].choices) == 1
     option = controls.controls[0].choices[1].value
     assert provider.execute(target(), "model", option) == "applied"
     assert api.calls[-1] == ("POST", "/api/session/ses_root/model",
                              {"model": {"id": "model", "providerID": "provider", "variant": "high"}})
+    assert provider.execute(target(), "agent", "agent_build") == "applied"
+    assert api.calls[-1] == ("POST", "/api/session/ses_root/agent", {"agent": "agent_build"})
     with pytest.raises(DeliveryRejected):
         provider.execute(target(), "model", "invented model")
     with pytest.raises(DeliveryRejected):
         provider.execute(target(), "slash:unknown", "argument")
     assert provider.execute(target(), "slash:check", "literal $(value)") == "applied"
-    assert api.calls[-1][2] == {"command": "check", "text": "literal $(value)"}
+    assert api.calls[-1][2] == {"name": "check", "text": "literal $(value)"}
 
 
 @pytest.mark.parametrize("url", ["http://example.test:123", "http://127.0.0.1:123/path",
                                  "https://127.0.0.1:123", "http://user@127.0.0.1:123"])
 def test_connection_refuses_nonlocal_or_ambiguous_service_urls(tmp_path, url):
     path = tmp_path / "service.json"
-    path.write_text(json.dumps({"url": url, "password": "fixture", "version": "2.0.3",
+    path.write_text(json.dumps({"url": url, "password": "fixture", "version": "2.2.2",
                                 "pid": 123, "id": "x"}))
     selected = replace(target(), settings={"service": str(path)})
     with pytest.raises(ValueError):
@@ -242,7 +249,7 @@ def test_native_permissions_are_explicit_session_bound_decisions_with_no_default
     with pytest.raises(DeliveryRejected):
         question.validate({})
     assert provider.answer(target(), "per_one", {"decision": decision}) == "applied"
-    assert api.calls[-1] == ("POST", "/api/session/ses_root/permission/per_one/reply", {"reply": decision})
+    assert api.calls[-1] == ("POST", "/api/session/ses_root/permission/per_one/reply", {"decision": decision})
 
 
 def test_permissions_and_forms_share_the_question_list_and_keep_their_native_reply_routes(api):
@@ -257,7 +264,20 @@ def test_permissions_and_forms_share_the_question_list_and_keep_their_native_rep
         "POST", "/api/session/ses_root/form/frm_one/reply", {"answer": {"choice": False}},
     )
     assert provider.answer(target(), "per_one", {}, cancel=True) == "applied"
-    assert api.calls[-1] == ("POST", "/api/session/ses_root/permission/per_one/reply", {"reply": "reject"})
+    assert api.calls[-1] == ("POST", "/api/session/ses_root/permission/per_one/reply", {"decision": "reject"})
+    assert provider.answer(target(), "frm_one", {}, cancel=True) == "applied"
+    assert api.calls[-1] == ("DELETE", "/api/session/ses_root/form/frm_one", None)
+
+
+def test_native_hidden_form_fields_and_permission_explanations_keep_their_contract(api):
+    api.forms = [{"id": "frm_one", "sessionID": "ses_root", "title": "Choose", "fields": [
+        {"key": "context", "type": "string", "hidden": True, "default": "native-value"},
+        {"key": "choice", "type": "boolean", "required": True},
+    ]}]
+    api.permissions = [permission(message="A native explanation")]
+    forms = opencode.OpenCode().forms(target())
+    assert forms.selected("frm_one").fields[0].hidden is True
+    assert "A native explanation" in forms.selected("per_one").fields[0].description
 
 
 @pytest.mark.parametrize("answer", [{}, {"decision": "always"}, {"decision": True},
@@ -423,8 +443,31 @@ def test_service_redirect_never_replays_credentials_to_another_host(tmp_path, mo
     monkeypatch.setattr("agent_inbox.opencode_http.http.client.HTTPConnection", Socket)
     path = tmp_path / "service.json"
     path.write_text(json.dumps({"url": "http://127.0.0.1:12345", "password": "fixture",
-                                "version": "2.0.3", "pid": 123, "id": "fixture"}))
+                                "version": "2.2.2", "pid": 123, "id": "fixture"}))
     with pytest.raises(ApiRejected) as error:
         Connection(replace(target(), settings={"service": str(path)}))
     assert error.value.status == 307
-    assert len(calls) == 1 and calls[0][1] == "/api/health"
+    assert len(calls) == 1 and calls[0][1] == "/api/info"
+
+
+@pytest.mark.parametrize("change", [{}, {"version": "2.0.3"}, {"pid": 124}, {"pid": True}])
+def test_current_service_identity_is_checked_against_the_native_info_endpoint(tmp_path, monkeypatch, change):
+    path = tmp_path / "service.json"
+    path.write_text(json.dumps({"url": "http://127.0.0.1:12345", "password": "fixture",
+                                "version": "2.2.2", "pid": 123, "id": "fixture"}))
+    info = {"version": "2.2.2", "pid": 123, "hostname": "localhost", "paths": {},
+            "urls": {}, "capabilities": {}, **change}
+    calls = []
+
+    def call(self, method, endpoint, body=None):
+        calls.append((method, endpoint))
+        return info
+
+    monkeypatch.setattr(Connection, "call", call)
+    selected = replace(target(), settings={"service": str(path)})
+    if change:
+        with pytest.raises(ValueError, match="identity"):
+            Connection(selected)
+    else:
+        assert Connection(selected).port == 12345
+    assert calls == [("GET", "/api/info")]

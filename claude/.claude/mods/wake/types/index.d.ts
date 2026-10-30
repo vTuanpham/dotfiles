@@ -23,8 +23,8 @@ export type WakeChip = {
   waitingPeer?: { target: string; declaredAt: number }
 }
 
-/** Remaining quota of one signed-in account: Codex (5h/wk) or agy (G Gemini, C Claude, A Argon buckets). */
-export type WakeQuota = { cli: 'codex' | 'agy'; account: string; plan: string; active: boolean; parts: { label: string; pct: number; resets: string | null }[]; status?: string; freshness?: 'fresh' | 'stale' | 'unknown' }
+/** Remaining quota of one signed-in account: Codex/Claude windows or agy model buckets. */
+export type WakeQuota = { cli: 'codex' | 'agy' | 'claude'; account: string; plan: string; active: boolean; parts: { label: string; pct: number; resets: string | null }[]; status?: string; freshness?: 'fresh' | 'stale' | 'unknown' }
 
 export type WakeSceneHit = { id: string; title: string; details: string[] }
 

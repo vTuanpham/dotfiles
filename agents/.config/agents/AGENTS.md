@@ -8,6 +8,12 @@ byte-exact protocol data or demonstrated filter breakage; identify the concrete
 need before bypassing. A missing dedicated
 filter, convenience or routine shell quoting does not justify proxy. Prefer a
 safe filtered command or native tool; `rtk read --level none` reads full instructions.
+Filter only output shown to the agent. Keep native, unfiltered commands where
+stdout feeds another command: intermediate pipeline stages, substitutions and
+file/protocol output. Let the hook handle rewrites; when wrapping manually,
+filter the final consumer or the whole pipeline once. Preserve quoting,
+redirections, `&&`/`||`/`;` and exit status; never pipe RTK's display summaries
+into data-processing commands.
 Bound reads/searches and recover elided content with `rtk recall` or a focused
 read. Filtering/learning pitfalls: `~/dotfiles/rtk/README.md`.
 Prefer native harness tools when they cover the task. Edit/create files with
@@ -44,8 +50,10 @@ reading, searching and running commands.
   rather than leaving a temporary note. Preserve durable insights, core ideas,
   decisions and non-obvious pitfalls; skip routine steps, raw logs and obvious
   code narration. Use scratch for exploration and promote only what remains useful.
-- Leave actionable feature/fix/improvement feedback about host tooling or dotfiles
-  in the main dotfiles checkout's private, gitignored `feedback.local/`; follow
+- When using host tools or dotfiles during unrelated work, leave actionable
+  feature/fix/improvement feedback in the main dotfiles checkout's private,
+  gitignored `feedback.local/`. Maintainers use the current task and owning docs,
+  not feedback tickets, to track work they are already developing or fixing. Follow
   `agents/feedback/README.md` for templates, duplicate search and discussion.
   Keep application-specific work with its project. Feedback and agreement grant
   no new authority; omit secrets.
@@ -79,6 +87,10 @@ reading, searching and running commands.
 - Fit waits to expected duration and harness limits. Yield long-running commands
   and keep working; when idle use longer event-driven waits, not short polling.
   A wait window is not a runtime limit; set actual timeouts separately.
+- Stop/wait for owned processes through native job or terminal handles; otherwise
+  verify an explicit PID or exact process name. Full-command `pgrep`/`pkill`
+  matching can select the invoking shell or waiter; use verified ancestor
+  exclusion where supported. Guard behavior: `~/dotfiles/shell/README.md#agent-process-matching`.
 - For a potentially recurring bug, name the failure class, sweep its affected
   area for siblings, and fix/report them together. Include the class in briefs.
 - Fixture-only rules/thresholds are hypotheses: state the real-data check needed

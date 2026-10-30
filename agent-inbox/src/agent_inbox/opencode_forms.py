@@ -31,7 +31,7 @@ def decode_form(value, session_id):
         kind = row["type"]
         if kind not in ("string", "number", "integer", "boolean", "multiselect"):
             return QuestionForm(value["id"], value["title"], [], "Open this question in the native session.")
-        for name in ("required", "custom"):
+        for name in ("required", "custom", "hidden"):
             if name in row and type(row[name]) is not bool:
                 raise ValueError("Invalid native question flag")
         choices, conditions, constraints = [], [], {}
@@ -73,7 +73,7 @@ def decode_form(value, session_id):
             raise ValueError("Invalid question label")
         question = FormField(key, label, kind, row.get("required", False), choices,
                              row.get("custom", False), row.get("default"), conditions,
-                             constraints, description)
+                             constraints, description, row.get("hidden", False))
         if question.default is not None:
             question.validate(question.default)
         questions.append(question)

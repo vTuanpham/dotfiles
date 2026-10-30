@@ -47,7 +47,9 @@ def messages(rows, budget=None):
             if not mime.startswith("image/"):
                 notices.append("[Attachment available in the native session.]")
                 return
-            if "data" in part:
+            if kind == "user" or "data" in part:
+                if type(part.get("data")) is not str:
+                    raise ValueError("Expected embedded native image data")
                 normalized = {"type": "image", "url": "data:" + mime + ";base64," + part["data"]}
             else:
                 normalized = {"type": "image", "url": part["uri"]}

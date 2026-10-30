@@ -15,9 +15,11 @@ sources without echoing their contents. Other sources remain usable.
 
 Poll about every ten seconds while jobs run, once a minute when idle. Quotas
 need only minute polling. `status` makes no provider/model requests: Codex uses
-`codex-auth list`'s local cache, agy uses its existing account caches. Explicit
-`quota --backend agy` refresh still works; Wake preserves its refresh schedule
-but consumes the numbers through status JSON only. Use `--storage` on demand
+`codex-auth list --skip-api`'s local cache; agy and Claude use existing account
+caches. `agent-accounts refresh --backend claude` explicitly refreshes Claude
+through cswap; Wake does not invoke it on a timer. Explicit `quota --backend agy`
+refresh still works; Wake consumes the shared account observations independently
+of job status. Use `--storage` on demand
 or hourly: it scans sizes and checks expired retired worktrees with read-only git.
 Ordinary polls leave eligibility/bytes unknown until scanned.
 

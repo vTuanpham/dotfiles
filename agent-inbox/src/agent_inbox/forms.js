@@ -14,7 +14,7 @@ function formText(tag,value,key,attrs={}) {
 function decodeField(field) {
   return field && typeof field==='object' && isText(field.key) && isText(field.label) && FIELD_KINDS.includes(field.kind) &&
     hasHtml(field,'label') && hasHtml(field,'description') &&
-    typeof field.required==='boolean' && list(field.choices,c=>isText(c.value) && isText(c.label) && hasHtml(c,'label')) && typeof field.custom==='boolean' &&
+    typeof field.required==='boolean' && typeof field.hidden==='boolean' && list(field.choices,c=>isText(c.value) && isText(c.label) && hasHtml(c,'label')) && typeof field.custom==='boolean' &&
     (field.default===null || field.default===undefined || isScalar(field.default) || isStringList(field.default)) &&
     list(field.when,w=>isText(w.key) && ['eq','neq'].includes(w.op) && isScalar(w.value)) &&
     (field.constraints===null || field.constraints===undefined || typeof field.constraints==='object') && isText(field.description);
@@ -148,7 +148,7 @@ class FormsPanel {
     const fieldset=el('fieldset',{class:'q-fields'});
     for(const field of form.fields) {
       const part=this.field(form,state,field,touch);
-      fields.set(field.key,part); fieldset.append(part.node);
+      fields.set(field.key,{...part,hidden:field.hidden}); fieldset.append(part.node);
     }
     const note=form.fields.length ? null : el('p',{class:'q-note',text:(form.unavailable || 'This question cannot be answered here.')+' Answer it in the native session.'});
     const status=el('p',{class:'q-status',role:'status'});
@@ -166,7 +166,7 @@ class FormsPanel {
     state.sync=()=>{
       const {active}=readAnswers(form,state.raw), pending=state.pending;
       for(const [key,part] of fields) {
-        part.node.hidden=!active.has(key);
+        part.node.hidden=part.hidden || !active.has(key);
         if(part.error.textContent!==(state.errors[key] || '')) part.error.textContent=state.errors[key] || '';
         part.node.dataset.invalid=state.errors[key] ? '1' : '';
         part.refresh();

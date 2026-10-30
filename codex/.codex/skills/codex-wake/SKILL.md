@@ -1,6 +1,6 @@
 ---
 name: codex-wake
-description: Deliver task notifications to the originating Codex conversation from background command completion, timers or external events. Use to resume idle work when no native completion trigger handles it; Bridge watch already delivers its own events.
+description: Resume idle Codex work after background events, or recover a native worker blocked on an unresponsive idle root. Use when native completion/message delivery has not resumed the target; Bridge watch already delivers its own events.
 ---
 
 # Codex task notifications
@@ -28,6 +28,27 @@ Both preflight delivery automatically; `check` diagnoses availability without
 sending. On delivery failure, inspect the command's outcome before retrying:
 it may already have executed. A notification does not resolve a blocking
 question or grant approval.
+
+## Native worker blocked on its root
+
+Use native collaboration messages first and continue independent work. If blocked
+after two unanswered messages spaced over at least three minutes:
+
+1. Identify the root from native spawn/parent metadata or the root's explicit
+   brief. An inherited `CODEX_THREAD_ID`, a title or the newest thread is not proof
+   of parentage. Do not choose another session when identity cannot be verified.
+2. Read that exact root through the native task MCP's `read_thread`, keeping
+   history/output bounded. Immediately before sending, confirm its reported
+   status is `idle`. Silence is not an idle check; `active`, `notLoaded`, errors
+   and unknown states do not qualify. Respect a user pause and pending human input
+   or approval.
+3. Use the same MCP's `send_message_to_thread` once, with the verified root's
+   `threadId` and a short `prompt` identifying the worker, blocker and requested
+   decision. Omit model overrides. This is the native task channel used by
+   `codex-wake`; no separate wake process is needed inside the harness.
+4. Verify the returned target and return to native messages/waits. Send at most
+   one recovery wake per unresolved blocker; an uncertain receipt is not a reason
+   to duplicate it. This never answers a question or grants approval.
 
 For installation, producers and compatibility details, see
 `~/dotfiles/codex-wake/README.md`.

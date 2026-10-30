@@ -155,7 +155,7 @@ class Rpc:
 
 def active_account():
     try:
-        out = subprocess.run(["codex-auth", "list"], env=command_env(),
+        out = subprocess.run(["codex-auth", "list", "--skip-api"], env=command_env(),
                              capture_output=True, text=True, timeout=20).stdout
     except (OSError, subprocess.TimeoutExpired):
         return ""

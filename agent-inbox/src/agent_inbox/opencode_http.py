@@ -11,10 +11,8 @@ from .models import decode_json, fields, text
 
 def location_query(info):
     location = info["location"]
-    if type(location) is not dict or not location.keys() <= {"directory", "workspaceID"}:
-        raise ValueError("Invalid native session location")
-    return urlencode({"location[" + ("workspace" if key == "workspaceID" else key) + "]":
-                      text(value, "native location", 4096) for key, value in location.items()})
+    fields(location, ("directory",))
+    return urlencode({"location[directory]": text(location["directory"], "native location", 4096)})
 
 
 class ApiRejected(RuntimeError):
@@ -39,15 +37,15 @@ class Connection:
                 or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment
                 or not parsed.port or type(data["pid"]) is not int or data["pid"] <= 0):
             raise ValueError("Expected a local OpenCode service")
-        if data["version"] != "2.0.3":
+        if data["version"] != "2.2.2":
             raise ValueError("Unsupported OpenCode protocol version")
         password = text(data["password"], "service credential", 1024)
         self.port = parsed.port
         self.headers = {"Authorization": "Basic " + base64.b64encode(
             ("opencode:" + password).encode()).decode()}
-        health = self.call("GET", "/api/health")
-        fields(health, ("healthy", "version", "pid"))
-        if (health["healthy"] is not True or health["version"] != data["version"]
+        health = self.call("GET", "/api/info")
+        fields(health, ("version", "pid", "capabilities", "hostname", "paths", "urls"))
+        if (health["version"] != data["version"] or type(health["pid"]) is not int
                 or health["pid"] != data["pid"]):
             raise ValueError("OpenCode service identity changed")
 

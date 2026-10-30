@@ -72,6 +72,15 @@ it on demand, or it can be invoked as `$codex-wake`. The shared global instructi
 stay harness-neutral. The CLI includes examples and defaults to its originating
 session without manual thread IDs or setup flags.
 
+### Recover an idle root
+
+A native Codex worker can use the same task-message MCP directly when ordinary
+collaboration messages have not resumed its root. The
+[skill](../codex/.codex/skills/codex-wake/SKILL.md#native-worker-blocked-on-its-root)
+owns the bounded retry, verified-parent and fresh-idle checks, and the one-wake
+limit. It does not wake unrelated, unloaded or user-paused conversations.
+This is an agent-selected recovery path, not a daemon polling all sessions.
+
 ## Shared delivery client
 
 ```python

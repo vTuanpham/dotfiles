@@ -27,6 +27,38 @@ other commands. Reserve bypass for byte-exact protocols or demonstrated filter
 breakage. Full file/instruction reads use `rtk read --level none`; bound ordinary
 reads and recover elided details before resorting to raw output.
 
+### Pipelines, chains and substitutions
+
+RTK's display output is for the agent, not input to another program. Keep native
+commands inside data flows; filter only the final display boundary. Otherwise
+shortened paths, omitted rows or added headings can change a later search, count
+or parser. This applies to pipelines, command/process substitutions and redirected
+file/protocol output, including when they appear inside a longer command chain.
+
+```sh
+# With the native hook: write the pipeline normally; RTK rewrites only its tail.
+find ~/.claude/projects -type f -name '*.jsonl' | rg dotfiles
+
+# Without a hook: filter the complete pipeline once, after its internal work.
+rtk summary bash -o pipefail -c 'rg --files --hidden ~/.claude/projects | rg dotfiles'
+
+# Keep substitutions and file contents exact; compress the displayed result later.
+count=$(find . -type f | wc -l)
+find . -type f > inventory.txt
+```
+
+Do not write `rtk find ... | rg ...` or `rtk rg ... | jq ...` when the next stage
+needs the original records. A whole-chain wrapper must keep the original shell,
+quoting, redirections, operator order and exit status; use `pipefail` when any
+failed pipeline stage should fail the command. `&&`, `||` and `;` may join ordinary
+display commands as well as pipelines; they do not make every command a data source.
+
+RTK 1.1's native rewrite engine already leaves pipeline producers native, rewrites
+only a supported final stage, preserves chain operators, and declines command
+substitutions and file redirects. No additional rewrite hook is installed here.
+The checks below exercise these boundaries through the real Claude hook, including
+unsupported final stages and short-circuit exit status.
+
 A recorded `rtk summary` invocation stripped the
 quoting from `awk 'NR>=80'`, leaving a `>=80` redirect and a stray `=80` file.
 Prefer a read tool for line ranges; recover omitted output with `rtk recall` or
