@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_bridge import cli, reference, refresh
+from agent_models import cli, reference, refresh
 
 REAL = (reference.GUIDES / "models.md").read_text(encoding="utf-8")
 SUBSCRIPTIONS = (reference.GUIDES / "subscriptions.md").read_text(encoding="utf-8")
@@ -84,16 +84,16 @@ def test_a_stale_date_and_a_truncated_rewrite_are_rejected():
 def test_stale_reports_new_and_gone_models_and_warns_from_the_cache(home, capsys):
     write_lock("codex gpt-6-luna\ncodex gpt-5.6-terra\n")
     assert reference.warning() is None
-    found = reference.check()
+    found = reference.check(probe=True)
     assert found[0].startswith("codex: new gpt-6.1-sol; gone gpt-5.6-terra")
     assert any(line.startswith("opencode: new opencode/glm-5.3-flash-free") for line in found)
     assert "other/x" not in "".join(found)  # only the opencode/ free tier is tracked
     assert "live model lists changed" in reference.warning()
     reference.accept()
-    assert reference.check() == [] and "live model lists" not in (reference.warning() or "")
+    assert reference.check(probe=True) == [] and "live model lists" not in (reference.warning() or "")
 
 
-def test_a_listing_that_shares_nothing_with_the_lock_is_a_failed_listing(home, monkeypatch):
+def test_valid_new_inventory_is_not_discarded_for_having_no_old_ids(home, monkeypatch):
     write_lock("codex gpt-6-luna\nopencode opencode/glm-5.3-flash-free\n")
     monkeypatch.setattr(
         reference,
@@ -103,9 +103,9 @@ def test_a_listing_that_shares_nothing_with_the_lock_is_a_failed_listing(home, m
             "opencode": lambda: print("opencode/some-other-free\t-"),  # the flaky listing
         },
     )
-    assert reference.drift() == []  # not "the whole free tier retired"
+    assert any("new opencode/some-other-free" in row for row in reference.drift(probe=True))
     reference.accept()
-    assert "opencode opencode/glm-5.3-flash-free" in reference.LOCK.read_text()  # and the lock keeps it
+    assert "opencode opencode/some-other-free" in reference.LOCK.read_text()
 
 
 def test_an_old_lock_and_a_waiting_proposal_each_warn(home):
@@ -120,7 +120,7 @@ def worker(home, edit, subscriptions=lambda text: text):
     """A stand-in for the sandboxed worker: edits only the proposal in its working directory."""
 
     def run(cmd, **_):
-        if cmd[3:4] == ["start"]:
+        if cmd[1:2] == ["start"]:
             work = home / "refresh" / TODAY
             for name, change in (("models.md", edit), ("subscriptions.md", subscriptions)):
                 (work / f"proposed-{name}").write_text(
@@ -140,8 +140,8 @@ def test_refresh_does_not_reuse_a_retained_job_name(home, monkeypatch):
     simulate = worker(home, lambda text: text)
 
     def run(cmd, **kwargs):
-        if cmd[3:4] == ["start"]:
-            started.append(cmd[4])
+        if cmd[1:2] == ["start"]:
+            started.append(cmd[2])
         return simulate(cmd, **kwargs)
 
     monkeypatch.setattr(refresh.subprocess, "run", run)
@@ -164,7 +164,7 @@ def test_a_change_is_never_applied_by_the_job_and_the_next_root_applies_it_after
     assert reference.PENDING.is_file() and guide.read_text() == REAL  # the job only proposes
     assert "waiting for the next root" in capsys.readouterr().out
     assert "waiting for a root to re-check" in reference.warning()  # what the next `start` says
-    waiting = "\n".join(reference.check())
+    waiting = "\n".join(reference.check(probe=True))
     assert "report.md" in waiting  # `stale` names the report to read
     assert "Big moves" in Path(waiting.split("report: ")[1]).read_text()
     with pytest.raises(SystemExit, match="re-check the changed claims"):
@@ -297,7 +297,7 @@ def test_structured_check_is_read_only_and_identifies_stale_guide(home, monkeypa
     before = reference.LOCK.read_bytes()
     (reference.GUIDES / "subscriptions.md").write_text(SUBSCRIPTIONS + "\nedit\n")
     monkeypatch.setattr(reference, "live", lambda: {"codex": {"gpt-6-luna", "new-model"}})
-    data = reference.inspect()
+    data = reference.inspect(probe=True)
     assert data["age_days"] == 0
     assert data["stale_guides"] == ["subscriptions.md"]
     assert data["models"]["codex"] == {"new": ["new-model"], "gone": ["gpt-6.1-sol"]}
@@ -356,20 +356,19 @@ def test_record_requires_confirmation(home, monkeypatch):
 
 def test_refresh_check_and_record_cli_routes(home, monkeypatch, capsys):
     reference.accept()
-    monkeypatch.setattr(refresh.sys, "argv", ["agent-bridge", "refresh", "--check"])
+    monkeypatch.setattr(refresh.sys, "argv", ["model-guide", "check"])
     cli.main()
     assert json.loads(capsys.readouterr().out)["stale_guides"] == []
     assert not reference.CACHE.exists()
     calls = []
     monkeypatch.setattr(refresh, "record", lambda yes: calls.append(yes) or 0)
-    monkeypatch.setattr(refresh.sys, "argv", ["agent-bridge", "refresh", "--record", "--yes"])
-    with pytest.raises(SystemExit) as done:
-        cli.main()
-    assert done.value.code == 0 and calls == [True]
+    monkeypatch.setattr(refresh.sys, "argv", ["model-guide", "refresh", "--record", "--yes"])
+    assert cli.main() == 0
+    assert calls == [True]
 
 
 def test_subscription_guide_cli_remains_opt_in(monkeypatch, capsys):
-    monkeypatch.setattr(refresh.sys, "argv", ["agent-bridge", "guide", "subscriptions"])
+    monkeypatch.setattr(refresh.sys, "argv", ["model-guide", "read", "subscriptions"])
     cli.main()
     assert capsys.readouterr().out == SUBSCRIPTIONS.strip() + "\n"
 
@@ -378,7 +377,7 @@ def test_public_docs_and_help_have_no_holder_specific_wording():
     repo = Path(__file__).resolve().parents[2]
     tracked = subprocess.run(["git", "ls-files", "-z"], cwd=repo,
                              capture_output=True, text=True, check=True).stdout.split("\0")
-    paths = {repo / name for name in tracked if name.endswith(".md")}
+    paths = {repo / name for name in tracked if name.endswith(".md") and (repo / name).is_file()}
     paths.update(reference.GUIDES / name for name in reference.DOCUMENTS)
     paths.add(reference.GUIDES.parent / "cli.py")
     offenders = [str(path.relative_to(repo)) for path in sorted(paths)

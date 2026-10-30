@@ -1,1 +1,1 @@
-../../agents/.config/agents/AGENTS.md
+@[Shared instructions](~/.config/agents/AGENTS.md)

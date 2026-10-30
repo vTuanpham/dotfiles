@@ -9,13 +9,13 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent_resources import heavy, resources
+
 from . import (
     core,
     groups,
-    heavy,
     owner_binding,
     peers,
-    resources,
     status_observations,
     status_resources,
     waiting,
@@ -663,13 +663,6 @@ class Collector:
             unacknowledged_completions=len(unread),
             oldest_unacknowledged_completion_age_seconds=oldest,
         )
-
-
-def refreshed_quota(data):
-    """Adapt the quota writer's fresh observation to the same snapshot/rendering contract."""
-    from .status_inputs import agy_quota
-
-    return replace(Collector().collect(include_quotas=False), quotas=(agy_quota(data, time.time()),))
 
 
 def active_watch(owner):

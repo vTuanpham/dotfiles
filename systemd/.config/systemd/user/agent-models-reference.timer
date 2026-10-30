@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily check of the agent-bridge model reference
+Description=Daily check of the shared model reference
 
 [Timer]
 OnCalendar=daily

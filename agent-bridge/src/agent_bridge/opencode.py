@@ -9,12 +9,14 @@ import stat
 import subprocess
 from pathlib import Path
 
+from agent_models.inventory import ZDR_FREE, logged_free
+from agent_resources.heavy import prepare as heavy_directory
+
 from .core import (
     MESSAGING_RULE,
     POLL,
     REDELIVERED,
     capped,
-    command_env,
     confirm_steer,
     log,
     route_to_peers,
@@ -23,24 +25,10 @@ from .core import (
     save,
     worker_env,
 )
-from .heavy import prepare as heavy_directory
 
 DECLINED = "The user declined this tool call"  # OpenCode's auto-reject; it then aborts the turn
 # The only free-tier models OpenCode documents as zero-retention and never trained on. Any other free model
 # may log or train on prompts, so the bridge refuses it. Refresh this list from OpenCode's model docs.
-ZDR_FREE = (
-    "opencode/glm-5.3-flash-free",
-    "opencode/deepseek-v4.1-flash-free",
-    "opencode/minimax-m3.1-flash-free",
-)
-
-
-def logged_free(model):
-    """A free-tier model that is not on the zero-retention list (the empty model falls back to one)."""
-    free = not model or (
-        model.startswith("opencode/") and ("free" in model or model == "opencode/big-pickle")
-    )
-    return free and model not in ZDR_FREE
 
 
 def binary():
@@ -363,14 +351,3 @@ def run(job, state, path, prompt, resume=False):
         state["activeTurnId"] = None
         log(job, "runner_exit", reason=reason, turnsDone=turn)
         runner_finished(state, path)
-
-
-def models():
-    result = subprocess.run([binary(), "models"], env=command_env(),
-                            capture_output=True, text=True, timeout=120)
-    if result.returncode:
-        raise RuntimeError(result.stderr.strip() or f"opencode models exited with code {result.returncode}")
-    rows = result.stdout.splitlines()
-    for line in sorted(rows, key=lambda row: ("free" not in row.casefold(), row.casefold())):
-        tier = "free-logged" if logged_free(line) else ("free" if "free" in line.casefold() else "paid")
-        print(f"{line}\t-\t{tier}")

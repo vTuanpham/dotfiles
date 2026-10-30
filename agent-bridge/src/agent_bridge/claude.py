@@ -288,8 +288,3 @@ def run(job, state, path, prompt, resume=False, compact=False):
                     log(job, "error", message="claude process group did not exit after SIGKILL")
         state["activeTurnId"] = None
         runner_finished(state, path)
-
-
-def models():
-    for model in ("sonnet", "opus", "haiku"):
-        print(f"{model}\t-\talias")

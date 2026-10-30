@@ -388,22 +388,3 @@ def run(job, state, path, prompt, resume=False, compact=False):
         rpc.close()
         sync_auth(job)
         runner_finished(state, path)
-
-
-def parse_models(catalog):
-    rows = []
-    for model in json.loads(catalog)["models"]:
-        if model["visibility"] == "list":
-            efforts = ",".join(level["effort"] for level in model["supported_reasoning_levels"])
-            rows.append(f"{model['slug']}\t{efforts or '-'}")
-    return rows
-
-
-def models():
-    result = subprocess.run(["codex", "debug", "models"], env=command_env(),
-                            capture_output=True, text=True, timeout=120)
-    if result.returncode:
-        raise RuntimeError(
-            result.stderr.strip() or f"codex debug models exited with code {result.returncode}"
-        )
-    print("\n".join(parse_models(result.stdout)))

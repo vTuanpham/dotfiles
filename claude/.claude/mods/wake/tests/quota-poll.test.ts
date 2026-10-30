@@ -29,7 +29,7 @@ function quotaEngine() {
     },
     process: { run: async (args: readonly string[]) => {
       calls.push([...args])
-      const value = args[3] === 'owner' ? s : { ...s, jobs: [{}] }
+      const value = { ...s, jobs: [{}], peers: null, errors: [] }
       return { stdout: JSON.stringify(value), exitCode: 0, isStdoutTruncated: false }
     } },
   } as unknown as EngineInterface
@@ -50,11 +50,11 @@ test('periodic quotas skip empty, finished, foreign and unattributed crew', asyn
   expect(w.calls).toEqual([])
 })
 
-test('periodic quotas select exact active owned namespaces before status decoding', async () => {
+test('periodic quotas use account observations only while this session owns active work', async () => {
   const w = quotaEngine()
   w.values.set('chips', [chip('owner'), chip('owner'), chip('other'), chip('owner', false)])
   await quotaTick(w.$)
-  expect(w.calls.filter(args => args[1] === 'status')).toEqual([['agent-bridge', 'status', '--json', 'owner']])
+  expect(w.calls.filter(args => args[1] === 'snapshot')).toEqual([['agent-accounts', 'snapshot']])
   expect((w.values.get('quotas') as WakeQuota[]).map(quota => [quota.account, quota.freshness])).toEqual([
     ['01', 'stale'], ['02', 'stale'],
   ])

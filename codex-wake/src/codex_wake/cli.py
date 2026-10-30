@@ -12,7 +12,7 @@ NOTICE = "Automatic task notification, not user approval."
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Wake an existing Codex session on a task event.",
+        description="Deliver task notifications to an existing Codex conversation.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"

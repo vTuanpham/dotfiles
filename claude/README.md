@@ -37,7 +37,8 @@ keeps its native parsing; agent compatibility does not change `.zshenv` options.
 | MCP tools whose names contain browser, chrome, computer, playwright, puppeteer, cua or devtools | `agent-baton guard` | Blocks those tools while a `pass` request is out, and never lets them open a password manager |
 
 `install.sh --apply hooks` adds any of these that your live `~/.claude/settings.json` lacks, keeps everything
-else in it, and leaves a `settings.json.bak-install` copy. The guard fails closed only while a `pass` request
+else in it, and leaves a private recovery copy under
+`${XDG_STATE_HOME:-$HOME/.local/state}/backups/dotfiles/<timestamp>/`. The guard fails closed only while a `pass` request
 is out. Claude also loads the `ponytail` plugin (`enabledPlugins` and `extraKnownMarketplaces` in
 `settings.json`; see "Plugin: ponytail" in the top-level README), which ships hooks of its own.
 
@@ -118,8 +119,10 @@ A stall mark comes from Bridge's shared
 known waits have their own reasons. Finished jobs stay as `done` until Bridge's
 `result` or explicit `ack` acknowledges their completion.
 
-Bridge jobs, quota numbers and tidy eligibility come from
+Bridge jobs and tidy eligibility come from
 [`agent-bridge status --json`](../agent-bridge/src/agent_bridge/guide/status.md).
+Quota observations come independently from
+[`agent-accounts snapshot`](../agent-accounts/README.md).
 Wake maps the shared state and stall reason; heavy waits, root pauses and retry
 backoff stay normal known states. Colored gutter lanes join connected peers;
 ← points to the recipient, ─, ━ and ═ represent 1, 2–4 and 5+ messages,
@@ -138,7 +141,7 @@ account numbers, never emails, with bars for remaining quota. `h` is five-hour,
 `w` weekly and `m` monthly; Codex plans report different windows (Plus `h w`, Pro `w`).
 agy's `G`, `C`, `A` are Gemini, Claude/GPT and Argon buckets. Codex numbers come
 from the local `codex-auth` cache and can be stale; agy numbers come from each
-account's cache, refreshed with `agent-bridge quota --backend agy`.
+account's cache, refreshed with `agent-accounts refresh`.
 
 `*` marks the active account; `?` means its quota is unknown, and `~` marks a
 stale reading or one without a known sample time.

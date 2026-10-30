@@ -66,22 +66,6 @@ def test_active_account_records_only_codex_auth_number(monkeypatch):
     assert codex.active_account() == "3"
 
 
-def test_model_catalog_parser_lists_supported_ids_and_efforts():
-    catalog = json.dumps(
-        {
-            "models": [
-                {
-                    "slug": "model-a",
-                    "visibility": "list",
-                    "supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}],
-                },
-                {"slug": "hidden", "visibility": "hide", "supported_reasoning_levels": []},
-            ]
-        }
-    )
-    assert codex.parse_models(catalog) == ["model-a\tlow,high"]
-
-
 def test_rpc_closes_stderr_when_process_start_fails(monkeypatch, tmp_path):
     stderr = tmp_path / "stderr.log"
     opened = []

@@ -1,10 +1,10 @@
 ## Subscriptions (vendor catalog, no account state)
-Checked 2026-10-27. Read this only when the choice depends on a plan, allowance or retention policy. For strengths and effort advice, use [models](models.md) (`agent-bridge guide plans`). Prices are published USD prices; region, billing terms and rollout can differ. **Unverified** means the cited sources do not establish the detail; do not infer entitlement from a model listing.
+Checked 2026-10-27. Read this only when the choice depends on a plan, allowance or retention policy. For strengths and effort advice, use [models](models.md) (`model-guide read models`). Prices are published USD prices; region, billing terms and rollout can differ. **Unverified** means the cited sources do not establish the detail; do not infer entitlement from a model listing.
 
 ### Find live account state
 - `codex-auth list`: selected account and cached allowance; mask emails when reporting. Live output may label the $100 tier differently from the pricing page. Codex `/status` and the vendor usage dashboard show limits and reset times.
-- `agent-bridge quota --backend agy`: refresh account buckets; `agent-bridge models --backend agy --account ACCOUNT`: account-specific IDs, effort, cost tiers and buckets.
-- `agent-bridge models --backend X`: backend inventory, not proof of included usage. `opencode models` and OpenCode's console show provider access and billing. Claude's `/status` and model picker establish live access; the bridge lists aliases only.
+- `agent-accounts refresh`: refresh account buckets; `model-guide models --backend agy --account ACCOUNT`: account-specific IDs, effort, cost tiers and buckets.
+- `model-guide models --backend X`: backend inventory, not proof of included usage. `opencode models` and OpenCode's console show provider access and billing. Claude's `/status` and model picker establish live access; `model-guide` lists Claude aliases only.
 
 ### Codex / ChatGPT
 The [pricing page](https://learn.chatgpt.com/docs/pricing) lists:

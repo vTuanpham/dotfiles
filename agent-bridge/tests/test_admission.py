@@ -2,8 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-
-from agent_bridge import heavy, resources
+from agent_resources import heavy, resources
 
 GIB = 1024 * resources.MIB
 
@@ -81,9 +80,10 @@ def test_malformed_reservation_metadata_is_rejected(tmp_path, field, value):
         heavy.reservation(path, {"slots": 1})
 
 
-def test_slot_only_request_is_exclusive_until_it_finishes(tmp_path):
-    metadata = heavy.reservation(tmp_path / "old.request", {"slots": 2})
-    assert metadata == {"need": GIB, "exclusive": True, "queued_ns": 0, "cap": 2}
+def test_missing_reservation_is_rejected(tmp_path):
+    path = tmp_path / "missing.request"
+    with pytest.raises(ValueError, match="missing heavy reservation"):
+        heavy.reservation(path, {"slots": 1})
 
 
 def test_memory_units_use_exact_binary_sizes():
@@ -95,9 +95,9 @@ def test_memory_units_use_exact_binary_sizes():
 
 @pytest.mark.parametrize("name", ["SLOTS", "MIN_AVAILABLE_MIB", "MAX_LOAD"])
 def test_malformed_limit_errors_never_echo_environment_values(monkeypatch, name):
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_" + name, "fixture-private-value")
+    monkeypatch.setenv("AGENT_RESOURCES_" + name, "fixture-private-value")
     host = resources.Pressure(8 * GIB, 4 * GIB, 0, 0, ())
     with pytest.raises(ValueError) as error:
         resources.limits(host)
-    assert "AGENT_BRIDGE_HEAVY_" in str(error.value)
+    assert "AGENT_RESOURCES_" in str(error.value)
     assert "fixture-private-value" not in str(error.value)

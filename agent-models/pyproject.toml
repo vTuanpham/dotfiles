@@ -1,0 +1,32 @@
+[project]
+name = "agent-models"
+version = "0.1.0"
+description = "Shared model references and reviewed reference maintenance"
+requires-python = ">=3.11,<3.15"
+dependencies = ["agent-accounts==0.1.0"]
+
+[tool.uv.sources]
+agent-accounts = { path = "../agent-accounts", editable = true }
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+model-guide = "agent_models.cli:main"
+
+[tool.setuptools.package-data]
+agent_models = ["guide/*.md", "guide/models.lock"]
+
+[dependency-groups]
+dev = ["pytest==9.2.0", "ruff==0.17.3", "ty==0.0.94"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

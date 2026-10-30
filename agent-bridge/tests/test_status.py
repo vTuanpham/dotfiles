@@ -6,10 +6,11 @@ from pathlib import Path
 
 import jsonschema
 import pytest
+from agent_accounts.readers import agy_quota, codex_quotas
+from agent_resources import heavy
 
-from agent_bridge import cli, core, heavy, peers, status, status_model, status_render, watch
+from agent_bridge import cli, core, peers, status, status_model, status_render, watch
 from agent_bridge.acknowledgements import acknowledge, displayed, event_lines, urgent
-from agent_bridge.status_inputs import agy_quota, codex_quotas
 from agent_bridge.status_model import HeavyQueue, HeavyRequest, HostPressure
 
 NOW = "2026-10-27T00:00:00+00:00"

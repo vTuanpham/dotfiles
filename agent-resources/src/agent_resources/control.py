@@ -1,14 +1,12 @@
 """Root-only inspection, pause and cancellation of cooperative heavy requests."""
 
-import argparse
 import os
 import signal
 import sys
 import time
-from contextlib import nullcontext
 
-from . import heavy, owner_binding
-from .core import WORKER_FLAG, resolve_job
+from . import heavy
+from .identity import identity
 
 TERM_GRACE = 5
 
@@ -18,19 +16,27 @@ def request_id(path):
 
 
 def require_root():
-    if os.environ.get(WORKER_FLAG):
+    if os.environ.get("AGENT_RESOURCES_WORKER"):
         raise RuntimeError("delegated workers cannot control the heavy queue; ask the root")
 
 
 def listing():
     require_root()
-    from .status import Collector
-    from .status_render import heavy_list
-
-    snapshot = Collector().collect(include_quotas=False)
-    if snapshot.heavy.error:
-        raise ValueError(snapshot.heavy.error)
-    print("\n".join(heavy_list(snapshot)))
+    folder = heavy.prepare()
+    with heavy.gate(folder):
+        paused = heavy.pause_state(folder)
+        if paused["reason"] is not None:
+            print(f"paused by root: {paused['reason']}")
+        now = time.monotonic_ns()
+        for path, row in heavy.entries(folder):
+            state = "running" if row["running"] else "queued"
+            if row["control"]["cancelled"]:
+                state = "cancelling"
+            elapsed = (now - row["started_ns"] if row["running"] else heavy.waited_ns(row, paused, now))
+            label = "elapsed" if row["running"] else "wait"
+            print(f"{request_id(path)} {row['job'] or '-'} {row['command']} "
+                  f"{row['need'] / heavy.MIB:g}MiB {'yes' if row['exclusive'] else 'no'} "
+                  f"{state} {label}={max(0, elapsed) // 10**9}s yes(kernel-lock)")
 
 
 def pause(reason):
@@ -39,8 +45,7 @@ def pause(reason):
         raise ValueError("pause reason must be 1–200 characters without control characters")
     folder = heavy.prepare()
     with heavy.gate(folder):
-        if any(not row["running"] and row["control"] is None for _, row in heavy.entries(folder)):
-            raise RuntimeError("legacy waiters cannot observe pause; let them drain before pausing")
+        heavy.entries(folder)
         state = heavy.pause_state(folder)
         if state["since_ns"] is None:
             state["since_ns"] = time.monotonic_ns()
@@ -96,11 +101,9 @@ def cancel(target):
             raise ValueError("ambiguous heavy request; use an id from heavy list" if matches
                              else "no live heavy request matches; use heavy list")
         selected, request = matches[0]
-    job_name = request.get("job")
-    owner_access = (owner_binding.access(resolve_job(job_name).parent, owner_binding.identity())
-                    if job_name else nullcontext())
-    with owner_access:
-        _cancel_request(folder, target, selected)
+    if request["owner"] is not None and request["owner"] != identity():
+        raise RuntimeError("request belongs to a different root session")
+    _cancel_request(folder, target, selected)
 
 
 def _cancel_request(folder, target, selected):
@@ -110,10 +113,10 @@ def _cancel_request(folder, target, selected):
         if len(matches) != 1:
             raise RuntimeError("heavy request changed before cancellation; refresh heavy list")
         path, row = matches[0]
+        if row["owner"] is not None and row["owner"] != identity():
+            raise RuntimeError("request belongs to a different root session")
         control = row["control"]
         if not row["running"]:
-            if control is None:
-                raise RuntimeError("legacy waiter predates queue control; let it finish or stop its job")
             control["cancelled"] = True
             heavy.write_state(heavy.control_path(path), control)
             print(f"heavy: cancelled queued request {request_id(path)}; waiter exits {heavy.CANCELLED_EXIT}")
@@ -125,13 +128,12 @@ def _cancel_request(folder, target, selected):
         # Verify the inherited descriptor; never signal the worker's process group.
         if not process_has_request(pid, path):
             raise RuntimeError("holder identity changed; no signal sent; refresh heavy list")
-        grouped = control is not None and control["group"] and os.getpgid(pid) == pid
+        grouped = control["group"] and os.getpgid(pid) == pid
         members = group_members(pid) if grouped else group_members(None, only_pid=pid)
         if not members:
             raise RuntimeError("holder exited during cancellation; refresh heavy list")
-        if control is not None:
-            control["cancelled"] = True
-            heavy.write_state(heavy.control_path(path), control)
+        control["cancelled"] = True
+        heavy.write_state(heavy.control_path(path), control)
         send = os.killpg if grouped else os.kill
         try:
             send(pid, signal.SIGTERM)
@@ -162,24 +164,3 @@ def _cancel_request(folder, target, selected):
             raise RuntimeError("stop signals sent but request still holds its lock; inspect heavy list")
         time.sleep(0.05)
     print(f"heavy: cancelled running request {request_id(path)}")
-
-
-def main(argv):
-    require_root()
-    parser = argparse.ArgumentParser(prog="agent-bridge heavy")
-    commands = parser.add_subparsers(dest="action", required=True)
-    commands.add_parser("list", help="list live heavy requests with ids")
-    commands.add_parser("cancel", help="cancel one request by id or unambiguous owner/job").add_argument(
-        "target")
-    commands.add_parser("pause", help="pause new admissions; running work continues").add_argument(
-        "--reason", default="maintenance", help="reason printed to waiters (up to 200 characters)")
-    commands.add_parser("resume", help="resume heavy admissions")
-    args = parser.parse_args(argv)
-    if args.action == "list":
-        listing()
-    elif args.action == "cancel":
-        cancel(args.target)
-    elif args.action == "pause":
-        pause(args.reason)
-    else:
-        resume()

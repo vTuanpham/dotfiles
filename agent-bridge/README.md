@@ -1,6 +1,6 @@
 # agent-bridge
 
-[← Packages](../README.md#packages) · **uv tool** (editable) · [Install](#install) · [When a worker needs you](#when-a-worker-needs-you) · [Restore](#restore-and-root-access) · [Reference refresh](#reference-refresh)
+[← Packages](../README.md#packages) · **uv tool** (editable) · [Install](#install) · [When a worker needs you](#when-a-worker-needs-you) · [Restore](#restore-and-root-access) · [Model references](#model-references)
 
 A cross-harness CLI that lets a root coding agent (Codex, Antigravity/agy, Claude Code or OpenCode) hand work to workers of
 the other harnesses: start a job from a written brief, watch it live, steer or interrupt it, and review its result.
@@ -52,7 +52,8 @@ The [status guide](src/agent_bridge/guide/status.md) documents fields, polling,
 unknown readings and additive V1 evolution. The checked-in
 [JSON Schema](src/agent_bridge/status.schema.json) ships with the package.
 Readers ignore unknown fields and reject unsupported `schema_version` values.
-`owners`, `watch`, `heavy list`, quota text and Wake share the producer; peer
+`owners` and `watch` share the job-status producer. Wake's account row reads
+`agent-accounts` independently; peer
 edges include stable IDs, direction, counts and last-activity timestamps.
 Poll about every ten seconds, with storage scans on demand. Reading status never
 acknowledges events. A streaming diff mode awaits a reliable cross-source cursor
@@ -107,11 +108,13 @@ approval requirements still apply. Baton's
 Install and use (a uv tool, editable from this checkout):
 
 ```sh
-uv tool install --editable ~/dotfiles/agent-bridge
+uv tool install --with-editable ~/dotfiles/codex-wake \
+  --with-editable ~/dotfiles/agent-models --with-editable ~/dotfiles/agent-resources \
+  --with-editable ~/dotfiles/agent-accounts --editable ~/dotfiles/agent-bridge
 agent-bridge --help            # compact command map and workflow rules
-agent-bridge guide workflow    # routing, watching, briefs, review, cleanup and reference refresh
-agent-bridge guide plans       # generic model strength, effort and costs (legacy command name)
-agent-bridge guide subscriptions # all vendor tiers; read only for plan-dependent choices
+agent-bridge guide workflow    # Bridge routing, watching, steering and cleanup
+model-guide read models       # generic model strength, effort and costs
+model-guide read subscriptions # all vendor tiers; read only for plan-dependent choices
 agent-bridge start --help      # each backend's models, effort levels, quota and quirks
 ```
 
@@ -123,37 +126,17 @@ Notes:
 - **Sandboxes are never bypassed.** Workers run in a systemd scope with memory and CPU caps; OpenCode runs
   under `bwrap`, and only the zero-retention free models are allowed.
 - **A worker cannot start jobs**: it carries `AGENT_BRIDGE_WORKER`, which the CLI refuses.
-- **Reference updates:** see [Reference refresh](#reference-refresh) below; the CLI help owns the review workflow.
+- **Reference updates:** `model-guide read maintenance` owns the review workflow.
 
 Develop: `uv run pytest` and `uv run ruff check .` in this directory.
 
-## Heavy commands
+## Resource integration
 
-`agent-bridge heavy --mem SIZE -- <command>` queues heavy foreground work across all owners
-and harnesses of the same host user. Workers receive this rule automatically.
-Heavy means inference/benchmarks, dataset download/extraction, full suites,
-long-lived servers/headless browsers, or more than about 1 GiB/several cores for
-over a minute. Runners, git, edits, reads, lint, type checks and targeted tests
-run directly. Waiting for a slot is normal; periodic holder status needs no ping.
-Jobs run concurrently when their total declared needs fit host/slice capacity
-minus the safety floor and each new need fits live free memory minus that floor,
-with a 1 GiB fallback need when omitted.
-FIFO permits fitting backfill for at most five minutes of head waiting.
-Use `--exclusive` only for timing measurements, never for test suites;
-`AGENT_BRIDGE_HEAVY_SLOTS` is an optional hard cap, unset by default.
-`owners` and `watch` show pressure, declared needs, queue counts and slice OOM
-kills. Existing cgroup membership and caps stay in place; slice settings are
-never changed. Optional standalone caps use systemd when available and warn
-before falling back. See `agent-bridge guide heavy` for defaults, research,
-configuration and limits.
-
-Root-only queue controls: `heavy list` shows request ids, jobs, needs and liveness;
-`heavy cancel <id|owner/job>` cancels one unambiguous request without stopping its
-worker runner. Queued commands exit **125**; running commands receive SIGTERM,
-then SIGKILL after five seconds if needed. `heavy pause --reason "reviewing load"`
-blocks new admissions while running work continues; `heavy resume` reopens the
-queue. Pauses appear in `owners`/`watch`, persist until resumed and do not count
-toward the 30-minute wait report threshold. Workers cannot use these controls.
+[Agent resources](../agent-resources/README.md) owns host admission, queue controls
+and cancellation. Bridge injects the worker/job/controller identity, shares the
+queue through OpenCode's sandbox mount, and reports waits and pressure without
+waking the root. Workers use `agent-resources run --mem SIZE -- <command>`.
+The queue preserves the already-filtered worker environment and existing caps.
 
 Choose job caps with `start ... --memory 4G --cpu 400%`, or `resume <job>` with
 those flags for its next launch. Caps above effective slice/host budgets are
@@ -172,8 +155,8 @@ exact names to remove, taking precedence over pass-through. Lists use exact,
 case-sensitive names and reject wildcards or malformed entries without echoing
 their contents.
 
-The same filter covers heavy commands, account/model queries and helper
-subprocesses. Set pass-through before launching a worker: a removed variable
+The filter applies at Bridge worker/helper launch. Standalone resource commands
+preserve their caller's environment; account queries use their own selected login. Set pass-through before launching a worker: a removed variable
 cannot be recovered from its parent environment later. Variables such as
 `SSH_AUTH_SOCK` also match the default filter and need explicit pass-through
 when required. This filters inherited environments; it does not restrict auth
@@ -194,15 +177,8 @@ Workers carry `AGENT_BRIDGE_WORKER`, which the CLI refuses, so root
 access does not grant workers permission to start more jobs. Worker sandboxing
 remains in place.
 
-## Reference refresh
+## Model references
 
-`agent-bridge stale` compares live model lists with `guide/models.lock`; `start`
-warns when the reference is old or a proposal is waiting. `guide/models.md`,
-`guide/subscriptions.md` and their shared `models.lock` are checked by the
-[reference timer](../systemd/README.md#startup-and-timers).
-The check runs daily; a worker can propose an update at most weekly. Applying a proposal leaves it
-uncommitted. Follow **Keeping the reference current** in `agent-bridge guide workflow`:
-read the report, re-check its cited sources, then apply or discard. A root can also
-read structured drift with `agent-bridge refresh --check`, edit the guides after
-source review and run `agent-bridge refresh --record --yes`. Only apply/record
-writes the lock; proposals, including no-change proposals, wait for review.
+Shared model selection and reference maintenance belong to [agent-models](../agent-models/README.md).
+Use `model-guide read models` and `model-guide read maintenance`; Bridge consumes their reviewed
+reference without owning the refresh process. The delegation skill owns common worker coordination.

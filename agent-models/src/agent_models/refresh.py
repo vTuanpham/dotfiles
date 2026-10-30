@@ -5,14 +5,16 @@ report. Changes always wait for `refresh --apply`; nothing is applied automatica
 
 import difflib
 import re
+import shutil
 import subprocess
 import sys
 from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import opencode, reference
-from .core import HOME, command_env
+from . import reference
+from .inventory import ZDR_FREE
+from .state import HOME
 
 DIR = HOME / "refresh"
 STAMP = DIR / "last"
@@ -119,7 +121,7 @@ def validate(old, new, stamp, name="models.md"):
         if table_labels(old) != table_labels(new):
             errors.append("the subscription tier rows changed")
         free = next((line for line in new.splitlines() if line.startswith("- **OpenCode free**")), "")
-        if set(FREE_IDS.findall(free)) != set(opencode.ZDR_FREE):
+        if set(FREE_IDS.findall(free)) != set(ZDR_FREE):
             errors.append("the free-tier list differs from the zero-retention list in code")
         return errors, notes
     if not after or not set(before) <= set(after):
@@ -223,11 +225,11 @@ def due():
 
 def run(force=False):
     if reference.PENDING.is_file() and not force:
-        print("a refreshed reference is waiting: `agent-bridge refresh --apply` or `--discard`")
+        print("a refreshed reference is waiting: `model-guide refresh --apply` or `--discard`")
         return 0
     if not force and not due():
         return 0
-    reference.check()  # also refreshes the cache that `start` reads
+    reference.check(probe=True)
     today = date.today().isoformat()
     work = DIR / today
     work.mkdir(parents=True, exist_ok=True)
@@ -248,11 +250,15 @@ def run(force=False):
     (work / "notes.md").unlink(missing_ok=True)
     backend, model, effort = WORKER
     job = f"refresh/models-{datetime.now():%Y%m%d-%H%M%S-%f}"
-    cmd = [sys.executable, "-m", "agent_bridge.cli", "start", job, "--backend", backend, "--model", model]
+    launcher = shutil.which("agent-bridge")
+    if launcher is None:
+        print("proposal generation needs agent-bridge; use model-guide refresh --record after manual review")
+        return 1
+    cmd = [launcher, "start", job, "--backend", backend, "--model", model]
     cmd += ["--effort", effort, "--title", "Refresh model reference", "--cwd", str(work)]
     cmd += ["--sandbox", "workspace-write", "--prompt-file", str(work / "brief.md")]
     try:
-        done = subprocess.run(cmd, env=command_env(), capture_output=True, text=True, timeout=TIMEOUT_S)
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT_S)
     except subprocess.TimeoutExpired:
         print(f"the refresh worker timed out; nothing changed (job {job})")
         return 1
@@ -263,8 +269,7 @@ def run(force=False):
     new = documents(work, "proposed-")
     errors, notes = validate_documents(current, new, today)
     report(work, current, new, errors, notes)
-    subprocess.run([sys.executable, "-m", "agent_bridge.cli", "retire", job],
-                   env=command_env(), capture_output=True)
+    subprocess.run([launcher, "retire", job], capture_output=True, timeout=30)
     if errors:
         print(f"proposal rejected, nothing changed: {'; '.join(errors)}\nreport: {work / 'report.md'}")
         return 1
@@ -291,12 +296,12 @@ def committed():
         path = reference.GUIDES / name
         relative = subprocess.run(["git", "ls-files", "--full-name", "--", str(path)],
                                   cwd=reference.GUIDES, check=True, capture_output=True,
-                                  text=True, env=command_env()).stdout.strip()
+                                  text=True).stdout.strip()
         if not relative:
             sys.exit(f"cannot review {name}: guide must have a committed baseline")
         result[name] = subprocess.run(["git", "show", f"HEAD:{relative}"], cwd=reference.GUIDES,
                                       check=True, capture_output=True, text=True,
-                                      env=command_env()).stdout
+                                      ).stdout
     return result
 
 
@@ -363,7 +368,7 @@ def apply(yes):
     if documents(reference.GUIDES) != old:
         sys.exit("the guides changed during review; refresh again")
     install(new)
-    print("applied to guide/models.md, guide/subscriptions.md and the lock (uncommitted, see `git diff`)")
+    print("applied to shared models.md, subscriptions.md and models.lock (uncommitted, see `git diff`)")
     return 0
 
 

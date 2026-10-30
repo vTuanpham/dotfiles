@@ -10,8 +10,9 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 
+from agent_resources.heavy import write_state
+
 from . import core, owner_binding
-from .heavy import write_state
 from .status_inputs import timestamp
 from .status_model import GroupNotice, WakeGroup, WakePolicy
 

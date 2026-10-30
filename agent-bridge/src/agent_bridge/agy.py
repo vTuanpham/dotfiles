@@ -1,5 +1,3 @@
-import contextlib
-import io
 import json
 import os
 import select
@@ -362,54 +360,6 @@ def tier(model):
     return cost, bucket
 
 
-def models(account="a1"):
-    out = subprocess.run(
-        ["agy", "models"], env=account_env(account), capture_output=True, text=True, timeout=120
-    ).stdout
-    for line in out.splitlines():
-        mid, _, label = line.partition("\t")
-        if label and "gpt-oss" not in mid:
-            print("\t".join((mid, "-", *tier(mid), label)))
-
-
-def quota(account=None):
-    if account is None:
-        for home in sorted(ACCOUNTS.iterdir()):
-            if home.is_dir() and (home / TOKEN).is_file():
-                quota(home.name)
-        return
-    result = subprocess.run(
-        ["agy", "--output-format", "json", "-p=/usage"],
-        env=account_env(account),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        cwd=str(ACCOUNTS / account),
-    )
-    out = json.loads(result.stdout)
-    rows = []
-    for line in out.get("result", out).get("response", "").splitlines():
-        parts = line.split("\t")
-        if len(parts) == 4 and parts[2].rstrip("%").isdigit():
-            rows.append(
-                {
-                    "group": parts[0],
-                    "limit": parts[1],
-                    "remaining": int(parts[2].rstrip("%")),
-                    "resets": parts[3],
-                }
-            )
-    if not rows:
-        raise RuntimeError(f"no quota rows for {account}: {result.stderr.strip()[:200]}")
-    from .core import save, stamp
-
-    save(ACCOUNTS / account / "quota.json", {"account": account, "at": stamp(), "rows": rows})
-    from . import status, status_render
-
-    snapshot = status.refreshed_quota({"account": account, "at": stamp(), "rows": rows})
-    print("\n".join(status_render.quota(snapshot, "agy", account)))
-
-
 def fallback(job, state, state_path):
     if os.environ.get("AGENT_BRIDGE_AGY_FALLBACK") == "0":
         return
@@ -417,7 +367,8 @@ def fallback(job, state, state_path):
     cooldowns = state.get("agyFallbackCooldowns", {})
 
     def quota_cache(account_dir):
-        from .status_inputs import agy_quota
+        from agent_accounts import providers
+        from agent_accounts.readers import agy_quota
 
         try:
             data = json.loads((account_dir / "quota.json").read_text())
@@ -425,8 +376,7 @@ def fallback(job, state, state_path):
             if cached.freshness != "fresh" or cached.account != account_dir.name:
                 raise ValueError("stale quota")
         except (OSError, ValueError, KeyError, TypeError):
-            with contextlib.redirect_stdout(io.StringIO()):
-                quota(account_dir.name)
+            providers.refresh(account_dir.name, root=ACCOUNTS, environ=account_env(account_dir.name))
             data = json.loads((account_dir / "quota.json").read_text())
             cached = agy_quota(data, time.time())
             if cached.account != account_dir.name:

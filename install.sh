@@ -54,8 +54,15 @@ step_tools() {
 step_uvtools() {
   if ! have uv; then say "  uv is missing: run the tools step first"; return 0; fi
   local tool
-  for tool in codex-wake agent-bridge agent-baton agent-inbox portlink agent-lab; do
-    if uv tool list 2>/dev/null | grep -q "^$tool "; then say "  $tool installed"; else act uv tool install --editable "$REPO/$tool"; fi
+  local dependencies=()
+  for tool in agent-accounts agent-models agent-resources codex-wake agent-bridge agent-baton agent-inbox portlink agent-lab; do
+    dependencies=()
+    case $tool in
+      agent-models) dependencies=(--with-editable "$REPO/agent-accounts") ;;
+      agent-bridge) dependencies=(--with-editable "$REPO/codex-wake" --with-editable "$REPO/agent-models"
+        --with-editable "$REPO/agent-resources" --with-editable "$REPO/agent-accounts") ;;
+    esac
+    if uv tool list 2>/dev/null | grep -q "^$tool "; then say "  $tool installed"; else act uv tool install "${dependencies[@]}" --editable "$REPO/$tool"; fi
   done
 }
 
@@ -101,14 +108,14 @@ LINKS=(
   "gemini/.gemini/AGENTS.md .gemini/AGENTS.md"
   "gemini/.gemini/config/skills/agent-baton .gemini/config/skills/agent-baton"
   "gemini/.gemini/config/skills/agent-bridge .gemini/config/skills/agent-bridge"
-  "systemd/.config/systemd/user/agent-bridge-reference.service .config/systemd/user/agent-bridge-reference.service"
-  "systemd/.config/systemd/user/agent-bridge-reference.timer .config/systemd/user/agent-bridge-reference.timer"
+  "systemd/.config/systemd/user/agent-models-reference.service .config/systemd/user/agent-models-reference.service"
+  "systemd/.config/systemd/user/agent-models-reference.timer .config/systemd/user/agent-models-reference.timer"
   "systemd/.config/systemd/user/agent-lab-gc.service .config/systemd/user/agent-lab-gc.service"
   "systemd/.config/systemd/user/agent-lab-gc.timer .config/systemd/user/agent-lab-gc.timer"
   "systemd/.config/environment.d/999-local-bin.conf .config/environment.d/999-local-bin.conf"
 )
 PSTACK_SKILLS=(correct benchmark-checklist create-verification-skill maintain-verification-skill how why blast-radius arena unslop)
-for skill in "${PSTACK_SKILLS[@]}" python-project agent-lab; do
+for skill in "${PSTACK_SKILLS[@]}" python-project agent-lab model-selection delegation resource-admission; do
   for directory in .agents/skills .claude/skills .gemini/config/skills; do
     LINKS+=("agents/.agents/skills/$skill $directory/$skill")
   done
@@ -143,7 +150,7 @@ step_systemd() {
   if ! have systemctl; then say "  no systemctl here"; return 0; fi
   act systemctl --user daemon-reload
   local timer
-  for timer in agent-bridge-reference.timer agent-lab-gc.timer; do
+  for timer in agent-models-reference.timer agent-lab-gc.timer; do
     if systemctl --user is-enabled "$timer" >/dev/null 2>&1; then
       say "  $timer enabled"
     else
@@ -202,9 +209,18 @@ merge_hooks() { # merge_hooks <snapshot in the repo> <live file under $HOME>
   if [[ ! -f $live ]]; then say "  ~/$2 is missing: the snapshots step copies it"; return 0; fi
   merged=$(jq --slurpfile s "$snap" "$HOOKS_JQ" "$live")
   if [[ $(jq -S . <<<"$merged") == "$(jq -S . "$live")" ]]; then say "  ~/$2 already has the hooks"; return 0; fi
-  say "  ~/$2 gains the hooks and plugins it lacks (a copy is kept as $2.bak-install)"
+  say "  ~/$2 gains the hooks and plugins it lacks (a private recovery copy goes under state/backups/dotfiles/)"
   if ((APPLY)); then
-    cp -p "$live" "$live.bak-install"
+    (
+      umask 077
+      local backup_root="${XDG_STATE_HOME:-$HOME/.local/state}/backups/dotfiles" backup
+      install -d -m 700 "$backup_root"
+      backup=$(mktemp -d "$backup_root/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")
+      install -d -m 700 "$backup/$(dirname "$2")"
+      install -m 600 "$live" "$backup/$2"
+      printf '%s\n' "Original path: $live" "Original mode: $(stat -c %a "$live")" \
+        'Review the current file before restoring this copy; reapply its original mode.' >"$backup/README.txt"
+    )
     printf '%s\n' "$merged" >"$live"
   fi
 }

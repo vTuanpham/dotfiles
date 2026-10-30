@@ -6,18 +6,16 @@ import time
 from contextlib import ExitStack
 from pathlib import Path
 
+from agent_models import reference
+from agent_resources import resources
+
 from . import (
     agy,
     claude,
     codex,
     groups,
-    heavy,
-    heavy_control,
     opencode,
     owner_binding,
-    reference,
-    refresh,
-    resources,
     retirement,
     retries,
     status,
@@ -249,6 +247,7 @@ def guide(*names):
 
 
 def main():
+    os.environ.setdefault("AGENT_RESOURCES_SLICE", "codex.slice")
     if (
         os.environ.get(WORKER_FLAG)
         and len(sys.argv) > 1
@@ -266,9 +265,7 @@ def main():
             "Steer delivers to running jobs and resumes idle jobs; --queue only queues.\n"
             "Read result, verify the work, then retire when its context is no longer needed.\n\n"
             "Details: <command> --help for flags; start --help for backend notes.\n"
-            "Guides: guide workflow (routing, watch, briefs, review, Keeping the reference current);\n"
-            "        guide plans (model strength and costs); guide prints workflow and plans.\n"
-            "        guide subscriptions (all tiers; read only for plan-dependent choices).\n"
+            "Guides: guide workflow for Bridge execution; model-guide for shared model references.\n"
             "Storage: ~/.local/state/agent-bridge/jobs (or $AGENT_BRIDGE_HOME/jobs)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -276,8 +273,7 @@ def main():
     sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
     g = sub.add_parser("guide", help="read workflow, model, subscription, source or status guidance")
     g.add_argument("topic", nargs="?",
-                   choices=("workflow", "plans", "subscriptions", "sources", "heavy", "status"),
-                   help="omit to read workflow and plans")
+                   choices=("workflow", "status"), help="omit to read workflow")
     sub.add_parser(
         "sessions", help="export native job identities as JSON (no transcripts)",
         description="Export native job identities across owners as JSON (no transcript data).",
@@ -404,22 +400,6 @@ def main():
     sub.add_parser("handoff", help="transfer one owner namespace to this root session").add_argument(
         "owner", help="owner whose jobs this root will take over"
     )
-    h = sub.add_parser("heavy", help="wait for a shared heavy slot and host headroom, then run a command",
-                       description="Heavy: model inference/benchmarks, dataset downloads/extraction, full "
-                       "suites, long-lived servers/headless browsers, or >1 GiB/several cores for >1 minute. "
-                       "Do not wrap runners, git, edits, reads, lint, type checks or targeted tests. "
-                       "Wrap the whole foreground job; do not nest heavy calls. "
-                       "Declare --mem SIZE (default 1G); use --exclusive only for timing measurements. "
-                       "Root controls: heavy list, cancel <id|owner/job>, pause [--reason TEXT], resume. "
-                       "Settings: AGENT_BRIDGE_HEAVY_SLOTS (optional hard cap), HEAVY_MIN_AVAILABLE_MIB "
-                       "(max of 1024 and 20% effective RAM), HEAVY_MAX_LOAD (80% of CPU count); "
-                       "all names use the AGENT_BRIDGE_ prefix.")
-    h.add_argument("--memory-max-mib",
-                   help="standalone scope RAM cap; inherited worker caps stay in place; warns if unavailable")
-    h.add_argument("--mem", metavar="SIZE", help="expected peak memory, such as 1G or 2500M (default: 1G)")
-    h.add_argument("--exclusive", action="store_true",
-                   help="timing measurements only: exclude all other heavy jobs; never use for test suites")
-    h.add_argument("argv", nargs=argparse.REMAINDER, help="-- <command> [arguments...]")
     peers = sub.add_parser("peers", help="list sibling jobs under this job's owner")
     peers.add_argument("job", nargs="?", help="job used to select the owner; defaults to AGENT_BRIDGE_JOB")
     result = sub.add_parser("result", help="print messages from a job's final turn")
@@ -456,36 +436,7 @@ def main():
         type=int,
         help="wait limit before exit 124; Codex continues through scheduled unread reminders",
     )
-    for name in ("models", "quota"):
-        x = sub.add_parser(
-            name,
-            help="list available models" if name == "models" else "show agy quota for signed-in accounts",
-        )
-        x.add_argument(
-            "--backend",
-            choices=("agy", "claude", "codex", "opencode") if name == "models" else ("agy",),
-            required=True,
-            help="backend to query",
-        )
-        x.add_argument(
-            "--account", help="agy account name (defaults to a1 for models, all signed-in accounts for quota)"
-        )
-    stale = sub.add_parser("stale", help="render model and guide drift (refresh --check for JSON)")
-    stale.add_argument("--accept", action="store_true", help="legacy alias for refresh --record --yes")
-    rf = sub.add_parser(
-        "refresh", help="propose, apply or discard a model reference refresh",
-        description="Weekly: a sandboxed worker proposes a refreshed reference; you confirm it.",
-    )
-    action = rf.add_mutually_exclusive_group()
-    action.add_argument("--force", action="store_true", help="run even if one ran in the last 7 days")
-    action.add_argument("--apply", action="store_true", help="apply the waiting proposal after confirmation")
-    action.add_argument("--check", action="store_true", help="read-only drift, age and stale guides as JSON")
-    action.add_argument("--record", action="store_true", help="validate root edits and record source review")
-    rf.add_argument("--yes", action="store_true", help="with --apply/--record: sources already re-checked")
-    action.add_argument("--discard", action="store_true", help="drop the waiting proposal")
     if len(sys.argv) > 1:
-        if sys.argv[1] == "backends":
-            p.error("unknown command 'backends'; use models --backend <codex|agy|claude|opencode>")
         flags = sys.argv[2:sys.argv.index("--")] if "--" in sys.argv[2:] else sys.argv[2:]
         if sys.argv[1] == "steer" and any(arg.split("=", 1)[0] == "--message" for arg in flags):
             st.error("steer takes the message as a positional argument: agent-bridge steer <job> 'message'")
@@ -577,20 +528,8 @@ def main():
                         raw = data["policies"].get(label, asdict(groups.DEFAULT_POLICY))
                         print(f"{a.owner}/{label} " + json.dumps(raw, sort_keys=True))
             return
-        if a.command == "heavy":
-            if a.argv[:1] and a.argv[0] in {"list", "cancel", "pause", "resume"}:
-                if a.mem is not None or a.exclusive or a.memory_max_mib is not None:
-                    h.error("command flags cannot be combined with heavy queue controls")
-                heavy_control.main(a.argv)
-                return
-            heavy.run(a.argv[1:] if a.argv[:1] == ["--"] else a.argv, a.memory_max_mib,
-                      mem=a.mem, exclusive=a.exclusive)
-            return
         if a.command == "guide":
-            names = {"workflow": ("overview",), "plans": ("models",),
-                     "subscriptions": ("subscriptions",), "sources": ("sources",),
-                     "heavy": ("heavy",), "status": ("status",)}
-            print(guide(*names.get(a.topic, ("overview", "models"))))
+            print(guide("status" if a.topic == "status" else "overview"))
             return
         if a.command == "status":
             snapshot = status.Collector(JOBS).collect(a.owner, storage=a.storage,
@@ -631,21 +570,6 @@ def main():
             if failed:
                 raise SystemExit(1)
             return
-        if a.command == "stale":
-            if a.accept:
-                raise SystemExit(refresh.record(yes=True))
-            found = reference.check()
-            print("\n".join(found) if found else "the reference is current")
-            raise SystemExit(1 if found else 0)
-        if a.command == "refresh":
-            if a.check:
-                print(json.dumps(reference.inspect(), indent=2))
-                return
-            if a.record:
-                raise SystemExit(refresh.record(a.yes))
-            if a.discard:
-                raise SystemExit(refresh.discard())
-            raise SystemExit(refresh.apply(a.yes) if a.apply else refresh.run(a.force))
         if a.command == "start":
             if note := reference.warning():
                 print(note, file=sys.stderr)
@@ -702,16 +626,6 @@ def main():
                 sys.stdout.flush()
                 if completion and not os.environ.get(WORKER_FLAG):
                     acknowledge(job, completion)
-            return
-        if a.command in ("models", "quota"):
-            if a.backend == "agy":
-                getattr(agy, a.command)(a.account or (None if a.command == "quota" else "a1"))
-            elif a.backend == "claude":
-                claude.models()
-            elif a.backend == "opencode":
-                opencode.models()
-            else:
-                codex.models()
             return
         job = resolve_job(a.job)
         if a.command in ROOT_COMMANDS or a.command == "compact":

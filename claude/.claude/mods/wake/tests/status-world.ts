@@ -24,7 +24,7 @@ export function engine(s: BridgeSnapshot) {
   const calls: string[][] = []
   const $ = { process: { run: async (args: readonly string[]) => {
     calls.push([...args])
-    return { stdout: JSON.stringify(s), exitCode: 0, isStdoutTruncated: false }
+    return { stdout: JSON.stringify({ ...s, errors: [] }), exitCode: 0, isStdoutTruncated: false }
   } } } as unknown as EngineInterface
   return { $, calls, s }
 }

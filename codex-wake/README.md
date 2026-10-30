@@ -1,10 +1,12 @@
-# codex-wake
+# Codex task notifications
 
 [← Packages](../README.md#packages) · **uv tool** (editable) · Codex-specific
 
 Wake an existing Codex conversation when something needs its attention. Builds,
 file watchers, timers and other tools can send native task notifications after
-the model goes idle. No Bridge installation is required.
+the model goes idle. The command is `codex-wake`; Claude's visual
+[Wake mod](../claude/README.md#wake-mod-live) is a separate feature.
+No Bridge installation is required.
 
 ```mermaid
 flowchart LR

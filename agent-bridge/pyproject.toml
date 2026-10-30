@@ -2,10 +2,14 @@
 name = "agent-bridge"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["codex-wake==0.1.0"]
+dependencies = ["codex-wake==0.1.0", "agent-models==0.1.0", "agent-resources==0.1.0",
+                "agent-accounts==0.1.0"]
 
 [tool.uv.sources]
 codex-wake = { path = "../codex-wake", editable = true }
+agent-models = { path = "../agent-models", editable = true }
+agent-resources = { path = "../agent-resources", editable = true }
+agent-accounts = { path = "../agent-accounts", editable = true }
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -15,7 +19,7 @@ build-backend = "setuptools.build_meta"
 agent-bridge = "agent_bridge.cli:main"
 
 [tool.setuptools.package-data]
-agent_bridge = ["guide/*.md", "guide/models.lock", "status.schema.json"]
+agent_bridge = ["guide/*.md", "status.schema.json"]
 
 [dependency-groups]
 dev = ["pytest", "ruff", "jsonschema>=4,<5"]

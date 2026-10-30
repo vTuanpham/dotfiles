@@ -24,10 +24,10 @@ test('quota numbers come only from the snapshot; refresh does not parse its text
   const w = engine(s)
   const result = await scanQuotas(w.$, { refreshAgy: true })
   expect(result[0]).toMatchObject({ cli: 'agy', account: 'a1', freshness: 'stale', parts: [{ label: 'Gh', pct: 42, resets: 'in 3 hours' }] })
-  expect(w.calls).toEqual([['agent-bridge', 'quota', '--backend', 'agy'], ['agent-bridge', 'status', '--json']])
+  expect(w.calls).toEqual([['agent-accounts', 'refresh'], ['agent-accounts', 'snapshot']])
 })
 
-test('scoped quota scans request only owned job history and retain all account quotas', async () => {
+test('account scans are independent of job and peer history', async () => {
   const scoped = snapshot()
   scoped.jobs = [job()]
   scoped.quotas = ['01', '02'].map(account => ({ backend: 'codex', account, plan: null,
@@ -37,11 +37,11 @@ test('scoped quota scans request only owned job history and retain all account q
   const $ = { process: { run: async (args: readonly string[]) => {
     calls.push([...args])
     // Unscoped history contains an unrelated invalid record: it must never reach this decoder.
-    const value = args[3] === 'owner' ? scoped : { ...scoped, jobs: [{}] }
+    const value = { ...scoped, jobs: [{}], peers: null, errors: [] }
     return { stdout: JSON.stringify(value), exitCode: 0, isStdoutTruncated: false }
   } } } as unknown as EngineInterface
   const quotas = await scanQuotas($, { owners: ['owner'] })
-  expect(calls).toEqual([['agent-bridge', 'status', '--json', 'owner']])
+  expect(calls).toEqual([['agent-accounts', 'snapshot']])
   expect(quotas.map(quota => [quota.account, quota.freshness, quota.parts[0]?.pct])).toEqual([
     ['01', 'unknown', 42], ['02', 'unknown', 42],
   ])

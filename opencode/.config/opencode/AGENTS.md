@@ -1,1 +1,3 @@
-../../../agents/.config/agents/AGENTS.md
+# OpenCode preferences
+
+Shared instructions are loaded through `instructions` in `opencode.jsonc`.

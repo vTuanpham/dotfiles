@@ -47,15 +47,19 @@ question for you, passed tests (fireworks), a failed command (storm), a finished
 
 ![Agent Baton carries questions between you and the root; Agent Bridge carries work between the root and workers. Wake observes the session and its workers in Claude Code. Shared instructions apply across harnesses.](docs/images/agent-tools.gif)
 
+- **[Model references](agent-models/README.md)**: model selection and independent reference maintenance.
+- **[Agent resources](agent-resources/README.md)**: shared host admission for heavy commands.
+- **[Account observations](agent-accounts/README.md)**: cached allowance without job-history coupling.
 - **[Agent Bridge](agent-bridge/README.md)**: persistent jobs, live steering, resource limits.
 - **[Agent Baton](agent-baton/README.md)**: questions, choices and private secret handoffs.
 - **[Agent Inbox](agent-inbox/README.md)**: your existing root conversations, chat and questions, on your phone.
-- **[Codex Wake](codex-wake/README.md)**: native session wake-ups from background commands and task events.
+- **[Codex task notifications](codex-wake/README.md)**: native session wake-ups from background commands and task events.
 - **[Agent Lab](agent-lab/README.md)**: persistent experiments, provenance, size warnings and safe retirement.
 - **[Wake](claude/README.md#wake-mod-live)**: the Claude-only landscape, crew and quota rows shown above.
 - **[Shared instructions](agents/README.md)**: one `AGENTS.md` plus the Bridge and Baton briefings.
 
-The CLIs document their workflows through `agent-bridge guide workflow` and
+Model-selection and delegation skills route general decisions to shared references or
+native harness controls. The CLIs document execution through `agent-bridge guide workflow` and
 `agent-baton --help`; exact permission grants stay local.
 [Claude](claude/README.md#hooks) and [Codex](codex/README.md) document the shared
 RTK/Baton hooks and their trust setup. Antigravity and OpenCode have no hooks
@@ -147,6 +151,9 @@ does the linking). Every package README opens with its kind.
 | [agent-inbox](agent-inbox/README.md) | uv tool + user service | Phone chat for existing root conversations; editable uv tool |
 | [portlink](portlink/README.md) | uv tool | Private preview URLs, QR codes and automatic route expiry |
 | [codex-wake](codex-wake/README.md) | uv tool | Native Codex task notifications from commands, hooks and event producers |
+| [agent-models](agent-models/README.md) | uv tool + timer | General model references and source-reviewed refresh |
+| [agent-resources](agent-resources/README.md) | uv tool | Cooperative host resource queue |
+| [agent-accounts](agent-accounts/README.md) | uv tool | Independent cached account observations |
 | [agent-lab](agent-lab/README.md) | uv tool + live skill and timer | Persistent experiment folders, provenance and retirement cleanup |
 | [systemd](systemd/README.md) | Live + reference | User units, reference timer and service PATH |
 | [chrome](chrome/README.md) | Live + manual | Global Chrome extensions; ChatGPT browser transport from WSL |

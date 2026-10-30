@@ -1,16 +1,16 @@
 """Persisted status boundaries: invalid observations stay unknown, never guessed."""
 
-import json
 import re
 import subprocess
 from datetime import datetime
 
-from . import agy, resources
+from agent_accounts import providers
+from agent_resources import resources
+
+from . import agy
 from .acknowledgements import INFORMATIONAL_ONLY_KINDS, event_lines, urgent
 from .core import command_env, load_state, tree_size
-from .status_model import MESSAGE_PREVIEW_LIMIT, Event, Quota, QuotaWindow, TidyItem
-
-AGY_QUOTA_FRESH_SECONDS = 600
+from .status_model import MESSAGE_PREVIEW_LIMIT, Event, TidyItem
 
 
 def timestamp(value):
@@ -179,121 +179,10 @@ def unanswered(job, evs):
     return sum(i > last for i in blocking)
 
 
-def codex_quotas(text):
-    """codex-auth's local cache view; strip account addresses at this boundary."""
-    result = []
-    for line in text.splitlines():
-        match = re.fullmatch(r"\s*(\*)?\s*(\d{2})\s+\S+@\S+\s+(.*)", line)
-        if not match:
-            continue
-        rest = match[3]
-        plan = re.match(r"([A-Za-z][A-Za-z ]*?)\s{2,}", rest)
-        if not plan:
-            raise ValueError("invalid codex quota plan")
-        plan = plan[1].strip()
-        pcts = [int(p) for p in re.findall(r"(\d+)%", rest)]
-        if any(p > 100 for p in pcts) or len(pcts) > 2:
-            raise ValueError("invalid codex quota percentage")
-        parts = []
-        unsupported = False
-        if pcts:
-            if plan.lower().startswith("free"):
-                parts = [("m", pcts[0])]
-            elif plan.lower().startswith("plus"):
-                parts = list(zip(("h", "w"), pcts))
-            elif plan.lower().startswith("pro"):
-                parts = [("w", pcts[-1])]
-            else:
-                unsupported = True
-        status = (
-            "expired" if "token_expired" in rest else "signed out" if re.search(r"\b401\b", rest) else None
-        )
-        if unsupported and status is None:
-            status = "unsupported plan"
-        result.append(
-            Quota(
-                "codex",
-                match[2],
-                plan,
-                match[1] == "*",
-                tuple(QuotaWindow(label, pct, "", label, None) for label, pct in parts),
-                status,
-                None,
-                None,
-                "unknown",
-            )
-        )
-    return result
-
-
-def agy_quota(data, now):
-    if type(data) is not dict or type(data.get("account")) is not str or not data["account"]:
-        raise ValueError("invalid quota account")
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", data["account"]):
-        raise ValueError("invalid quota account")
-    at = timestamp(data.get("at"))
-    if at > now + 60 or type(data.get("rows")) is not list or not data["rows"]:
-        raise ValueError("invalid quota time or rows")
-    parts = []
-    groups = {"Gemini Models": "G", "Claude and GPT models": "C", "Gemini 4 Argon": "A"}
-    for row in data["rows"]:
-        if (
-            type(row) is not dict
-            or any(type(row.get(k)) is not str for k in ("group", "limit", "resets"))
-            or type(row.get("remaining")) is not int
-            or not 0 <= row["remaining"] <= 100
-        ):
-            raise ValueError("invalid quota row")
-        if any(len(row[k]) > 4096 or any(ord(c) < 32 for c in row[k]) for k in ("group", "limit", "resets")):
-            raise ValueError("invalid quota row text")
-        label = groups.get(row["group"], row["group"])
-        if "five hour" in row["limit"].lower():
-            label += "h"
-        elif "weekly" in row["limit"].lower():
-            label += "w"
-        else:
-            label += "/" + row["limit"]  # preserve unknown limits rather than invent a weekly window
-        parts.append(QuotaWindow(label, row["remaining"], row["group"], row["limit"], row["resets"]))
-    order = list(dict.fromkeys(p.label[0] for p in parts))
-    parts.sort(key=lambda p: (order.index(p.label[0]), p.label))
-    age = max(0, int(now - at))
-    return Quota(
-        "agy",
-        data["account"],
-        None,
-        False,
-        tuple(parts),
-        None,
-        data["at"],
-        age,
-        "fresh" if age <= AGY_QUOTA_FRESH_SECONDS else "stale",
-    )
-
-
 def quotas(now, errors):
-    result = []
-    try:
-        run = subprocess.run(
-            ["codex-auth", "list"], capture_output=True, text=True, timeout=5, env=command_env()
-        )
-        if run.returncode == 0:
-            result.extend(codex_quotas(run.stdout))
-        else:
-            errors.append("codex quota unavailable")
-    except (OSError, ValueError, subprocess.SubprocessError):
-        errors.append("codex quota unavailable")
-    for path in sorted(agy.ACCOUNTS.glob("*/quota.json")):
-        try:
-            if (path.is_symlink() or not path.resolve().is_relative_to(agy.ACCOUNTS.resolve())
-                    or path.stat().st_size > 1048576):
-                raise ValueError("unsafe quota cache")
-            q = agy_quota(json.loads(path.read_text()), now)
-            if q.account != path.parent.name:
-                raise ValueError("quota account mismatch")
-            result.append(q)
-        except (OSError, ValueError, TypeError):
-            errors.append("agy quota cache invalid")
-    return tuple(result)
+    result, failures = providers.snapshot(now, root=agy.ACCOUNTS, environ=command_env())
+    errors.extend(failures)
+    return result
 
 
 def tidy(job, state, now):

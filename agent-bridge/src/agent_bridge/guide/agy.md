@@ -1,6 +1,6 @@
 # agy backend (Antigravity CLI)
 
-- Which models agy offers depends on the account: read `agent-bridge models --backend agy` for what can be started. Gemini Flash is the cheap default. The Claude models (Opus, Sonnet) suit taste-heavy UI/visual work, especially when Claude's own quota is tight; they share one quota bucket, so check `quota` before a large fan-out.
+- Which models agy offers depends on the account: read `model-guide models --backend agy` for what can be started. Gemini Flash is the cheap default. The Claude models (Opus, Sonnet) suit taste-heavy UI/visual work, especially when Claude's own quota is tight; they share one quota bucket, so check `quota` before a large fan-out.
 - The model list includes Gemini and Claude IDs with cost tiers and quota buckets; GPT-OSS models are excluded.
 - Prefer cheap-tier models unless the task needs more. Quota is tracked per bucket and account; stale cache data is refreshed by the runner.
 - Accounts are isolated under `~/.agy-accounts/<a>/`; the user signs in new accounts from a terminal.

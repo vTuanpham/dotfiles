@@ -70,12 +70,6 @@ def test_claude_settings_and_event_mapping(tmp_path, capsys):
     assert json.loads((tmp_path / "claude-settings.json").read_text())["permissions"] == {}
     assert cmd.count("--disallowedTools") == 1
     assert all(tool in cmd for tool in ("Agent", "Edit", "Write", "NotebookEdit"))
-    assert claude.models() is None
-    assert capsys.readouterr().out.splitlines() == [
-        "sonnet\t-\talias",
-        "opus\t-\talias",
-        "haiku\t-\talias",
-    ]
 
 
 def test_midturn_steer_needs_only_one_result_to_close_stdin(monkeypatch, tmp_path):

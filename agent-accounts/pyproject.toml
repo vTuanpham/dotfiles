@@ -1,0 +1,26 @@
+[project]
+name = "agent-accounts"
+version = "0.1.0"
+description = "Account observations independent of agent job state"
+requires-python = ">=3.11,<3.15"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+agent-accounts = "agent_accounts.cli:main"
+
+[dependency-groups]
+dev = ["pytest==9.2.0", "ruff==0.17.3", "ty==0.0.94"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

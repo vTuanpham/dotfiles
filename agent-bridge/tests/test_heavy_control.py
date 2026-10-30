@@ -9,22 +9,26 @@ from contextlib import nullcontext
 
 import pytest
 import test_heavy
+from agent_resources import cli, heavy
+from agent_resources import control as heavy_control
 from test_heavy import finish, launch, started
 
-from agent_bridge import cli, core, heavy, heavy_control, owner_binding, status, status_render
+from agent_bridge import core, owner_binding, status, status_render
 
 host = test_heavy.host
 
 
 @pytest.fixture(autouse=True)
 def root(monkeypatch):
-    monkeypatch.delenv("AGENT_BRIDGE_WORKER", raising=False)
-    monkeypatch.delenv("AGENT_BRIDGE_HOST_PID_NAMESPACE", raising=False)
+    monkeypatch.delenv("AGENT_RESOURCES_WORKER", raising=False)
+    monkeypatch.delenv("AGENT_RESOURCES_HOST_PID_NAMESPACE", raising=False)
 
 
 def command(monkeypatch, *args):
-    monkeypatch.setattr(sys, "argv", ["agent-bridge", "heavy", *args])
-    cli.main()
+    monkeypatch.setattr(sys, "argv", ["agent-resources", *args])
+    code = cli.main()
+    if code:
+        raise SystemExit(code)
 
 
 def rows():
@@ -40,11 +44,11 @@ def wait_queued(process):
 
 def test_list_and_cancel_queued_without_stopping_worker_or_holder(host, tmp_path, monkeypatch, capsys):
     release = tmp_path / "release"
-    holder = launch(tmp_path / "holder", release, AGENT_BRIDGE_JOB="owner/holder")
+    holder = launch(tmp_path / "holder", release, AGENT_RESOURCES_JOB="owner/holder")
     processes = [holder]
     try:
         started(tmp_path / "holder")
-        queued = launch(tmp_path / "queued", release, AGENT_BRIDGE_JOB="owner/queued")
+        queued = launch(tmp_path / "queued", release, AGENT_RESOURCES_JOB="owner/queued")
         processes.append(queued)
         wait_queued(queued)
         command(monkeypatch, "list")
@@ -70,7 +74,7 @@ def test_list_and_cancel_queued_without_stopping_worker_or_holder(host, tmp_path
 
 def test_cancel_running_by_job_releases_need_and_admits_waiter(host, tmp_path, monkeypatch, capsys):
     release = tmp_path / "release"
-    holder = launch(tmp_path / "holder", release, AGENT_BRIDGE_JOB="owner/holder")
+    holder = launch(tmp_path / "holder", release, AGENT_RESOURCES_JOB="owner/holder")
     processes = [holder]
     try:
         started(tmp_path / "holder")
@@ -101,7 +105,7 @@ def test_cancel_escalates_for_child_even_after_parent_exits(host, tmp_path, monk
             "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); "
             f"\nwhile not pathlib.Path({str(ready)!r}).exists(): time.sleep(.01)"
             "\npathlib.Path(sys.argv[3]).touch(); time.sleep(60)")
-    process = launch(marker, tmp_path / "unused", AGENT_BRIDGE_JOB="owner/stubborn",
+    process = launch(marker, tmp_path / "unused", AGENT_RESOURCES_JOB="owner/stubborn",
                      command=[sys.executable, "-c", code, child, str(child_pid), str(marker)])
     try:
         started(marker)
@@ -129,9 +133,9 @@ def test_cancel_escalates_for_child_even_after_parent_exits(host, tmp_path, monk
 
 
 def test_pause_resume_gates_only_new_admissions(host, tmp_path, monkeypatch, capsys):
-    monkeypatch.delenv("AGENT_BRIDGE_HEAVY_SLOTS")
+    monkeypatch.delenv("AGENT_RESOURCES_SLOTS")
     release = tmp_path / "release"
-    holder = launch(tmp_path / "holder", release, AGENT_BRIDGE_JOB="owner/holder")
+    holder = launch(tmp_path / "holder", release, AGENT_RESOURCES_JOB="owner/holder")
     processes = [holder]
     try:
         started(tmp_path / "holder")
@@ -170,10 +174,10 @@ def test_pause_clock_excludes_multiple_pauses_for_old_and_new_waiters(host, monk
     assert heavy.waited_ns(during, resumed, clock[0]) == 50 * 10**9
 
 
-def test_ambiguous_missing_and_legacy_matches_are_refused(host, tmp_path):
+def test_ambiguous_missing_and_invalid_requests_are_refused(host, tmp_path):
     heavy_control.pause("hold")
     release = tmp_path / "release"
-    processes = [launch(tmp_path / str(n), release, AGENT_BRIDGE_JOB="owner/same") for n in range(2)]
+    processes = [launch(tmp_path / str(n), release, AGENT_RESOURCES_JOB="owner/same") for n in range(2)]
     try:
         for process in processes:
             wait_queued(process)
@@ -187,10 +191,10 @@ def test_ambiguous_missing_and_legacy_matches_are_refused(host, tmp_path):
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
             heavy.write_request(fd, {"running": False, "slots": 1})
-            with pytest.raises(RuntimeError, match="legacy waiters cannot observe pause"):
+            with pytest.raises(ValueError, match="invalid heavy queue entry"):
                 heavy_control.pause("replacement reason")
             assert heavy.pause_state(heavy.directory())["reason"] == "hold"
-            with pytest.raises(RuntimeError, match="legacy waiter"):
+            with pytest.raises(ValueError, match="invalid heavy queue entry"):
                 heavy_control.cancel("legacy")
         finally:
             os.close(fd)
@@ -230,7 +234,7 @@ def test_crash_cleans_request_controls_but_preserves_explicit_pause(host, tmp_pa
 @pytest.mark.parametrize("args", [("list",), ("cancel", "anything"),
                                  ("pause", "--reason", "test"), ("resume",)])
 def test_workers_cannot_control_queue_but_can_run_heavy(host, monkeypatch, args, capsys):
-    monkeypatch.setenv("AGENT_BRIDGE_WORKER", "1")
+    monkeypatch.setenv("AGENT_RESOURCES_WORKER", "1")
     with pytest.raises(SystemExit) as error:
         command(monkeypatch, *args)
     assert error.value.code == 1
@@ -239,7 +243,7 @@ def test_workers_cannot_control_queue_but_can_run_heavy(host, monkeypatch, args,
 
 
 def test_worker_can_still_run_heavy_commands(host, monkeypatch, tmp_path):
-    monkeypatch.setenv("AGENT_BRIDGE_WORKER", "1")
+    monkeypatch.setenv("AGENT_RESOURCES_WORKER", "1")
     marker, release = tmp_path / "allowed", tmp_path / "release"
     process = launch(marker, release)
     try:
@@ -268,7 +272,7 @@ def test_pause_reason_validation_does_not_echo_input(host, reason):
 
 def test_pid_identity_mismatch_never_signals(host, tmp_path, monkeypatch):
     release = tmp_path / "release"
-    process = launch(tmp_path / "holder", release, AGENT_BRIDGE_JOB="owner/holder")
+    process = launch(tmp_path / "holder", release, AGENT_RESOURCES_JOB="owner/holder")
     try:
         started(tmp_path / "holder")
         monkeypatch.setattr(heavy_control, "process_has_request", lambda *_: False)
@@ -285,7 +289,8 @@ def test_stale_root_cannot_cancel_an_owners_heavy_request(host, tmp_path, monkey
     owner_binding.record(owner, {"backend": "codex", "session_id": "current-root"})
     request = tmp_path / "sample-123.request"
     control = {"group": None, "cancelled": False, "pause_ns": 0}
-    row = {"job": "owner/job", "running": False, "control": control, "pid": None}
+    row = {"job": "owner/job", "owner": "codex:current-root", "running": False,
+           "control": control, "pid": None}
     monkeypatch.setattr(heavy, "prepare", lambda: tmp_path)
     monkeypatch.setattr(heavy, "gate", lambda _: nullcontext())
     monkeypatch.setattr(heavy, "entries", lambda _: [(request, row)])
@@ -293,7 +298,7 @@ def test_stale_root_cannot_cancel_an_owners_heavy_request(host, tmp_path, monkey
     monkeypatch.setattr(heavy, "write_state", lambda *_: pytest.fail("stale root changed request"))
     monkeypatch.setenv("CODEX_THREAD_ID", "stale-root")
 
-    with pytest.raises(owner_binding.RootMismatch):
+    with pytest.raises(RuntimeError, match="different root session"):
         heavy_control.cancel("123")
     assert not control["cancelled"]
 

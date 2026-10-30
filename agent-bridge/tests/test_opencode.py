@@ -153,29 +153,6 @@ def test_command_end_output_is_capped(tmp_path):
     assert len(event["output"]) == 2000
 
 
-def test_models_marks_and_sorts_free_first(monkeypatch, capsys):
-    monkeypatch.setattr(
-        opencode.subprocess,
-        "run",
-        lambda *args, **kwargs: type(
-            "Result",
-            (),
-            {
-                "stdout": "paid/model\nopencode/example-free\nopencode/glm-5.3-flash-free\n"
-                "opencode/big-pickle\n",
-                "returncode": 0,
-            },
-        )(),
-    )
-    opencode.models()
-    assert capsys.readouterr().out.splitlines() == [
-        "opencode/example-free\t-\tfree-logged",
-        "opencode/glm-5.3-flash-free\t-\tfree",
-        "opencode/big-pickle\t-\tfree-logged",
-        "paid/model\t-\tpaid",
-    ]
-
-
 def test_free_tier_runs_only_zero_retention_models(tmp_path):
     for model in ("opencode/big-pickle", "opencode/mimo-v2.6-flash-free", ""):
         with pytest.raises(RuntimeError, match="zero-retention"):
@@ -183,18 +160,6 @@ def test_free_tier_runs_only_zero_retention_models(tmp_path):
     assert not opencode.logged_free("opencode/glm-5.3-flash-free")
     assert not opencode.logged_free("openrouter/google/gemma-4-31b-it:free")  # another provider's own terms
     assert not opencode.logged_free("opencode-go/glm-5.3")
-
-
-def test_models_failure_reports_stderr(monkeypatch):
-    monkeypatch.setattr(
-        opencode.subprocess,
-        "run",
-        lambda *args, **kwargs: type(
-            "Result", (), {"stdout": "", "stderr": "not logged in", "returncode": 1}
-        )(),
-    )
-    with pytest.raises(RuntimeError, match="not logged in"):
-        opencode.models()
 
 
 def fake_turns(monkeypatch, outputs, codes):

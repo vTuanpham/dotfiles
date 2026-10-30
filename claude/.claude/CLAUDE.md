@@ -4,5 +4,5 @@
 - Routine status (worker/watch events, progress) is one line, no bullet lists. Save detail for findings, decisions, and final results.
 
 ## Delegation
-- Root=Opus. Pick each worker's backend per task (Codex, agy, OpenCode via the `agent-bridge` skill) from the model it needs and the quota left; no backend is the default. Also tidy bridge jobs when the Wake mod's tidy scan reports reclaimable space.
-- Claude workers are native subagents (Agent tool) only: Sonnet 5.5 (`model: "sonnet"`, effort low|medium|high), for taste-heavy work (UI/TUI layout, visual design) or work needing native/live collaboration, or when Codex is out of quota and the user is away; they spend Claude quota.
+- Prefer delegating to another harness. Use native Sonnet workers for taste-heavy
+  UI/design work, or when other harnesses are out of quota and the user is away.

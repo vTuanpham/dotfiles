@@ -10,9 +10,10 @@ import sys
 import time
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
-from .core import command_env, stamp
+from .identity import identity
 from .resources import MIB, limits, memory_size, pressure, wait_reason
 
 PROC = Path("/proc")
@@ -22,10 +23,10 @@ CANCELLED_EXIT = 125
 
 
 def directory():
-    # Fixed across HOME/AGENT_BRIDGE_HOME and harness-specific temporary directories.
-    path = Path(os.environ.get("AGENT_BRIDGE_HEAVY_DIR", f"/tmp/agent-bridge-heavy-{os.getuid()}"))
+    # A host queue must not change with a harness's isolated HOME or TMPDIR.
+    path = Path(os.environ.get("AGENT_RESOURCES_HOME", f"/tmp/agent-resources-{os.getuid()}"))
     if not path.is_absolute():
-        raise ValueError("AGENT_BRIDGE_HEAVY_DIR must be absolute")
+        raise ValueError("AGENT_RESOURCES_HOME must be absolute")
     return path
 
 
@@ -85,7 +86,7 @@ def write_state(path, data):
 
 def control(path):
     data = read_state(control_path(path))
-    if data is not None and (
+    if (
             type(data) is not dict or set(data) != {"group", "cancelled", "pause_ns"}
             or type(data["group"]) is not bool or type(data["cancelled"]) is not bool
             or type(data["pause_ns"]) is not int or data["pause_ns"] < 0):
@@ -121,11 +122,10 @@ def waited_ns(row, paused, now_ns):
 
 
 def reservation(path, row):
-    # Keep .request compatible with already-running waiters from the slot-only CLI.
     try:
         fd = os.open(reservation_path(path), os.O_RDONLY | os.O_NOFOLLOW)
     except FileNotFoundError:
-        return {"need": DEFAULT_NEED, "exclusive": True, "queued_ns": 0, "cap": row["slots"]}
+        raise ValueError("missing heavy reservation") from None
     try:
         if os.fstat(fd).st_size > 4096:
             raise ValueError("oversized heavy reservation")
@@ -239,14 +239,16 @@ def entries(folder, own=None, dead=None):
             if os.fstat(fd).st_size > 4096:
                 raise ValueError("oversized heavy queue entry")
             row = json.loads(os.read(fd, 4096))
-            old = {"running", "slots"}
-            metadata = {"job", "command", "pid", "namespace", "host_namespace", "host_pid",
+            required = {"running", "slots"}
+            metadata = {"job", "owner", "command", "pid", "namespace", "host_namespace", "host_pid",
                         "started_at", "started_ns"}
-            if (type(row) is not dict or set(row) not in (old, old | metadata)
+            if (type(row) is not dict or set(row) != required | metadata
                     or type(row["running"]) is not bool or type(row["slots"]) is not int
                     or row["slots"] < 1):
                 raise ValueError("invalid heavy queue entry")
-            if set(row) != old:
+            if row["owner"] is not None and (type(row["owner"]) is not str or len(row["owner"]) > 400):
+                raise ValueError("invalid heavy owner")
+            if set(row) == required | metadata:
                 if (any(type(row[key]) is not str for key in ("job", "command", "namespace"))
                         or type(row["pid"]) is not int or row["pid"] < 1
                         or row["host_namespace"] is not None and type(row["host_namespace"]) is not str
@@ -281,23 +283,22 @@ def scope_prefix(memory_max):
     try:
         if shutil.which("systemd-run"):
             help_text = subprocess.run(["systemd-run", "--help"], capture_output=True,
-                                       text=True, timeout=5, env=command_env()).stdout
+                                       text=True, timeout=5).stdout
             # Before this option existed, scope mode passed argv directly to execve.
             if "--expand-environment=" in help_text:
                 prefix.insert(1, "--expand-environment=no")
             if subprocess.run([*prefix, "--", "/usr/bin/true"],
-                              capture_output=True, timeout=5, env=command_env()).returncode == 0:
+                              capture_output=True, timeout=5).returncode == 0:
                 return prefix
     except (OSError, subprocess.SubprocessError):
         pass
-    print("heavy: systemd user scope unavailable; continuing WITHOUT requested memory cap", file=sys.stderr)
-    return []
+    raise RuntimeError("systemd user scope unavailable; requested memory cap cannot be applied")
 
 
 def run(command, memory_max=None, mem=None, exclusive=False):
     if not command:
         raise ValueError("heavy needs a command after --")
-    if os.environ.get("AGENT_BRIDGE_HEAVY_ACTIVE"):
+    if os.environ.get("AGENT_RESOURCES_ACTIVE"):
         raise RuntimeError("nested heavy commands would deadlock; wrap the outer command only")
     need = memory_size(mem) if mem is not None else DEFAULT_NEED
     host = pressure()
@@ -307,20 +308,19 @@ def run(command, memory_max=None, mem=None, exclusive=False):
         if not memory_max.isdecimal() or int(memory_max) < 1:
             raise ValueError("--memory-max-mib must be a positive integer")
         if host.capacity > int(memory_max) * MIB:
-            print("heavy: cannot tighten inherited cgroup here; "
-                  "keeping EXISTING cap, requested cap not applied", file=sys.stderr)
+            raise RuntimeError("cannot tighten the inherited memory cap in this command")
         else:
             print("heavy: inherited cgroup already enforces the requested cap or tighter", file=sys.stderr)
     # Standalone commands may enter a scope before acquiring any lock descriptors.
     prefix = scope_prefix(memory_max) if not inherited else []
     if prefix:
-        inner = [sys.executable, "-m", "agent_bridge.cli", "heavy"]
+        inner = [sys.executable, "-m", "agent_resources.cli", "run"]
         if mem is not None:
             inner += ["--mem", str(need)]
         if exclusive:
             inner += ["--exclusive"]
         inner += ["--", *command]
-        os.execvpe(prefix[0], [*prefix, "--", *inner], command_env())
+        os.execvpe(prefix[0], [*prefix, "--", *inner], dict(os.environ))
     policy = limits(host)
     if need + policy.available > host.shared_capacity:
         raise ValueError("declared memory need exceeds shared capacity after the safety floor")
@@ -333,11 +333,11 @@ def run(command, memory_max=None, mem=None, exclusive=False):
             fd = locked_file(path)
             fcntl.flock(fd, fcntl.LOCK_EX)
             namespace = os.readlink(PROC / "self/ns/pid")
-            host_namespace = os.environ.get("AGENT_BRIDGE_HOST_PID_NAMESPACE")
-            if not host_namespace and not os.environ.get("AGENT_BRIDGE_WORKER"):
+            host_namespace = os.environ.get("AGENT_RESOURCES_HOST_PID_NAMESPACE")
+            if not host_namespace and not os.environ.get("AGENT_RESOURCES_WORKER"):
                 host_namespace = namespace
             request = {"running": False, "slots": policy.slots or 1,
-                       "job": os.environ.get("AGENT_BRIDGE_JOB", ""),
+                       "job": os.environ.get("AGENT_RESOURCES_JOB", ""), "owner": identity(),
                        "command": Path(command[0]).name, "pid": os.getpid(), "namespace": namespace,
                        "host_namespace": host_namespace,
                        "host_pid": os.getpid() if namespace == host_namespace else None,
@@ -385,7 +385,8 @@ def run(command, memory_max=None, mem=None, exclusive=False):
                         os.setpgid(0, 0)
                     own["control"]["group"] = True
                     write_state(control_path(path), own["control"])
-                    request.update(running=True, started_at=stamp(), started_ns=time.monotonic_ns())
+                    request.update(running=True, started_at=datetime.now(timezone.utc).isoformat(),
+                                   started_ns=time.monotonic_ns())
                     write_request(fd, request)
                     break
             occupied = f"{active}/{cap} slots busy" if cap is not None else f"{active} running; hard cap=none"
@@ -423,7 +424,7 @@ def run(command, memory_max=None, mem=None, exclusive=False):
               file=sys.stderr, flush=True)
         os.set_inheritable(fd, True)
         # Replace the wrapper: signals, stdio and exit status belong directly to the command.
-        os.execvpe(command[0], command, {**command_env(), "AGENT_BRIDGE_HEAVY_ACTIVE": "1"})
+        os.execvpe(command[0], command, {**os.environ, "AGENT_RESOURCES_ACTIVE": "1"})
     finally:
         if fd is not None:
             os.close(fd)

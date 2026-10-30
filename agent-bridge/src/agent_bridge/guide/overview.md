@@ -5,25 +5,13 @@ One CLI with four backends: `codex`, `agy`, `claude` and `opencode`.
 ## Which backend
 - **Never bridge to your own harness.** A Claude root uses its Agent tool for Claude workers, a Codex root its own subagents, an agy root its own. The bridge is only for the other harnesses.
 - Before launching, read the notes of the backend you will launch in `agent-bridge start --help`: its models, effort levels, quota and quirks.
-- No backend is the default: choose by the task's model needs, allowance and cost. Codex (Luna, Sol) suits coding, implementation, sweeps and audits; Sonnet or agy's Claude Opus suits taste-heavy visual work; agy offers Gemini and Claude models; OpenCode free models suit bounded work. Generic model roles and the effort/cost table are in `agent-bridge guide plans`. Read `agent-bridge guide subscriptions` only when the choice depends on a plan, quota depth or retention policy; it catalogs all vendor tiers and live discovery commands. Ordinary delegation does not require it. A user or project preference outranks this advice.
+- No backend is the default. Use the delegation and model-selection skills for task/model choice; read only the selected backend's execution notes here.
 - A delegated worker never starts jobs itself; the runner tells every worker so.
 
-## Keeping the reference current
-`agent-bridge refresh --check` is read-only JSON: new/gone model IDs per backend, lock date/age and stale guide filenames. `agent-bridge stale` renders the same data as text and caches warnings for `start`. A missing/signed-out backend is not evidence that its models disappeared.
+## Model references
 
-Read `agent-bridge guide sources` before reviewing sources yourself: it lists the pages that work, how to read each (for example the `.md` form of OpenAI's model page), and the ones that return nothing useful (OpenRouter speed statistics, Antigravity's model page).
-
-Choose either source-review path:
-
-- **Worker proposal:** `agent-bridge refresh --force` stages both guides in one sandboxed job. The weekly timer uses the same path. It never applies or records a proposal, even when nothing changed. When one is waiting you are the reviewer:
-1. `agent-bridge stale` prints the report path. Read the diff and the worker's notes.
-2. Re-check what changed. Fetch each cited source page and confirm every changed number or claim says what the diff says, and look at any new model ids the worker skipped. A claim its source does not support, or changed advice (how freely to spend a plan, which effort to prefer), means `agent-bridge refresh --discard`.
-3. Otherwise `agent-bridge refresh --apply --yes`. One apply step edits `guide/models.md`, `guide/subscriptions.md` and their shared `models.lock` (model inventory plus both document hashes), leaving them uncommitted; tell the user in one line what changed. Both originals must still match the proposal; an intervening edit to either requires a fresh proposal.
-The free-tier zero-retention list lives in code (`ZDR_FREE` in `opencode.py`); changing it is the user's call.
-
-- **Root edit:** if you already fetched the sources or the change is small, edit both guides as needed, re-check cited claims, and set their `Checked` stamps to today's date. Keep generic model/effort advice in `models.md` and every vendor tier in `subscriptions.md`; never add account state. Every live ID must appear in backticks in the guides, either with advice or in the explicit intentionally-omitted inventory with a reason. Retain unresolved `Unverified` markers and well-formed source links. `agent-bridge refresh --record` validates, shows the diff against HEAD and asks for confirmation; use `--record --yes` after source review in a noninteractive root. It writes only the lock, never guide text, and drops an obsolete waiting proposal. Validation failure leaves the lock unchanged.
-
-Only apply/record writes the lock. `stale --accept` is a legacy alias for the same record validation. Both paths leave changes uncommitted. Inspect `git diff` before committing.
+Use the model-selection skill for model choices. `model-guide read maintenance`
+owns reference updates; `model-guide check` reports drift without changing files.
 
 ## Jobs
 - Flags are in `agent-bridge <command> --help`.
@@ -32,7 +20,7 @@ Only apply/record writes the lock. `stale --accept` is a legacy alias for the sa
 - Approvals are auto-declined. Never bypass a backend's sandbox.
 - Worker environments drop secret-like names by default. Set `AGENT_BRIDGE_PASS_ENV=NAME1,NAME2` before launch to opt specific names in; `AGENT_BRIDGE_DENY_ENV` adds exact denied names and wins conflicts. Backend auth files/config paths, ordinary runtime and proxy settings remain available. See the README's Worker environment section for matching rules and limits.
 - Every job runs in a systemd user scope inside `codex.slice`. `start ... --memory 4G --cpu 400%` chooses that job's caps; `resume <job> --memory 5G --cpu 400%` applies caps on the next runner launch. Defaults remain `CODEX_JOB_MEMORY_MAX` (2500M) and `CODEX_JOB_CPU_QUOTA` (300%). Explicit and default caps are checked against effective slice/host limits and refused above them. `owners` and `watch` show each job's caps. Missing CPU controllers mean configured CPU quotas may not be enforced. Check actual memory/CPU budgets before choosing concurrency; brief data-heavy agents to stream or chunk.
-- Use `agent-bridge heavy --mem SIZE -- <command>` only for model inference/benchmarks, dataset download/extraction, full test suites, long-lived local servers/headless browsers, or work expected to exceed about 1 GiB or several cores for more than a minute. Declare expected peak memory (1 GiB fallback if omitted). Fitting jobs run concurrently within host/slice headroom; `--exclusive` is for timing measurements only, never test suites. FIFO allows fitting backfill until the head has waited five minutes. `AGENT_BRIDGE_HEAVY_SLOTS` is an optional hard cap, unset by default. Do not wrap runners, git, edits, reads, lint, type checks or targeted tests. Other commands run directly. Queue waits are normal status, not blockers or progress messages to send; report only a holder shown dead while still blocked or a wait over 30 minutes. `owners`/`watch` show pressure, declared needs, the queue and slice OOM counters. Read `agent-bridge guide heavy` for accounting, holder visibility and limitations.
+- Use `agent-resources run --mem SIZE -- <command>` for heavy foreground work; its own `guide` owns admission, controls and limits. Bridge injects job/controller identity and worker restrictions. Resource waits appear in Bridge status and do not wake the root.
 
 ## Watch and wait
 - Choose a group policy when launching several workers: `group set OWNER NAME --wake each|all|quiet`, then `start ... --group NAME` (or `resume --group`, `group assign OWNER/JOB NAME`). Default `each` coalesces completions for 60 seconds; `--settle 0s` gives immediate wakes. `all` waits for every member; predeclare `--members a b` before launch and use `--max-wait 30m` for a partial digest naming missing jobs. `quiet` keeps completions visible without waking. Unassigned jobs share their owner's default group. `group list OWNER` shows policies; `group clear OWNER NAME` restores defaults.
@@ -54,24 +42,18 @@ Only apply/record writes the lock. `stale --accept` is a legacy alias for the sa
 - **Questions**: steering a live runner awaiting an answer keeps that runner and its pending question. For Codex native questions, answer through `<job>/inbox/<requestId>.md`; a steer is a follow-up, not a native question answer.
 - **Interrupt and stop**: interrupt ends the current turn; stop ends the runner.
 - **Resume**: keeps the same native session, context and sandbox. Without a prompt file, queued steers take precedence; with nothing queued, it sends only `Continue.`. After a failed/ended turn, `agent-bridge resume <job> --model M --effort E` continues the original thread on that model, without a recap or new job. For writes after a read-only audit, start a fresh workspace-write job; never edit `state.json`.
-- **Transient failures**: the runner retries server overload/capacity, retryable rate limits and matching 429/502/503/504 failures up to four times in the same native session/model, sending only `Continue.` (queued steers still win). Jittered exponential backoff totals 165–330 seconds over all four waits. Attempts appear in status/log, without wake-ups; exhaustion emits one urgent failure stating the retry count and suggesting `resume <job> --model M` for the SAME thread. Authentication, billing/account quota, context/model errors and unknown errors are not retried. No native session means no automatic continuation. Stop/interrupt can cancel backoff. See the failure classification notes in `guide heavy`.
+- **Transient failures**: the runner retries server overload/capacity, retryable rate limits and matching 429/502/503/504 failures up to four times in the same native session/model, sending only `Continue.` (queued steers still win). Jittered exponential backoff totals 165–330 seconds over all four waits. Attempts appear in status/log, without wake-ups; exhaustion emits one urgent failure stating the retry count and suggesting `resume <job> --model M` for the SAME thread. Authentication, billing/account quota, context/model errors and unknown errors are not retried. No native session means no automatic continuation. Stop/interrupt can cancel backoff. See the failure classification notes in retries.md.
 - **Compact**: `agent-bridge compact <owner>/<name>` supports idle codex and claude jobs only. Claude reports a no-op when there is too little history; compaction leaves queued steers for a later resume.
 - **Peers**: workers under the same owner message each other. An agent message starting `TO <job>[, <job>]: ` queues a steer for that job's runner; peer messages do not start idle jobs. Name peers and their file ownership in each brief, so cross-area requests go worker-to-worker. Plain messages already reach root as info; `TO root`, `TO coordinator` or `TO <owner>` are treated the same way, not as unknown peers. A worker that needs root to act now starts its message with `URGENT:`.
 - **Takeover**: watch, steer or resume another owner's jobs only when the user asks; find them with `owners` and use the full `<owner>/<name>`.
 - **Reporting**: brief agents to message only for blockers, questions, concrete checkpoints (edits done plus check results) and the final report. Relay to the user only those checkpoints and the final results.
 
-## Briefs, trust, review
-- **Briefs**: state the objective, owned files, constraints, checks, and "edit only, no git writes / no commit/push".
-  - Workers auto-load their harness's global and project instruction files, so never tell them to read those; name only the routed guides they need.
-  - Look at existing/legacy code first and reuse only where it fits. Keep hot-path performance.
-  - Pre-approve routine bug fixes (reported as info), so URGENT stays for real decisions.
-- **Triage**: do small fixes yourself. Group findings by owning area into one worker, order work around redesigns, and never put two writers in the same files. Parallelize only the independent rest. Keep hard design and debugging yourself.
-- **Trust** scales with model size: the smaller the model, the more skeptical.
-  - Small-model output always gets your own diff spot-check plus a separate review round before merge.
-  - Mid-size models get your review, plus a separate round for risky areas. Even the largest still gets verified.
-  - A worker's "checks passed" is a claim until you rerun the checks.
-- **Review stance**: workers tend to over-engineer, over-write tests and over-report. Treat findings as claims to verify and diffs as drafts: cut them down to the minimal fix plus one focused regression test. Reviewers tend to stop at the first confirmed bug, so brief them to sweep their whole scope and report every finding plus what they covered.
-- **Second opinion**: for risky changes or uncertain diagnoses, get an independent read-only review (models per backend guide).
+## Briefing and verification
+
+The delegation skill owns shared briefing, task division and review guidance.
+Bridge workers already load global/project instructions. Give them routed docs,
+file ownership and checks, and preserve their sandbox. Root performs Git writes
+outside a worker's sandbox; tool access never grants commit or publication authority.
 
 ## Worktrees
 - Writers each get their own git worktree and branch (`git worktree add ../<repo>-<name> -b <name> main`). Sandboxed workers can't write a worktree's git metadata, so root does all commits and rebases.

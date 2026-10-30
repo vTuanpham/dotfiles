@@ -15,17 +15,18 @@ the shared global guidance asks other agents to report relevant tooling friction
 | Scope | Maintained source | Live discovery |
 | --- | --- | --- |
 | Shared globals | `.config/agents/AGENTS.md` | All four harnesses |
-| Codex globals | [codex/.codex/AGENTS.md](../codex/.codex/AGENTS.md) | `~/.codex/AGENTS.md`; currently links to shared globals |
+| Codex globals | [codex/.codex/AGENTS.md](../codex/.codex/AGENTS.md) | `~/.codex/AGENTS.md`; reads shared globals, then Codex preferences |
 | Claude globals | [claude/.claude/CLAUDE.md](../claude/.claude/CLAUDE.md) | `~/.claude/CLAUDE.md`; imports shared globals and adds Claude preferences |
-| Antigravity globals | [gemini/.gemini/AGENTS.md](../gemini/.gemini/AGENTS.md) | `~/.gemini/AGENTS.md`; currently links to shared globals |
-| OpenCode globals | [opencode/.config/opencode/AGENTS.md](../opencode/.config/opencode/AGENTS.md) | `~/.config/opencode/AGENTS.md`; currently links to shared globals |
+| Antigravity globals | [gemini/.gemini/AGENTS.md](../gemini/.gemini/AGENTS.md) | `~/.gemini/AGENTS.md`; includes shared globals, then agy preferences |
+| OpenCode globals | [opencode/.config/opencode/AGENTS.md](../opencode/.config/opencode/AGENTS.md) | `~/.config/opencode/AGENTS.md`; combined with shared globals by `opencode.jsonc` |
 | Shared skills | `.agents/skills/` | Codex/OpenCode: `~/.agents/skills`; Claude: `~/.claude/skills`; agy: `~/.gemini/config/skills` |
 | Codex-only skills | [codex/.codex/skills/](../codex/.codex/skills/) | `~/.codex/skills`; includes `codex-wake` |
 
-A harness-specific global file is allowed when a preference belongs in every
-session of that harness. The current shared symlinks are not places to append
-one harness's override. Use supported composition or a scoped skill, preserving
-the shared file's ownership. Project-local instructions own project invariants.
+Each harness owns an appendable global file. Claude and Antigravity import the
+shared source; OpenCode loads it through its native `instructions` config.
+Codex explicitly reads it because its global instruction loader has no documented
+include directive. Append only harness-wide preferences; project invariants stay
+in project instructions.
 
 Skill names/descriptions provide discovery; the body supplies the workflow.
 Keep the first action and non-obvious constraints there. Load references only for
@@ -34,6 +35,10 @@ enforced contract or native tool behavior when it can replace a remembered rule.
 
 ## Shared tools
 
+- `model-selection`: model/effort choices for main sessions or workers, backed by
+  `model-guide` and its independently maintained references.
+- `delegation`: shared worker planning and verification, with native harness
+  references loaded only when needed. Bridge is its cross-harness execution route.
 - `agent-bridge`: root coordination across harnesses. Its skill routes to
   `agent-bridge guide workflow`, which owns launch/watch/group/cleanup behavior.
   Backend notes and CLI discovery own available models and flags.
@@ -44,6 +49,8 @@ enforced contract or native tool behavior when it can replace a remembered rule.
   quality tools and CI. Small scripts and narrow fixes keep proportional scope.
 - `agent-lab`: persistent experiments outside repositories, with creator/latest-run
   provenance, size warnings and retirement. Its CLI owns layout and cleanup checks.
+- `resource-admission`: heavy foreground work from any harness, using the independent
+  agent-resources queue rather than requiring Bridge orchestration.
 
 The global rules retain authorization, question escalation, ownership,
 verification and boundary safety. Detailed language-specific workflows belong

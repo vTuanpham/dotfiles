@@ -2,8 +2,9 @@ import os
 import sys
 
 import pytest
+from agent_resources import heavy, resources
 
-from agent_bridge import cli, core, heavy, resources, status, status_render, watch
+from agent_bridge import cli, core, status, status_render, watch
 
 
 def write_group(path, maximum="max", current=0, quota="max", usage=0, oom=0, throttled=0):
@@ -33,9 +34,9 @@ def budgets(monkeypatch, tmp_path):
                 quota="600000", oom=14)
     monkeypatch.setattr(resources, "PROC", proc)
     monkeypatch.setattr(resources, "CGROUP", cgroup)
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_DIR", str(tmp_path / "queue"))
+    monkeypatch.setenv("AGENT_RESOURCES_HOME", str(tmp_path / "queue"))
     for key in ("SLOTS", "MIN_AVAILABLE_MIB", "MAX_LOAD", "ACTIVE"):
-        monkeypatch.delenv("AGENT_BRIDGE_HEAVY_" + key, raising=False)
+        monkeypatch.delenv("AGENT_RESOURCES_" + key, raising=False)
     return proc, job
 
 
@@ -90,7 +91,7 @@ def test_admission_waits_for_cgroup_budget(budgets, monkeypatch, capsys, kind):
     assert ("headroom" if kind == "memory" else "CPU busy/throttled") in capsys.readouterr().err
 
 
-def test_inherited_scope_is_kept_even_when_a_smaller_cap_is_requested(budgets, monkeypatch, capsys):
+def test_unenforceable_smaller_cap_is_refused_without_leaving_inherited_scope(budgets, monkeypatch):
     def unrelated_scope(_):
         pytest.fail("must not move a worker out of its existing job scope")
 
@@ -104,9 +105,8 @@ def test_inherited_scope_is_kept_even_when_a_smaller_cap_is_requested(budgets, m
     monkeypatch.setattr(heavy, "scope_prefix", unrelated_scope)
     monkeypatch.setattr(heavy.time, "sleep", lambda _: None)
     monkeypatch.setattr(heavy.os, "execvpe", execute)
-    with pytest.raises(Executed):
+    with pytest.raises(RuntimeError, match="cannot tighten"):
         heavy.run(["unused"], "100")
-    assert "requested cap not applied" in capsys.readouterr().err
 
 
 def test_cpu_controller_absence_is_visible(budgets):

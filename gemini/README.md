@@ -4,7 +4,9 @@
 
 Antigravity CLI (`agy`) links:
 
-- `.gemini/AGENTS.md`: the shared instructions (`agents/`).
+- `.gemini/AGENTS.md`: an appendable Antigravity global file. Its
+  [native include](https://antigravity.google/docs/rules#file-includes) loads the
+  shared instructions (`agents/`) before any Antigravity preferences.
 - `.gemini/config/skills/agent-bridge` and `.../agent-baton`: the shared skills.
 - The nine [pstack engineering skills](../agents/README.md#engineering-skills) link directly from `agents/`.
 - The shared `python-project` skill also links from `agents/`.

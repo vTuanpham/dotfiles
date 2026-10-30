@@ -14,7 +14,7 @@ script = root / "install.sh"
 
 
 def install(home, *args):
-    env = {**os.environ, "HOME": str(home)}
+    env = {**os.environ, "HOME": str(home), "XDG_STATE_HOME": str(Path(home) / ".local/state")}
     return subprocess.run([str(script), *args], capture_output=True, text=True, env=env, cwd=root)
 
 
@@ -33,7 +33,7 @@ class InstallTests(unittest.TestCase):
             second = install(tmp, "--apply", "links")
 
             self.assertEqual(first.returncode, 0, first.stderr)
-            for name in (".zshrc", ".claude/CLAUDE.md", ".config/systemd/user/agent-bridge-reference.timer",
+            for name in (".zshrc", ".claude/CLAUDE.md", ".config/systemd/user/agent-models-reference.timer",
                          ".local/libexec/chatgpt-browser-idle.py", ".codex/skills/codex-wake",
                          ".config/systemd/user/agent-lab-gc.timer",
                          ".config/systemd/user/agent-lab-gc.service"):
@@ -109,7 +109,13 @@ class InstallTests(unittest.TestCase):
             self.assertIn("rtk hook claude", commands)
             self.assertTrue(result["enabledPlugins"]["ponytail@ponytail"])  # the plugin and its marketplace
             self.assertIn("ponytail", result["extraKnownMarketplaces"])
-            self.assertTrue((home / ".claude/settings.json.bak-install").is_file())
+            backups = list((home / ".local/state/backups/dotfiles").glob("*/.claude/settings.json"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(json.loads(backups[0].read_text())["model"], "mine")
+            self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+            self.assertEqual(backups[0].parent.stat().st_mode & 0o777, 0o700)
+            self.assertIn(str(live), (backups[0].parents[1] / "README.txt").read_text())
+            self.assertFalse((home / ".claude/settings.json.bak-install").exists())
             self.assertIn("already has the hooks", install(home, "--apply", "hooks").stdout)
 
     def test_codex_idle_hooks_merge_once_preserving_local_hooks(self):

@@ -7,7 +7,7 @@ Use the newest model of each family (highest version wins; never older or spark)
 - **Terra**: fast model for visual, UI and computer-use work and for writing; faster than Sol. Start at `medium|high`.
 - **Astra**: the strongest Codex model, for the hardest audits, architecture questions and read-only brainstorming. Effort `low|medium|high` (xhigh/max when the user asks). It draws more quota per job, so size jobs to match.
 
-Read `agent-bridge guide subscriptions` only when the choice depends on a plan or allowance. Check the live account with `codex-auth list`; use `agent-bridge guide plans` for generic model/effort advice.
+Read `model-guide read subscriptions` only when the choice depends on a plan or allowance. Check the live account with `codex-auth list`; use `model-guide read models` for generic model/effort advice.
 
 ## Specifics
 - Steers land inside the active turn.

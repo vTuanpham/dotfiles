@@ -1,14 +1,14 @@
 ---
 name: agent-bridge
-description: Coordinate workers in another harness through agent-bridge when the user authorizes delegation, another model or a separate quota pool. Root only; use native subagents for same-harness work.
+description: Run persistent workers in a different harness through Agent Bridge, with live steering, watch and retirement. Root only; same-harness workers use native tools.
 ---
 
 # Agent Bridge
 
 Persistent jobs, steering and event delivery across Codex, Antigravity, Claude
 Code and OpenCode. Before launching, read `agent-bridge guide workflow`, then the
-selected backend's `agent-bridge start --help`. Use `guide plans` for model roles
-and `guide subscriptions` only when quotas, plans or retention affect the choice.
+selected backend's `agent-bridge start --help`. The `delegation` skill owns shared
+coordination guidance; `model-selection` owns model and allowance references.
 These CLI guides own current defaults, group policies and exact flags.
 
 - Give each root a unique owner namespace and each job a clear brief with file

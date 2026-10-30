@@ -9,18 +9,20 @@ import time
 from pathlib import Path
 
 import pytest
+from agent_resources import heavy, resources
 
-from agent_bridge import cli, heavy, resources, status, status_render, watch
+from agent_bridge import cli as bridge_cli
+from agent_bridge import status, status_render, watch
 from agent_bridge.core import MESSAGING_RULE
 
 
 @pytest.fixture
 def host(monkeypatch, tmp_path):
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_DIR", str(tmp_path / "queue"))
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_SLOTS", "1")
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB", "0")
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_MAX_LOAD", "1000000")
-    monkeypatch.delenv("AGENT_BRIDGE_HEAVY_ACTIVE", raising=False)
+    monkeypatch.setenv("AGENT_RESOURCES_HOME", str(tmp_path / "queue"))
+    monkeypatch.setenv("AGENT_RESOURCES_SLOTS", "1")
+    monkeypatch.setenv("AGENT_RESOURCES_MIN_AVAILABLE_MIB", "0")
+    monkeypatch.setenv("AGENT_RESOURCES_MAX_LOAD", "1000000")
+    monkeypatch.delenv("AGENT_RESOURCES_ACTIVE", raising=False)
     # In-process exec mocks must not move pytest itself into another process group.
     monkeypatch.setattr(heavy.os, "setpgid", lambda *_: None)
     proc = tmp_path / "proc"
@@ -48,10 +50,10 @@ def launch(marker, release, mem=None, exclusive=False, command=None, **settings)
     code = ("import pathlib,sys,time; pathlib.Path(sys.argv[1]).touch(); "
             "\nwhile not pathlib.Path(sys.argv[2]).exists(): time.sleep(0.01)")
     env = {**os.environ, "PYTHONPATH": str(Path(heavy.__file__).parents[1]), **settings}
-    entry = ("import sys; from pathlib import Path; from agent_bridge import cli,resources; "
+    entry = ("import sys; from pathlib import Path; from agent_resources import cli,resources; "
              "resources.PROC=Path(sys.argv.pop(1)); cli.main()")
     flags = (["--mem", mem] if mem else []) + (["--exclusive"] if exclusive else [])
-    return subprocess.Popen([sys.executable, "-c", entry, str(resources.PROC), "heavy", *flags, "--",
+    return subprocess.Popen([sys.executable, "-c", entry, str(resources.PROC), "run", *flags, "--",
                              *(command or [sys.executable, "-c", code, str(marker), str(release)])],
                             env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -103,7 +105,16 @@ def test_free_slot_waiting_on_an_earlier_request_says_so(host, tmp_path):
     folder = heavy.prepare()
     earlier = heavy.locked_file(folder / f"{0:020d}-earlier.request")
     fcntl.flock(earlier, fcntl.LOCK_EX)  # alive but not yet admitted: it claims on its next poll
-    heavy.write_request(earlier, {"running": False, "slots": 1})
+    heavy.write_request(earlier, {"running": False, "slots": 1, "owner": None, "job": "",
+                                 "command": "earlier", "pid": os.getpid(),
+                                 "namespace": os.readlink("/proc/self/ns/pid"),
+                                 "host_namespace": os.readlink("/proc/self/ns/pid"),
+                                 "host_pid": os.getpid(), "started_at": None, "started_ns": None})
+    earlier_path = folder / f"{0:020d}-earlier.request"
+    heavy.reservation_path(earlier_path).write_text(json.dumps(
+        {"need": heavy.DEFAULT_NEED, "exclusive": False, "queued_ns": time.monotonic_ns(), "cap": 1}))
+    heavy.write_state(heavy.control_path(earlier_path),
+                      {"group": False, "cancelled": False, "pause_ns": 0})
     later = launch(tmp_path / "later", tmp_path / "release")
     try:
         assert select.select([later.stderr], [], [], 10)[0]
@@ -119,12 +130,12 @@ def test_free_slot_waiting_on_an_earlier_request_says_so(host, tmp_path):
 
 def test_configured_hard_cap_allows_two_jobs(host, tmp_path):
     release = tmp_path / "release"
-    processes = [launch(tmp_path / str(n), release, AGENT_BRIDGE_HEAVY_SLOTS="2") for n in range(2)]
+    processes = [launch(tmp_path / str(n), release, AGENT_RESOURCES_SLOTS="2") for n in range(2)]
     try:
         for n in range(2):
             started(tmp_path / str(n))
         assert "heavy_running=2" in status_render.pressure(*status.collect_host()[:2])
-        third = launch(tmp_path / "third", release, AGENT_BRIDGE_HEAVY_SLOTS="2")
+        third = launch(tmp_path / "third", release, AGENT_RESOURCES_SLOTS="2")
         processes.append(third)
         assert select.select([third.stderr], [], [], 10)[0]
         assert b"hard job cap reached" in third.stderr.readline()
@@ -142,8 +153,8 @@ class Executed(Exception):
 
 @pytest.mark.parametrize("blocked", ["memory", "load"])
 def test_headroom_wait_reads_proc_again(host, monkeypatch, capsys, blocked):
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB", "1024")
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_MAX_LOAD", "2")
+    monkeypatch.setenv("AGENT_RESOURCES_MIN_AVAILABLE_MIB", "1024")
+    monkeypatch.setenv("AGENT_RESOURCES_MAX_LOAD", "2")
     write_proc(host, available=10 if blocked == "memory" else 4000000,
                load="3" if blocked == "load" else "0.1")
     sleeps = []
@@ -153,7 +164,7 @@ def test_headroom_wait_reads_proc_again(host, monkeypatch, capsys, blocked):
         write_proc(host)
 
     def execute(name, args, env):
-        active = env.get("AGENT_BRIDGE_HEAVY_ACTIVE")
+        active = env.get("AGENT_RESOURCES_ACTIVE")
         env.clear()
         assert args == ["program", "literal $ARG", "--flag"]
         assert active == "1"
@@ -171,7 +182,7 @@ def test_headroom_wait_reads_proc_again(host, monkeypatch, capsys, blocked):
 @pytest.mark.parametrize("code", [0, 37])
 def test_cli_exit_code_and_stdio_passthrough(host, code):
     code_text = "import sys; print(sys.stdin.read()); sys.exit(int(sys.argv[1]))"
-    done = subprocess.run([sys.executable, "-m", "agent_bridge.cli", "heavy", "--",
+    done = subprocess.run([sys.executable, "-m", "agent_resources.cli", "run", "--",
                            sys.executable, "-c", code_text,
                            str(code)], input="from stdin", capture_output=True, text=True, timeout=10)
     assert done.returncode == code
@@ -180,7 +191,7 @@ def test_cli_exit_code_and_stdio_passthrough(host, code):
 
 
 @pytest.mark.parametrize("failure", ["missing", "bus", "timeout"])
-def test_systemd_unavailable_falls_back_before_command(host, monkeypatch, capsys, failure):
+def test_requested_cap_fails_before_command_when_systemd_unavailable(host, monkeypatch, capsys, failure):
     calls = []
     monkeypatch.setattr(heavy.shutil, "which", lambda _: None if failure == "missing" else "/bin/systemd-run")
 
@@ -202,10 +213,9 @@ def test_systemd_unavailable_falls_back_before_command(host, monkeypatch, capsys
 
     monkeypatch.setattr(heavy.subprocess, "run", probe)
     monkeypatch.setattr(heavy.os, "execvpe", execute)
-    with pytest.raises(Executed):
+    with pytest.raises(RuntimeError, match="cannot be applied"):
         heavy.run(["actual-command"], "100")
-    assert executed == [["actual-command"]]
-    assert "WITHOUT requested memory cap" in capsys.readouterr().err
+    assert executed == []
     assert len(calls) == (0 if failure == "missing" else 2)
 
 
@@ -241,28 +251,28 @@ def test_invalid_pressure_is_rejected(host, value):
 
 def test_defaults_private_directory_and_nested_rejection(host, monkeypatch, tmp_path):
     for key in ("SLOTS", "MIN_AVAILABLE_MIB", "MAX_LOAD"):
-        monkeypatch.delenv("AGENT_BRIDGE_HEAVY_" + key)
+        monkeypatch.delenv("AGENT_RESOURCES_" + key)
     monkeypatch.setattr(resources.os, "cpu_count", lambda: 12)
     policy = heavy.limits(heavy.pressure())
     assert policy.slots is None and policy.load == pytest.approx(9.6)
     assert policy.available == 1563 * heavy.MIB
     insecure = tmp_path / "insecure"
     insecure.mkdir(mode=0o755)
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_DIR", str(insecure))
+    monkeypatch.setenv("AGENT_RESOURCES_HOME", str(insecure))
     with pytest.raises(RuntimeError, match="private directory"):
         heavy.prepare()
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_ACTIVE", "1")
+    monkeypatch.setenv("AGENT_RESOURCES_ACTIVE", "1")
     with pytest.raises(RuntimeError, match="nested"):
         heavy.run(["anything"])
-    assert "agent-bridge heavy --mem SIZE -- <command>" in MESSAGING_RULE
+    assert "agent-resources run --mem SIZE -- <command>" in MESSAGING_RULE
 
 
 def test_owners_and_watch_report_pressure_once(host, monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB", "1024")
+    monkeypatch.setenv("AGENT_RESOURCES_MIN_AVAILABLE_MIB", "1024")
     write_proc(host, available=10)
-    monkeypatch.setattr(cli, "JOBS", tmp_path / "absent")
+    monkeypatch.setattr(bridge_cli, "JOBS", tmp_path / "absent")
     monkeypatch.setattr(sys, "argv", ["agent-bridge", "owners"])
-    cli.main()
+    bridge_cli.main()
     output = capsys.readouterr()
     assert "available=" in output.out and "heavy_queued=0" in output.out
     assert "WARNING: host overloaded" in output.err
@@ -276,9 +286,9 @@ def test_owners_and_watch_report_pressure_once(host, monkeypatch, tmp_path, caps
 
 
 def test_holder_record_contains_identity_but_no_arguments(host, monkeypatch):
-    monkeypatch.setenv("AGENT_BRIDGE_JOB", "owner/benchmark")
+    monkeypatch.setenv("AGENT_RESOURCES_JOB", "owner/benchmark")
     namespace = os.readlink("/proc/self/ns/pid")
-    monkeypatch.setenv("AGENT_BRIDGE_HOST_PID_NAMESPACE", namespace)
+    monkeypatch.setenv("AGENT_RESOURCES_HOST_PID_NAMESPACE", namespace)
     captured = []
 
     def execute(name, command, env):
@@ -351,9 +361,9 @@ def finish(processes, releases):
 
 
 def test_memory_fit_runs_two_jobs_without_a_slot_cap(host, monkeypatch, tmp_path):
-    monkeypatch.delenv("AGENT_BRIDGE_HEAVY_SLOTS")
+    monkeypatch.delenv("AGENT_RESOURCES_SLOTS")
     release = tmp_path / "release"
-    processes = [launch(tmp_path / str(n), release, mem="1G", AGENT_BRIDGE_JOB=f"owner/job{n}")
+    processes = [launch(tmp_path / str(n), release, mem="1G", AGENT_RESOURCES_JOB=f"owner/job{n}")
                  for n in range(2)]
     try:
         for n in range(2):
@@ -368,7 +378,7 @@ def test_memory_fit_runs_two_jobs_without_a_slot_cap(host, monkeypatch, tmp_path
 
 @pytest.mark.parametrize("crash", [False, True])
 def test_memory_that_does_not_fit_waits_and_exit_releases_need(host, monkeypatch, tmp_path, crash):
-    monkeypatch.delenv("AGENT_BRIDGE_HEAVY_SLOTS")
+    monkeypatch.delenv("AGENT_RESOURCES_SLOTS")
     write_proc(host, total=4000000)  # fake holders use no memory: capacity must bound 2G + 3G
     first_release, second_release = tmp_path / "release1", tmp_path / "release2"
     first = launch(tmp_path / "first", first_release, mem="2G")
@@ -396,7 +406,7 @@ def test_memory_that_does_not_fit_waits_and_exit_releases_need(host, monkeypatch
 
 @pytest.mark.parametrize("first_exclusive", [False, True])
 def test_exclusive_excludes_other_jobs_in_both_directions(host, monkeypatch, tmp_path, first_exclusive):
-    monkeypatch.delenv("AGENT_BRIDGE_HEAVY_SLOTS")
+    monkeypatch.delenv("AGENT_RESOURCES_SLOTS")
     first_release, second_release = tmp_path / "release1", tmp_path / "release2"
     first = launch(tmp_path / "first", first_release, mem="1G", exclusive=first_exclusive)
     processes = [first]
@@ -434,14 +444,14 @@ def test_invalid_or_impossible_memory_need_fails_before_queueing(host, mem):
 
 @pytest.mark.parametrize("aged", [False, True])
 def test_process_backfill_and_starvation_bound(host, monkeypatch, tmp_path, aged):
-    monkeypatch.delenv("AGENT_BRIDGE_HEAVY_SLOTS")
+    monkeypatch.delenv("AGENT_RESOURCES_SLOTS")
     write_proc(host, total=4000000)  # fake holders use no memory: capacity must bound 2G + 3G
     holder_release, head_release, small_release = [tmp_path / name for name in ("free1", "free2", "free3")]
     holder = launch(tmp_path / "holder", holder_release, mem="2G")
     processes = [holder]
     try:
         started(tmp_path / "holder")
-        head = launch(tmp_path / "head", head_release, mem="3G", AGENT_BRIDGE_JOB="owner/head")
+        head = launch(tmp_path / "head", head_release, mem="3G", AGENT_RESOURCES_JOB="owner/head")
         processes.append(head)
         assert select.select([head.stderr], [], [], 10)[0]
         assert b"do not fit" in head.stderr.readline()

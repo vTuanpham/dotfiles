@@ -3,10 +3,26 @@ revision = 5
 requires-python = ">=3.11"
 
 [[package]]
+name = "agent-accounts"
+version = "0.1.0"
+source = { editable = "../agent-accounts" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = "==9.2.0" },
+    { name = "ruff", specifier = "==0.17.3" },
+]
+
+[[package]]
 name = "agent-bridge"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "agent-accounts" },
+    { name = "agent-models" },
+    { name = "agent-resources" },
     { name = "codex-wake" },
 ]
 
@@ -18,13 +34,48 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "codex-wake", editable = "../codex-wake" }]
+requires-dist = [
+    { name = "agent-accounts", editable = "../agent-accounts" },
+    { name = "agent-models", editable = "../agent-models" },
+    { name = "agent-resources", editable = "../agent-resources" },
+    { name = "codex-wake", editable = "../codex-wake" },
+]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "jsonschema", specifier = ">=4,<5" },
     { name = "pytest" },
     { name = "ruff" },
+]
+
+[[package]]
+name = "agent-models"
+version = "0.1.0"
+source = { editable = "../agent-models" }
+dependencies = [
+    { name = "agent-accounts" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "agent-accounts", editable = "../agent-accounts" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = "==9.2.0" },
+    { name = "ruff", specifier = "==0.17.3" },
+]
+
+[[package]]
+name = "agent-resources"
+version = "0.1.0"
+source = { editable = "../agent-resources" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = "==9.2.0" },
+    { name = "ruff", specifier = "==0.17.3" },
 ]
 
 [[package]]

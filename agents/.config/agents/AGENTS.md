@@ -94,8 +94,13 @@ reading, searching and running commands.
 - Inspect existing owners, vocabulary, codecs, types and helpers before adding
   equivalents. Import symbols under declared names; qualify or rename collisions
   rather than adding cosmetic aliases or duplicate declarations.
+- Prefer one current implementation. Add backward-compatibility fallbacks,
+  legacy paths/aliases or data migrations only when required by a confirmed
+  production deployment serving real customers. For unreleased apps and internal
+  tools, update affected callers together. Preserve validation, error handling
+  and user data.
 - Decode persisted/external/wire data once at its typed boundary; keep downstream
-  APIs typed. Reuse equivalent semantics; migrate shared callers atomically and
+  APIs typed. Reuse equivalent semantics; update shared callers together and
   test parity/hostile input. Keep distinct domain constraints explicit. Reject
   truncation, coercion, ambiguity, invented defaults, non-finite values,
   timezone-less timestamps and other unauthoritative input; never add permissive
@@ -109,25 +114,18 @@ reading, searching and running commands.
 ## Delegation
 
 - Delegate only with explicit user authorization and when independent progress
-  or scrutiny outweighs briefing cost. Honor model/effort constraints; otherwise
-  use the current frontier family and effort suited to the task.
-- Prefer native subagents. Use the `agent-bridge` skill only for another harness,
-  model or quota pool relevant to the task; never bridge same-harness work.
+  or scrutiny outweighs briefing cost. Use the `delegation` skill for coordination
+  and native harness guidance, and `model-selection` for model/effort tradeoffs.
+  Honor user choices; otherwise choose each worker's model/effort for its task,
+  using the current frontier family rather than blindly accepting defaults.
+- Use native subagents for same-harness work. The `agent-bridge` skill owns
+  execution in another harness, model or quota pool; never bridge same-harness work.
 - When root quota is nearly exhausted (user/harness says so), other-harness
   delegation is pre-authorized: hand off implementation, sweeps and reviews;
   root briefs, steers and verifies.
-- Brief objective, context, routed docs, ownership, constraints, checks and
-  review/implementation role. Avoid overlapping writers; announce boundary
-  crossings. No commit/push/deploy/external mutation without authorization.
-- Reuse threads for related context, including a model switch when supported.
-  Start fresh for unrelated work or a heavy/slow thread, with a compact brief.
-  Cache cost is one factor, not a reason to funnel unrelated parallel work into
-  old threads; cache details belong to the relevant harness docs.
-- Wait only on dependencies or when no useful work remains. For example use
-  about 60 seconds for an agent answer, or 3–5 minutes for progress when idle
-  and permitted by the harness. Return early for updates and keep the user informed.
-- Workers message the coordinator for blockers, coordination, actionable findings
-  or completion; skip routine reports/acknowledgements unless requested.
+- Give workers clear ownership, constraints and checks; announce boundary
+  crossings and verify their results. Delegation grants no extra authority to
+  commit, push, deploy or mutate external systems.
 
 ## External APIs
 

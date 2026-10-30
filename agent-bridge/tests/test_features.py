@@ -144,13 +144,13 @@ def test_help_is_compact_command_map(monkeypatch, capsys):
     assert len(output.encode()) < 3000
     for command in ("start", "resume", "steer", "watch", "result", "retire", "restore", "purge",
                     "compact", "guide", "sessions",
-                    "owners", "peers", "interrupt", "stop", "models", "quota", "stale", "refresh"):
+                    "owners", "peers", "interrupt", "stop"):
         assert f"    {command} " in output
     assert "start ... --watch" in output and "resumes idle jobs" in output
-    assert "guide workflow" in output and "guide plans" in output
+    assert "guide workflow" in output and "model-guide" in output
 
 
-@pytest.mark.parametrize("command", ["start", "resume", "steer", "watch", "heavy", "owners", "retire"])
+@pytest.mark.parametrize("command", ["start", "resume", "steer", "watch", "owners", "retire"])
 def test_every_subcommand_help_renders(monkeypatch, capsys, command):
     # argparse formats help with %, so a bare "400%" crashes --help.
     monkeypatch.setattr(sys, "argv", ["agent-bridge", command, "--help"])
@@ -159,8 +159,8 @@ def test_every_subcommand_help_renders(monkeypatch, capsys, command):
     assert done.value.code == 0 and "usage:" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("topic, names", [(None, ("overview", "models")),
-                                        ("workflow", ("overview",)), ("plans", ("models",))])
+@pytest.mark.parametrize("topic, names", [(None, ("overview",)),
+                                        ("workflow", ("overview",)), ("status", ("status",))])
 def test_long_guidance_remains_reachable(monkeypatch, capsys, topic, names):
     monkeypatch.setattr(sys, "argv", ["agent-bridge", "guide", *([topic] if topic else [])])
     cli.main()
@@ -168,7 +168,7 @@ def test_long_guidance_remains_reachable(monkeypatch, capsys, topic, names):
 
 
 @pytest.mark.parametrize("argv, hint", [
-    (["backends"], "use models --backend"),
+    (["backends"], "invalid choice"),
     (["steer", "owner/job", "--message", "follow up"], "positional argument"),
     (["steer", "owner/job", "--message=follow up"], "positional argument"),
 ])

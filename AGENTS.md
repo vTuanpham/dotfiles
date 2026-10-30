@@ -26,7 +26,7 @@ README says "live" or "snapshot", and `install.sh` lists the live links (`LINKS`
 | Linked (shell rc, `CLAUDE.md`, `AGENTS.md`, skills, `mods`, units, `environment.d`) | The repo file is the live file; `$HOME` links to it | Edit it like any file, remembering it is public. If a tool or installer appended something personal or machine-specific, remove it, or move it to a local file the shell already sources (`~/.config/shell/secrets.local.sh`). Do not commit it. |
 | Snapshot (Claude/Codex settings, git, nvim, ranger, rtk, opencode, desktop) | Repo → `$HOME` only, and only when the file is missing | Never copy a live file in wholesale. To follow a live change, copy only the generic part by hand, then run the check. `./install.sh snapshots` lists what differs. |
 | Hooks and plugin entries | Repo → live, merged additively | `./install.sh --apply hooks`; it keeps the live file's other content and leaves a backup |
-| Reference refresh (`guide/models.md`, `models.lock`) | Generated into the working tree, uncommitted | Follow "Keeping the reference current" in `agent-bridge guide workflow`: re-check the sources, then `refresh --apply --yes` |
+| Reference refresh (`agent-models/.../guide/`) | Generated into the working tree, uncommitted | Read `model-guide read maintenance`; source-check proposals before `model-guide refresh --apply --yes` |
 | Approvals, trust, auto-mode, generated catalogs | Live only | Leave them where they are; they never belong in this repository |
 
 Adding a new tool's config: decide live link or snapshot, add it to `LINKS` or `SNAPSHOTS` in `install.sh`,
@@ -53,6 +53,11 @@ and verify live links plus the target harness's supported discovery paths. Share
 another harness's tool names, guessed model IDs or absent companion skills. Preserve authorization and
 project invariants when adapting upstream skills; document local adaptations and retain their license.
 Edit maintained sources, not generated plugin caches. Do not add global catalogs or repeated workflows.
+Where guidance or configuration needs both shared and scoped content, keep one
+shared base with scoped additions; prefer native includes/merging over copied text.
+
+When designing host tools, compare relevant maintained implementations and official
+contracts. Reuse useful boundaries or workflows without importing an unrelated framework.
 
 ## Local feedback
 

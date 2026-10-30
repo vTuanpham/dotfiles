@@ -10,8 +10,8 @@ import json
 from datetime import date
 from pathlib import Path
 
-from . import agy, codex, opencode
-from .core import HOME
+from . import inventory
+from .state import HOME
 
 GUIDES = Path(__file__).with_name("guide")
 DOCUMENTS = ("models.md", "subscriptions.md")
@@ -19,7 +19,7 @@ LOCK = GUIDES / "models.lock"  # refreshed <date>; guide <file> <sha256>; <backe
 CACHE = HOME / "stale.json"
 PENDING = HOME / "refresh" / "pending"  # holds the directory of a proposal waiting for the user
 MAX_AGE_DAYS = 30
-LISTERS = {"codex": codex.models, "agy": lambda: agy.models("a1"), "opencode": opencode.models}
+LISTERS = {name: (lambda backend=name: inventory.show(backend)) for name in ("codex", "agy", "opencode")}
 ONLY = {"opencode": "opencode/"}  # the free tier is what the reference covers, not every provider
 
 
@@ -64,15 +64,10 @@ def live():
     return found
 
 
-def trusted(found, locked):
-    """Drop a listing that shares no model with the lock: a listing that failed, not a lineup that retired."""
-    return {name: ids for name, ids in found.items() if ids and (not locked.get(name) or ids & locked[name])}
-
-
 def accept(today=None, found=None):
     """Record the live lists as reviewed against the reference."""
     _, locked = read_lock()
-    known = {**locked, **trusted(live() if found is None else found, locked)}
+    known = {**locked, **(live() if found is None else found)}
     lines = [f"refreshed {today or date.today()}"]
     lines += [f"guide {name} {digest}" for name, digest in guide_hashes().items()]
     lines += [f"{name} {i}" for name, ids in sorted(known.items()) for i in sorted(ids)]
@@ -85,7 +80,7 @@ def old():
     return refreshed is None or (date.today() - refreshed).days > MAX_AGE_DAYS
 
 
-def inspect():
+def inspect(*, probe=False):
     """Read-only structured drift, shared by refresh --check and stale."""
     refreshed, locked = read_lock()
     age = (date.today() - refreshed).days if refreshed else None
@@ -94,9 +89,10 @@ def inspect():
         stale_guides = list(DOCUMENTS)
     models = {name: {"new": sorted(ids - locked.get(name, set())),
                      "gone": sorted(locked.get(name, set()) - ids)}
-              for name, ids in trusted(live(), locked).items()}
+              for name, ids in (live() if probe else {}).items()}
     return {"refreshed": str(refreshed) if refreshed else None, "age_days": age,
-            "max_age_days": MAX_AGE_DAYS, "stale_guides": stale_guides, "models": models}
+            "max_age_days": MAX_AGE_DAYS, "stale_guides": stale_guides, "models": models,
+            "inventory_checked": probe}
 
 
 def render(data):
@@ -109,15 +105,15 @@ def render(data):
     return found
 
 
-def drift():
+def drift(*, probe=False):
     """Document and model changes, excluding age (which has a separate warning)."""
-    data = inspect()
+    data = inspect(probe=probe)
     return guide_drift() + render({**data, "stale_guides": []})
 
 
-def check():
+def check(*, probe=False):
     """Every reason to doubt the reference; also caches the model drift for `start` to mention."""
-    data = inspect()
+    data = inspect(probe=probe)
     changed = render(data)
     HOME.mkdir(parents=True, exist_ok=True)
     CACHE.write_text(json.dumps({"on": str(date.today()),
@@ -145,6 +141,6 @@ def warning():
     if not notes:
         return None
     return (
-        "agent-bridge: " + "; ".join(notes)
-        + '. See `agent-bridge guide workflow`, "Keeping the reference current".'
+        "model-guide: " + "; ".join(notes)
+        + '. See `model-guide read maintenance`.'
     )

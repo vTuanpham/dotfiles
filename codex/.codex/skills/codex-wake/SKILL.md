@@ -1,13 +1,14 @@
 ---
 name: codex-wake
-description: Resume an idle Codex conversation from background command completion or task events when no native wake trigger is available. Use for wake-on-event or delayed follow-up setup; Bridge watch already manages its own delivery.
+description: Deliver task notifications to the originating Codex conversation from background command completion, timers or external events. Use to resume idle work when no native completion trigger handles it; Bridge watch already delivers its own events.
 ---
 
-# Codex Wake
+# Codex task notifications
 
-Use the harness's native completion trigger when available. Otherwise use the
-installed `codex-wake` CLI; `codex-wake --help` documents its commands and examples.
-Bridge watch already delivers notifications: wrapping it again would duplicate them.
+Use the harness's native completion trigger when it already resumes the session.
+Otherwise run `codex-wake check`, then use `run` for command completion or `send`
+from an existing event producer. This is event delivery, separate from Claude's
+visual Wake mod. Bridge watch already delivers its own events; do not wrap it again.
 
 ```sh
 codex-wake run --message "Tests finished. Review results." -- rtk test uv run pytest

@@ -2,8 +2,9 @@
 
 from pathlib import PurePath
 
+from agent_resources.resources import MIB
+
 from .core import human
-from .resources import MIB
 
 
 def pressure(host, queue):

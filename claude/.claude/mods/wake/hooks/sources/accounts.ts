@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 import type { WakeQuota } from '../../types'
 
-import { bridgeSnapshot } from './bridge'
+import { readAccountSnapshot } from './account-observations'
 
 /** One display label for any bridge job: short model family + effort, whichever CLI it runs on. */
 export function jobLabel(backend: string, model: string, effort: string): { model: string; effort: string } {
@@ -58,11 +58,12 @@ export async function scanQuotas($: EngineInterface, opts: { refreshAgy?: boolea
   if (opts.owners?.length === 0) return []
   if (opts.refreshAgy) {
     // Preserve the existing refresh schedule; consume numbers only from the status contract.
-    await $.process.run(['agent-bridge', 'quota', '--backend', 'agy'], { timeoutMs: 180_000 }).catch(() => undefined)
+    await $.process.run(['agent-accounts', 'refresh'], { timeoutMs: 180_000 }).catch(() => undefined)
   }
-  const snapshot = await bridgeSnapshot($, false, opts.owners)
-  if (!snapshot) throw new Error('Bridge quota status unavailable')
-  return snapshot.quotas.filter(q => q.backend === 'codex' || q.backend === 'agy').map(q => ({
+  const result = await $.process.run(['agent-accounts', 'snapshot'], { timeoutMs: 30_000 }).catch(() => undefined)
+  const quotas = result?.exitCode === 0 && !result.isStdoutTruncated ? readAccountSnapshot(result.stdout) : undefined
+  if (!quotas) throw new Error('Account observations unavailable')
+  return quotas.filter(q => q.backend === 'codex' || q.backend === 'agy').map(q => ({
     cli: q.backend as 'codex' | 'agy', account: q.account, plan: q.plan ?? '', active: q.active,
     parts: q.windows.map(w => ({ label: w.label, pct: w.remaining_percent, resets: w.resets })), status: q.status ?? undefined, freshness: q.freshness,
   }))

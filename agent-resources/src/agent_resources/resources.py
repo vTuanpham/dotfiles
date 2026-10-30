@@ -13,6 +13,13 @@ PROC = Path("/proc")
 CGROUP = Path("/sys/fs/cgroup")
 
 
+def slice_name():
+    value = os.environ.get("AGENT_RESOURCES_SLICE", "agent.slice")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+\.slice", value):
+        raise ValueError("AGENT_RESOURCES_SLICE must name a systemd slice")
+    return value
+
+
 def counters(path):
     values = {}
     for line in path.read_text().splitlines():
@@ -40,8 +47,7 @@ def cgroup_paths(pid="self", include_shared=True):
     if len(unified) != 1 or not unified[0].startswith("/") or ".." in Path(unified[0]).parts:
         raise ValueError("invalid cgroup v2 membership")
     current = CGROUP / unified[0].lstrip("/")
-    # A root outside codex.slice must still see the shared worker budget.
-    shared = CGROUP / f"user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service/codex.slice"
+    shared = CGROUP / f"user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service" / slice_name()
     paths = []
     for leaf in (current, shared if include_shared and shared.exists() else current):
         while leaf != CGROUP:
@@ -64,6 +70,14 @@ class Group:
     cpu_fraction: float | None
     throttled: bool
 
+    @property
+    def headroom(self) -> int | None:
+        if self.maximum is None:
+            return None
+        if self.current is None:
+            raise ValueError("finite cgroup limit requires a current memory reading")
+        return max(0, self.maximum - self.current)
+
 
 @dataclass(frozen=True)
 class Pressure:
@@ -79,12 +93,12 @@ class Pressure:
 
     @property
     def headroom(self):
-        return min([self.available, *[max(0, g.maximum - g.current) for g in self.groups
-                                     if g.maximum is not None]])
+        return min([self.available, *[remaining for g in self.groups
+                                     if (remaining := g.headroom) is not None]])
 
     @property
     def slice(self):
-        return next((g for g in self.groups if g.path.name == "codex.slice"), None)
+        return next((g for g in self.groups if g.path.name == slice_name()), None)
 
     @property
     def shared_groups(self):
@@ -96,11 +110,11 @@ class Pressure:
 
     @property
     def shared_headroom(self):
-        return min([self.available, *[max(0, g.maximum - g.current) for g in self.shared_groups
-                                     if g.maximum is not None]])
+        return min([self.available, *[remaining for g in self.shared_groups
+                                     if (remaining := g.headroom) is not None]])
 
 
-def pressure(previous=None):
+def pressure(previous: Pressure | None = None) -> Pressure:
     memory = {}
     for line in (PROC / "meminfo").read_text().splitlines():
         key, _, value = line.partition(":")
@@ -137,7 +151,7 @@ def pressure(previous=None):
         cpu = counters(path / "cpu.stat")
         fraction, throttled = None, False
         old = before.get(path)
-        if old and at - previous.at >= 0.5:
+        if old and previous is not None and at - previous.at >= 0.5:
             if cpus is not None and cpu["usage_usec"] >= old.usage_usec:
                 fraction = (cpu["usage_usec"] - old.usage_usec) / ((at - previous.at) * 1e6 * cpus)
             throttled = (old.nr_throttled is not None
@@ -156,14 +170,14 @@ class Limits:
 
 def limits(host):
     try:
-        slot_value = os.environ.get("AGENT_BRIDGE_HEAVY_SLOTS")
+        slot_value = os.environ.get("AGENT_RESOURCES_SLOTS")
         slots = int(slot_value) if slot_value is not None else None
-        available = int(os.environ.get("AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB",
+        available = int(os.environ.get("AGENT_RESOURCES_MIN_AVAILABLE_MIB",
                                        str(max(1024, math.ceil(host.capacity / MIB / 5))))) * MIB
-        load = float(os.environ.get("AGENT_BRIDGE_HEAVY_MAX_LOAD", str((os.cpu_count() or 1) * 0.8)))
+        load = float(os.environ.get("AGENT_RESOURCES_MAX_LOAD", str((os.cpu_count() or 1) * 0.8)))
     except ValueError:
-        raise ValueError("invalid AGENT_BRIDGE_HEAVY_SLOTS, AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB "
-                         "or AGENT_BRIDGE_HEAVY_MAX_LOAD; expected numeric limits") from None
+        raise ValueError("invalid AGENT_RESOURCES_SLOTS, AGENT_RESOURCES_MIN_AVAILABLE_MIB "
+                         "or AGENT_RESOURCES_MAX_LOAD; expected numeric limits") from None
     if (slots is not None and slots < 1) or available < 0 or not math.isfinite(load) or load <= 0:
         raise ValueError("heavy limits need positive slots/load and nonnegative available memory")
     return Limits(slots, available, load)

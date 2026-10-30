@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent_resources import identity
+
 from . import retries
 
 POLL = 0.2
@@ -39,17 +41,11 @@ MESSAGING_RULE = (
     "concrete cross-area requests or hand-offs, not chatter; replies arrive as '[from <name>] ...'. "
     "Coordinator steers may arrive mid-turn as user messages; follow them. You are a delegated worker "
     "and must never start agent-bridge jobs, subagents, or other agents yourself. "
-    "Use agent-bridge heavy --mem SIZE -- <command> only for model inference or benchmarks, dataset "
-    "downloads/extraction, full test suites, long-lived local servers or headless browsers, and commands "
-    "expected to use more than about 1 GiB or several cores for over a minute. "
-    "Do not wrap worker runners, git, edits, reads, lint, type checks or targeted tests; "
-    "everything else runs directly. "
-    "Wrap the whole heavy foreground job; do not nest heavy calls or background a server outside its slot. "
-    "Declare expected peak memory with --mem (for example 1G or 2500M); use --exclusive only for timing "
-    "measurements, never for test suites. Fitting heavy jobs run concurrently. "
-    "Waiting for a heavy slot is normal and is never a blocker to report. Do not send queue progress "
-    "messages; report only a holder shown dead or a wait exceeding 30 minutes excluding root pauses. "
-    "A root pause is normal; wait for resume. Queue cancellation exits 125; follow the root's steer. "
+    "For heavy foreground commands use agent-resources run --mem SIZE -- <command>; "
+    "read agent-resources guide first for admission, sizing, cancellation and inherited caps. "
+    "Light commands run directly. Keep the entire heavy command in the foreground, without nesting. "
+    "Use --exclusive only for timing measurements. Queue waits and root pauses are normal; "
+    "report only a dead holder or an unpaused wait over 30 minutes. "
     "Before a long silent build, benchmark, peer or external wait, use agent-bridge waiting "
     "--on command|peer|root|external|dependency --for 20m --note 'short reason'; "
     "add --peer NAME for a sibling. Your next tool call or message clears it."
@@ -268,11 +264,16 @@ def worker_env(job=None, **extra):
     if not state_home.is_absolute():
         state_home = Path.home() / ".local/state"
     lab_home = os.environ.get("AGENT_LAB_HOME", str(state_home / "agent-lab"))
+    controller = identity.identity()
     return {
         **command_env(**{"AGENT_LAB_HOME": lab_home, **extra}),
-        "AGENT_BRIDGE_HOST_PID_NAMESPACE": os.readlink("/proc/self/ns/pid"),
+        "AGENT_RESOURCES_HOST_PID_NAMESPACE": os.readlink("/proc/self/ns/pid"),
+        "AGENT_RESOURCES_WORKER": "1",
+        "AGENT_RESOURCES_SLICE": "codex.slice",
+        **({"AGENT_RESOURCES_OWNER": controller} if controller else {}),
         WORKER_FLAG: "1",
-        **({"AGENT_BRIDGE_JOB": f"{Path(job).parent.name}/{Path(job).name}"} if job else {}),
+        **({"AGENT_BRIDGE_JOB": f"{Path(job).parent.name}/{Path(job).name}",
+            "AGENT_RESOURCES_JOB": f"{Path(job).parent.name}/{Path(job).name}"} if job else {}),
     }
 
 

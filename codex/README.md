@@ -4,7 +4,10 @@
 
 Codex CLI config under `~/.codex`.
 
-- `AGENTS.md`: **live** link to the shared instructions (`agents/`).
+- `AGENTS.md`: **live** Codex-specific file. It instructs Codex to read the shared
+  `~/.config/agents/AGENTS.md`, then apply any Codex preferences appended here.
+  Codex's [global instruction loader](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
+  does not document Claude-style imports.
 - `skills/codex-wake/`: **live** Codex-only skill, installed under `~/.codex/skills`;
   loaded on demand for background wake-ups. Invoke explicitly as `$codex-wake`.
 - `config.toml`: model, agents, plugins, features and the status line. A snapshot. Machine-local state
@@ -31,13 +34,14 @@ stay in the live config; future chats use the native browser tools directly.
 
 For questions, prefer the native asynchronous tool when available, following the
 [shared reminder policy](../agent-baton/README.md#native-questions-and-hooks).
-Background hooks cannot resolve an already-running tool or wake an idle turn;
-no question-cancellation hook is installed here.
+Background hook output waits for the next user turn when idle; the task-message
+channel below can start work separately. Neither automatically answers a blocking
+question. No question-cancellation hook is installed here.
 [OpenAI hooks reference](https://learn.chatgpt.com/docs/hooks#run-hooks-in-the-background).
 
 ## Native integrations
 
-[Codex Wake](../codex-wake/README.md) delivers native task notifications to an
+[Codex task notifications](../codex-wake/README.md) deliver native task messages to an
 existing conversation from background commands, hooks and event producers.
 `codex-wake check` verifies availability; `codex-wake run --message "Build finished"
 -- make build` runs a command and wakes the same session on completion. Bridge

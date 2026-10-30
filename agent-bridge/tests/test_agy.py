@@ -1,5 +1,4 @@
 import json
-from types import SimpleNamespace
 
 from agent_bridge import agy
 from agent_bridge.agy import process
@@ -70,35 +69,6 @@ def test_stream_event_mapping_and_denial_continuation(tmp_path):
     last = json.loads((tmp_path / "live.jsonl").read_text().splitlines()[-1])
     assert last["kind"] == "turn_completed" and last["error"] == quota_error
 
-
-def test_quota_without_account_refreshes_all_signed_in_accounts(monkeypatch, tmp_path, capsys):
-    accounts = tmp_path / "accounts"
-    for name in ("a1", "a2", "not-signed-in"):
-        (accounts / name / agy.TOKEN).parent.mkdir(parents=True)
-        if name != "not-signed-in":
-            (accounts / name / agy.TOKEN).write_text("token")
-    calls = []
-
-    def run(command, **kwargs):
-        calls.append(kwargs["cwd"])
-        return SimpleNamespace(stdout='{"response":"Group\\t10\\t90%\\ttomorrow"}', stderr="")
-
-    monkeypatch.setattr(agy, "ACCOUNTS", accounts)
-    monkeypatch.setattr(agy.subprocess, "run", run)
-    agy.quota()
-    assert calls == [str(accounts / "a1"), str(accounts / "a2")]
-    assert "a1\tGroup" in capsys.readouterr().out
-
-
-def test_models_adds_unknown_effort_column(monkeypatch, capsys):
-    monkeypatch.setattr(agy, "account_env", lambda _: {})
-    monkeypatch.setattr(
-        agy.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(stdout="gemini/model\tGemini model\n"),
-    )
-    agy.models()
-    assert capsys.readouterr().out.splitlines() == ["gemini/model\t-\tcheap\tgemini\tGemini model"]
 
 
 def test_result_confirms_only_the_inflight_steer_turn(tmp_path):

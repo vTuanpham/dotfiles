@@ -3,6 +3,8 @@
 from dataclasses import asdict, dataclass
 from typing import Literal
 
+from agent_accounts.models import Quota
+
 MESSAGE_PREVIEW_LIMIT = 160
 
 
@@ -140,28 +142,6 @@ class HostPressure:
     groups: tuple[GroupPressure, ...]
     warning: str
     error: str | None = None
-
-
-@dataclass(frozen=True)
-class QuotaWindow:
-    label: str
-    remaining_percent: int
-    group: str
-    limit: str
-    resets: str | None
-
-
-@dataclass(frozen=True)
-class Quota:
-    backend: str
-    account: str
-    plan: str | None
-    active: bool
-    windows: tuple[QuotaWindow, ...]
-    status: str | None
-    observed_at: str | None
-    age_seconds: int | None
-    freshness: str
 
 
 @dataclass(frozen=True)

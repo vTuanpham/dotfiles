@@ -6,8 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from agent_resources import heavy
 
-from agent_bridge import agy, claude, codex, core, heavy, opencode
+from agent_bridge import agy, claude, codex, core, opencode
 
 
 @pytest.fixture
@@ -19,8 +20,8 @@ def parent_env(monkeypatch, tmp_path):
            "HTTPS_PROXY": "http://proxy.invalid", "NO_PROXY": "localhost",
            "CODEX_HOME": str(home / ".codex"), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
            "XDG_CONFIG_HOME": str(home / ".config"), "DBUS_SESSION_BUS_ADDRESS": "unix:path=/fixture",
-           "AGENT_BRIDGE_HEAVY_DIR": str(tmp_path / "queue"),
-           "AGENT_BRIDGE_HEAVY_MIN_AVAILABLE_MIB": "0", "AGENT_BRIDGE_HEAVY_MAX_LOAD": "1000000",
+           "AGENT_RESOURCES_HOME": str(tmp_path / "queue"),
+           "AGENT_RESOURCES_MIN_AVAILABLE_MIB": "0", "AGENT_RESOURCES_MAX_LOAD": "1000000",
            "PYTHONPATH": str(Path(core.__file__).parents[1])}
     monkeypatch.setattr(os, "environ", env)
     return env
@@ -135,27 +136,27 @@ def test_agy_account_queries_use_filtered_environment_and_existing_login(parent_
 
 
 @pytest.mark.parametrize("passed", [False, True])
-def test_heavy_exec_filters_actual_child_environment(parent_env, passed):
+def test_resource_exec_preserves_already_selected_child_environment(parent_env, passed):
     parent_env["JOB_API_KEY"] = "fixture"
     if passed:
         parent_env["AGENT_BRIDGE_PASS_ENV"] = "JOB_API_KEY"
     code = "import json,os; print(json.dumps(sorted(os.environ)))"
-    done = subprocess.run([sys.executable, "-m", "agent_bridge.cli", "heavy", "--",
+    done = subprocess.run([sys.executable, "-m", "agent_resources.cli", "run", "--",
                            sys.executable, "-c", code], env=parent_env,
                           text=True, capture_output=True, timeout=15)
     assert done.returncode == 0
     names = json.loads(done.stdout)
-    assert ("JOB_API_KEY" in names) is passed
-    assert "AGENT_BRIDGE_HEAVY_ACTIVE" in names
+    assert "JOB_API_KEY" in names
+    assert "AGENT_RESOURCES_ACTIVE" in names
 
 
-def test_scope_probes_and_exec_receive_the_filtered_environment(parent_env, monkeypatch):
+def test_resource_scope_probes_preserve_caller_environment(parent_env, monkeypatch):
     parent_env["UNRELATED_API_KEY"] = "fixture"
     monkeypatch.setattr(heavy.shutil, "which", lambda _: "/usr/bin/systemd-run")
     calls = []
 
     def probe(command, **kwargs):
-        assert "UNRELATED_API_KEY" not in kwargs["env"]
+        assert "UNRELATED_API_KEY" in parent_env
         calls.append(command)
         return subprocess.CompletedProcess(command, 0, "--expand-environment=BOOL", "")
 
@@ -166,7 +167,7 @@ def test_scope_probes_and_exec_receive_the_filtered_environment(parent_env, monk
         pass
 
     def execute(name, command, env):
-        assert "UNRELATED_API_KEY" not in env
+        assert "UNRELATED_API_KEY" in env
         assert env["PATH"] == parent_env["PATH"]
         raise Executed
 

@@ -1,5 +1,5 @@
 ## Where the reference facts come from (first-hand access notes)
-Verified 2026-10-27 by fetching each source directly. Use this before a refresh so no time goes to dead ends. Reached means a plain `curl -sL` returned the data below; if a recipe stops working, say so in the refresh notes and fix this page. Nothing here is account state: live commands (`codex-auth list`, `agent-bridge quota`, `agent-bridge models --backend X`, `opencode models`) answer that.
+Verified 2026-10-27 by fetching each source directly. Use this before a refresh so no time goes to dead ends. Reached means a plain `curl -sL` returned the data below; if a recipe stops working, say so in the refresh notes and fix this page. Nothing here is account state: live commands (`codex-auth list`, `agent-accounts snapshot`, `model-guide models --backend X`, `opencode models`) answer that.
 
 ### Reached and useful
 | Source | URL | What it gives | How to read it |
@@ -16,7 +16,7 @@ Verified 2026-10-27 by fetching each source directly. Use this before a refresh 
 ### Reached but empty or not usable for this
 - **OpenRouter public endpoints API** (`/api/v1/models/<vendor>/<slug>/endpoints`): provider list and uptime work, but `throughput_last_30m` and `latency_last_30m` are null without credentials. Read the model page instead (the OpenRouter model page row above).
 - **Artificial Analysis speed**: the leaderboard HTML contains no output-speed or time-to-first-token fields. Take measured speed from OpenRouter's model pages and vendor ratings (labelled as claims).
-- **Antigravity model page** (`https://antigravity.google/docs/models`): client-rendered; the fetched page has no model rows. Use `agent-bridge models --backend agy` for what an account can start, and `https://antigravity.google/pricing` and `/docs/plans` for plan facts.
+- **Antigravity model page** (`https://antigravity.google/docs/models`): client-rendered; the fetched page has no model rows. Use `model-guide models --backend agy` for what an account can start, and `https://antigravity.google/pricing` and `/docs/plans` for plan facts.
 - **OpenAI HTML model page**: ratings and some tables render in JavaScript; use the `.md` form.
 
 ### Rules for what a source may support
